@@ -7,8 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/localization/app_language.dart';
 import '../../listings/presentation/listing_style.dart';
 
-class MockProfilePage extends StatefulWidget {
-  const MockProfilePage({
+class SitterProfilePage extends StatefulWidget {
+  const SitterProfilePage({
     super.key,
     required this.section,
     required this.firstName,
@@ -19,10 +19,10 @@ class MockProfilePage extends StatefulWidget {
   final String firstName, lastName;
   final Uint8List? avatar;
   @override
-  State<MockProfilePage> createState() => _MockProfilePageState();
+  State<SitterProfilePage> createState() => _SitterProfilePageState();
 }
 
-class _MockProfilePageState extends State<MockProfilePage> {
+class _SitterProfilePageState extends State<SitterProfilePage> {
   final _form = GlobalKey<FormState>();
   late final _first = TextEditingController(text: widget.firstName);
   late final _last = TextEditingController(text: widget.lastName);
@@ -57,7 +57,7 @@ class _MockProfilePageState extends State<MockProfilePage> {
   Future<void> _load() async {
     try {
       final p = await SharedPreferences.getInstance();
-      _years.text = p.getString('mock.profile.years') ?? '2';
+      _years.text = p.getString('mock.profile.years') ?? '';
       _about.text = p.getString('mock.profile.about') ?? '';
       final days = p.getStringList('mock.profile.days');
       if (days?.length == 7) _days = days!.map((v) => v == 'true').toList();
@@ -95,6 +95,16 @@ class _MockProfilePageState extends State<MockProfilePage> {
           'Tugash vaqti boshlanishdan keyin bo‘lsin.',
           'End time must be after start time.',
           'Время окончания должно быть позже начала.',
+        ),
+      );
+      return;
+    }
+    if (widget.section == 4) {
+      _notice(
+        tr(
+          'Murojaatlar xizmati hali ulanmagan.',
+          'Support is not connected yet.',
+          'Служба поддержки пока не подключена.',
         ),
       );
       return;
@@ -139,25 +149,10 @@ class _MockProfilePageState extends State<MockProfilePage> {
         results.add(await p.setBool('mock.notify.orders', _orders));
         results.add(await p.setBool('mock.notify.chat', _chat));
         results.add(await p.setBool('mock.notify.care', _care));
-      } else if (widget.section == 4) {
-        results.add(
-          await p.setString('mock.support.message', _message.text.trim()),
-        );
       }
       if (results.any((ok) => !ok)) throw StateError('Save failed');
       if (!mounted) return;
-      if (widget.section == 4) {
-        _message.clear();
-        _notice(
-          tr(
-            'Mock murojaat saqlandi. Haqiqiy xabar yuborilmadi.',
-            'Mock request saved. No message was sent.',
-            'Демо-обращение сохранено. Сообщение не отправлено.',
-          ),
-        );
-      } else {
-        Navigator.pop(context, true);
-      }
+      Navigator.pop(context, true);
     } catch (_) {
       if (mounted) {
         _notice(
@@ -384,55 +379,14 @@ class _MockProfilePageState extends State<MockProfilePage> {
                           ),
                         ),
                     ],
-                    if (widget.section == 2) ...[
+                    if (widget.section == 2)
                       Text(
                         tr(
-                          'Namunaviy fikrlar · 4.9 / 5',
-                          'Sample reviews · 4.9 / 5',
-                          'Примеры отзывов · 4.9 / 5',
+                          'Hali sharh yo‘q',
+                          'No reviews yet',
+                          'Отзывов пока нет',
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      for (final name in ['Madina Karimova', 'Aziz Rahimov'])
-                        tile(
-                          ListTile(
-                            isThreeLine: true,
-                            leading: const Icon(
-                              Icons.star_rounded,
-                              color: listingGold,
-                            ),
-                            title: Text('$name · 5.0'),
-                            subtitle: Text(
-                              tr(
-                                'Hayvonimga juda yaxshi qaraldi. Rahmat!',
-                                'My pet was well cared for. Thank you!',
-                                'За питомцем отлично ухаживали. Спасибо!',
-                              ),
-                            ),
-                            onTap: () => showDialog<void>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: Text(name),
-                                content: Text(
-                                  tr(
-                                    'Namunaviy fikr: mehribon va mas’uliyatli enaga.',
-                                    'Sample review: kind and responsible sitter.',
-                                    'Демо-отзыв: добрая и ответственная няня.',
-                                  ),
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: Text(
-                                      tr('Yopish', 'Close', 'Закрыть'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
                     if (widget.section == 3) ...[
                       tile(
                         SwitchListTile(
@@ -482,9 +436,9 @@ class _MockProfilePageState extends State<MockProfilePage> {
                       ),
                       Text(
                         tr(
-                          'Mock sozlamalar. Hozircha push xabarlar yuborilmaydi.',
-                          'Mock settings. Push notifications are not sent yet.',
-                          'Демо-настройки. Push-уведомления пока не отправляются.',
+                          'Push xabarlar hali ulanmagan.',
+                          'Push notifications are not connected yet.',
+                          'Push-уведомления пока не подключены.',
                         ),
                       ),
                     ],

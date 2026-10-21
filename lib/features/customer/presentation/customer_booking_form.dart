@@ -515,9 +515,9 @@ class _CustomerBookingFormState extends State<CustomerBookingForm> {
             ),
             cText(
               lt(
-                'Mock buyurtma. Haqiqiy to‘lov olinmaydi.',
-                'Mock booking. No payment is collected.',
-                'Демо-заказ. Оплата не взимается.',
+                'Buyurtma berish xizmati hali ulanmagan.',
+                'Booking is not connected yet.',
+                'Оформление заказов пока не подключено.',
               ),
               size: 12,
             ),

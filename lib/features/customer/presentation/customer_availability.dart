@@ -40,11 +40,11 @@ class CustomerAvailability extends StatelessWidget {
               if (free == 0) ...[
                 const SizedBox(height: 6),
                 cText(
-                  '${shortDate(store.firstAvailableDate(sitter, after: from).toIso8601String())} dan bo‘sh',
+                  'Bo‘sh sana hali aniqlanmagan',
                   size: 13,
                 ),
                 cText(
-                  'Bo‘sh kundan boshlab buyurtma berishingiz mumkin.',
+                  'Buyurtma berish xizmati hali ulanmagan.',
                   size: 12,
                 ),
               ],
@@ -74,11 +74,11 @@ class CustomerAvailability extends StatelessWidget {
             if (free == 0) ...[
               const SizedBox(height: 6),
               cText(
-                '${shortDate(store.firstAvailableDate(sitter, after: from).toIso8601String())} dan bo‘sh',
+                'Bo‘sh sana hali aniqlanmagan',
                 size: 13,
               ),
               cText(
-                'Bo‘sh kundan boshlab buyurtma berishingiz mumkin.',
+                'Buyurtma berish xizmati hali ulanmagan.',
                 size: 12,
               ),
             ],

@@ -14,7 +14,19 @@ void main() {
     final date = DateTime(2026, 10, 12, 10);
     Future<void> open() async {
       await tester.pumpWidget(
-        MaterialApp(home: DailyCarePage(clock: () => date)),
+        MaterialApp(
+          home: DailyCarePage(
+            pets: const [
+              CarePet('MQ-0242', 'Momi', true, [
+                '08:00',
+                '13:00',
+                '19:00',
+              ], medicine: true),
+              CarePet('MQ-0241', 'Boni', false, ['08:00', '13:00', '19:00']),
+            ],
+            clock: () => date,
+          ),
+        ),
       );
       await tester.pumpAndSettle();
     }
@@ -40,7 +52,19 @@ void main() {
   ) async {
     var date = DateTime(2026, 10, 12, 14);
     await tester.pumpWidget(
-      MaterialApp(home: DailyCarePage(clock: () => date)),
+      MaterialApp(
+        home: DailyCarePage(
+          pets: const [
+            CarePet('MQ-0242', 'Momi', true, [
+              '08:00',
+              '13:00',
+              '19:00',
+            ], medicine: true),
+            CarePet('MQ-0241', 'Boni', false, ['08:00', '13:00', '19:00']),
+          ],
+          clock: () => date,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
     final meal = find.byKey(const ValueKey('care-meal-0'));

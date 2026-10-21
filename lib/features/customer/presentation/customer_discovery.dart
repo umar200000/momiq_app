@@ -29,7 +29,9 @@ class SitterCard extends StatelessWidget {
                   const SizedBox(height: 6),
                   cRating(customerReviewSummary(store, sitter)),
                   cText(
-                    'Toshkent · ${(sitter['distance'] as num).toStringAsFixed(1)} km',
+                    sitter['distance'] is num
+                        ? '${(sitter['distance'] as num).toStringAsFixed(1)} km'
+                        : 'Masofa aniqlanmagan',
                     size: 12,
                   ),
                 ],
@@ -297,7 +299,7 @@ class SitterDetailPage extends StatelessWidget {
           ),
           cButton(
             store.availablePlaces(sitter) == 0
-                ? '${shortDate(store.firstAvailableDate(sitter).toIso8601String())} dan buyurtma'
+                ? 'Hozircha band'
                 : 'Band qilish',
             () => cPush(
               context,
@@ -332,9 +334,7 @@ class SitterDetailPage extends StatelessWidget {
             children: [
               cText('Men haqimda', bold: true, size: 19),
               const SizedBox(height: 8),
-              cText(
-                'Hayvonlarga mehr va mas’uliyat bilan qarayman. Kunlik parvarish va video hisobotlarni vaqtida beraman.',
-              ),
+              cText(sitter['about'] ?? 'Ma’lumot kiritilmagan'),
               cRow(
                 Icons.home_outlined,
                 ct(customerServices[sitter['service']]),
@@ -347,21 +347,14 @@ class SitterDetailPage extends StatelessWidget {
         if (sitter['service'] != 1) ...[
           CustomerHomePhotos(sitter: sitter),
           const SizedBox(height: 16),
-          CareLocationPreview(
-            location: const CareLocation(
-              latitude: 41.2995,
-              longitude: 69.2726,
-              address: 'Toshkent, Oybek ko‘chasi, 12',
-            ),
-            onTap: () => showExternalMapPicker(
-              context,
-              const CareLocation(
-                latitude: 41.2995,
-                longitude: 69.2726,
-                address: 'Toshkent, Oybek ko‘chasi, 12',
+          if (sitter['location'] is Map)
+            CareLocationPreview(
+              location: CareLocation.fromJson(CJson.from(sitter['location'])),
+              onTap: () => showExternalMapPicker(
+                context,
+                CareLocation.fromJson(CJson.from(sitter['location'])),
               ),
             ),
-          ),
           const SizedBox(height: 16),
         ],
         CustomerReviewsSection(store: store, sitter: sitter),

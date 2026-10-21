@@ -26,8 +26,8 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
       widget.photoSource ?? ProfilePhotoSource();
   final _experience = TextEditingController();
   final _identityForm = GlobalKey<FormState>();
-  final _first = TextEditingController(text: myIdEnabled ? 'Hoji' : '');
-  final _last = TextEditingController(text: myIdEnabled ? 'Sherhojiyiv' : '');
+  final _first = TextEditingController(text: '');
+  final _last = TextEditingController(text: '');
   final List<Uint8List> _home = [];
   Uint8List? _avatar;
   int? _years;

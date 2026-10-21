@@ -109,30 +109,25 @@ void main() {
     expect(taps, 0);
     expect(tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale, 1);
   });
-  testWidgets(
-    'MyID drag-up cancels navigation; next regular tap opens registration',
-    (tester) async {
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(disableAnimations: true);
-      addTearDown(
-        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
-      );
-      await tester.pumpWidget(const MaterialApp(home: MyIdPage()));
-      final label = find.text('MyID orqali davom etish');
-      await tester.ensureVisible(label);
-      await tester.pumpAndSettle();
-      final center = tester.getCenter(label);
-      final gesture = await tester.startGesture(center);
-      await tester.pump(const Duration(milliseconds: 140));
-      await gesture.moveBy(const Offset(0, -120));
-      await gesture.up();
-      await tester.pumpAndSettle();
-      expect(find.byType(SitterRegistrationPage), findsNothing);
-      await tester.ensureVisible(label);
-      await tester.pumpAndSettle();
-      await tester.tap(label);
-      await tester.pumpAndSettle();
-      expect(find.byType(SitterRegistrationPage), findsOneWidget);
-    },
-  );
+  testWidgets('MyID never fabricates successful verification', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await tester.pumpWidget(const MaterialApp(home: MyIdPage()));
+    final label = find.text('MyID orqali davom etish');
+    await tester.ensureVisible(label);
+    await tester.pumpAndSettle();
+    final center = tester.getCenter(label);
+    final gesture = await tester.startGesture(center);
+    await tester.pump(const Duration(milliseconds: 140));
+    await gesture.moveBy(const Offset(0, -120));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(SitterRegistrationPage), findsNothing);
+    await tester.ensureVisible(label);
+    await tester.pumpAndSettle();
+    await tester.tap(label);
+    await tester.pumpAndSettle();
+    expect(find.byType(SitterRegistrationPage), findsNothing);
+  });
 }

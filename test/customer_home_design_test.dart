@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/features/customer/presentation/customer_home_design.dart';
-import 'package:momiq_app/features/customer/presentation/customer_discovery.dart';
-import 'package:momiq_app/features/customer/data/customer_store.dart';
 
 void main() {
   testWidgets('carousel advances automatically and supports manual swiping', (
@@ -54,35 +51,23 @@ void main() {
       expect(t.takeException(), isNull);
     },
   );
-  testWidgets(
-    'home thumbnails open full gallery and home visits omit gallery',
-    (t) async {
-      SharedPreferences.setMockInitialValues({});
-      final store = CustomerStore();
-      await store.load();
-      await t.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: SitterCard(store: store, sitter: customerSitters.first),
-            ),
+  testWidgets('numeric demo gallery references do not render photos', (
+    t,
+  ) async {
+    await t.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CustomerHomePhotos(
+            sitter: {
+              'id': 'old',
+              'homePhotos': [0, 1, 2],
+            },
           ),
         ),
-      );
-      await t.pumpAndSettle();
-      expect(find.byType(CustomerAtlasArt), findsNWidgets(3));
-      await t.tap(find.byKey(const ValueKey('sitterHomePhoto-hoji-1')));
-      await t.pumpAndSettle();
-      expect(find.byType(CustomerHomeGallery), findsOneWidget);
-      expect(find.text('2 / 3'), findsOneWidget);
-      await t.pumpWidget(const SizedBox());
-      await t.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: CustomerHomePhotos(sitter: customerSitters[1])),
-        ),
-      );
-      expect(find.byType(CustomerAtlasArt), findsNothing);
-      store.dispose();
-    },
-  );
+      ),
+    );
+    expect(find.byType(CustomerAtlasArt), findsNothing);
+    expect(find.byType(Image), findsNothing);
+    expect(t.takeException(), isNull);
+  });
 }

@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -247,29 +248,31 @@ class CustomerPage extends StatelessWidget {
 
 class SitterPortrait extends StatelessWidget {
   const SitterPortrait({super.key, required this.index, this.size = 70});
-  final int index;
+  final Object? index;
   final double size;
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(18),
-    child: SizedBox(
-      width: size,
-      height: size,
-      child: OverflowBox(
-        maxWidth: size * 2,
-        minWidth: size * 2,
-        maxHeight: size * 2,
-        minHeight: size * 2,
-        alignment: Alignment(index == 0 ? -1 : 1, -.65),
-        child: Image.asset(
-          'assets/images/customer_sitters.png',
-          width: size * 2,
-          height: size * 2,
-          fit: BoxFit.fill,
-        ),
+  Widget build(BuildContext context) {
+    Uint8List? bytes;
+    if (index is String) {
+      try {
+        bytes = base64Decode(index as String);
+      } catch (_) {}
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: bytes == null
+            ? const Icon(Icons.person_outline)
+            : Image.memory(
+                bytes,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const Icon(Icons.person_outline),
+              ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class CustomerPetArt extends StatelessWidget {

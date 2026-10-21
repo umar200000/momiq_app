@@ -240,38 +240,6 @@ class CustomerBookingDetail extends StatelessWidget {
             () => cPush(context, CustomerHelpPage(store: store)),
             secondary: true,
           ),
-          if (['pending', 'active'].contains(b['status']))
-            cCard(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  cText('Mock sinov', bold: true),
-                  cText(
-                    'Faqat namoyish uchun buyurtma holatini almashtirish.',
-                    size: 12,
-                  ),
-                  cButton(
-                    b['status'] == 'pending'
-                        ? 'Mock: qabul qilish'
-                        : 'Mock: yakunlash',
-                    store.busy
-                        ? null
-                        : () => cAction(
-                            context,
-                            () => store.update((d) {
-                              final item = (d['bookings'] as List).firstWhere(
-                                (v) => v['id'] == id,
-                              );
-                              item['status'] = b['status'] == 'pending'
-                                  ? 'active'
-                                  : 'completed';
-                            }),
-                          ),
-                    secondary: true,
-                  ),
-                ],
-              ),
-            ),
         ],
       );
     },
@@ -427,17 +395,11 @@ class _CustomerCareReportState extends State<CustomerCareReport> {
     final selectedPet = pets[_petIndex];
     final ins = bookingPetCare(b, selectedPet);
     final meals = List<String>.from(ins['meals'] ?? const <String>[]);
-    final sample = b['sample'] == true;
     final rows = <(IconData, String, String, bool)>[
       for (var i = 0; i < meals.length; i++)
-        (
-          Icons.restaurant_outlined,
-          '${i + 1}-ovqat',
-          meals[i],
-          sample && i == 0,
-        ),
+        (Icons.restaurant_outlined, '${i + 1}-ovqat', meals[i], false),
       if (ins['medicine'] == true)
-        (Icons.medication_outlined, 'Dori berish', ins['medicineTime'], sample),
+        (Icons.medication_outlined, 'Dori berish', ins['medicineTime'], false),
       if (ins['walk'] == true)
         (Icons.pets_outlined, 'Sayr', ins['walkTime'], false),
     ];
@@ -562,12 +524,7 @@ class _CustomerCareReportState extends State<CustomerCareReport> {
               ],
             ),
           ),
-        cText(
-          sample
-              ? 'Namunaviy hisobot. Haqiqiy video hali ulanmagan.'
-              : 'Enaga hisobot yuborgach shu yerda ko‘rinadi. Hozir mock rejim.',
-          size: 12,
-        ),
+        cText('Hisobotlar xizmati hali ulanmagan.', size: 12),
       ],
     );
   }

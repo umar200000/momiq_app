@@ -1,9 +1,7 @@
-import '../../../customer/presentation/customer_home_page.dart';
 import '../../../../core/localization/app_language.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../widgets/onboarding_shell.dart';
-import 'sitter_registration_page.dart';
 
 class MyIdPage extends StatelessWidget {
   const MyIdPage({super.key, this.customer = false});
@@ -49,26 +47,16 @@ class MyIdPage extends StatelessWidget {
                   ProfileButton(
                     label: context.tr('MyID orqali davom etish'),
                     onPressed: () {
-                      // Temporary mock identity. No MyID SDK or verification request.
-                      if (customer) {
-                        Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const CustomerHomePage(),
-                          ),
-                          (_) => false,
-                        );
-                        return;
-                      }
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const SitterRegistrationPage(),
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('MyID xizmati hali ulanmagan.'),
                         ),
                       );
                     },
                   ),
                   const SizedBox(height: 14),
                   Text(
-                    context.tr('Bir necha daqiqa kifoya.'),
+                    context.tr('MyID xizmati hali ulanmagan.'),
                     style: profileText(13),
                   ),
                 ],

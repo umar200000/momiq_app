@@ -39,56 +39,11 @@ void main() {
               .selectedIndex,
           index,
         );
-        // Let Flutter report layout errors with their source locations.
-        if (index == 0) {
-          for (var animal = 0; animal < 7; animal++) {
-            expect(
-              find.byKey(ValueKey('request-$animal')),
-              animal < 2 ? findsOneWidget : findsNothing,
-            );
-          }
-        }
-        if (index == 1) {
-          expect(
-            find.byKey(const ValueKey('accepted-booking')),
-            findsOneWidget,
-          );
-          expect(find.byKey(const ValueKey('request-0')), findsNothing);
-          for (var status = 1; status < 3; status++) {
-            await tester.ensureVisible(
-              find.byKey(ValueKey('orderStatus-$status')),
-            );
-            await tester.pumpAndSettle();
-            await tester.tap(find.byKey(ValueKey('orderStatus-$status')));
-            await tester.pumpAndSettle();
-            expect(
-              find.byKey(const ValueKey('accepted-booking')),
-              findsNothing,
-            );
-            if (status == 1) {
-              for (var animal = 0; animal < 7; animal++) {
-                expect(find.byKey(ValueKey('request-$animal')), findsOneWidget);
-              }
-            } else {
-              expect(find.byKey(const ValueKey('request-0')), findsNothing);
-              expect(find.text('Luna'), findsOneWidget);
-              expect(find.text('Mimi'), findsOneWidget);
-            }
-          }
-          await tester.tap(find.byKey(const ValueKey('homeNav-0')));
-          await tester.pumpAndSettle();
-          await tester.tap(find.byKey(const ValueKey('homeNav-1')));
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const ValueKey('accepted-booking')),
-            findsOneWidget,
-          );
-        }
-        if (index == 3) {
-          expect(find.text('#MQ-0248 · Momi'), findsOneWidget);
-          expect(find.text('#MQ-0241 · Boni'), findsOneWidget);
-        }
-        if (index == 4) expect(find.text('Hoji Sherhojiyiv'), findsNWidgets(2));
+        expect(find.byKey(const ValueKey('accepted-booking')), findsNothing);
+        expect(find.byKey(const ValueKey('request-0')), findsNothing);
+        expect(find.text('Hoji Sherhojiyiv'), findsNothing);
+        expect(find.text('#MQ-0248 · Momi'), findsNothing);
+        expect(tester.takeException(), isNull);
       }
       await tester.pumpWidget(const SizedBox());
     });

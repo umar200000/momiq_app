@@ -1,3 +1,4 @@
+import 'feed_fixture.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'dart:io';
@@ -7,7 +8,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'package:momiq_app/features/customer/data/customer_store.dart';
-import 'package:momiq_app/features/customer/data/customer_feed_repository.dart';
 import 'package:momiq_app/features/customer/data/customer_location_service.dart';
 import 'package:momiq_app/features/customer/presentation/customer_home_page.dart';
 import 'package:momiq_app/features/home/presentation/pages/sitter_home_page.dart';
@@ -55,7 +55,7 @@ void main() {
     t.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
     addTearDown(t.view.reset);
     final store = CustomerStore(
-      feedRepository: const MockCustomerFeedRepository(delay: Duration.zero),
+      feedRepository: const FixtureCustomerFeedRepository(delay: Duration.zero),
     );
     await store.load();
     final previewKey = GlobalKey();

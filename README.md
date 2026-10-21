@@ -11,7 +11,7 @@ Flutter application for pet owners and pet sitters.
 5. For a USB-connected Android phone, run `adb reverse tcp:8080 tcp:8080`.
 6. Run `flutter run`. Override the API URL with `--dart-define=MOMIQ_API_URL=https://your-server/api` when needed.
 
-The localhost backend uses development verification code `111111`; real SMS is not connected. Client profile and chat use the backend. Other flows still include mock data.
+The localhost backend uses development verification code `111111`; real SMS is not connected. Client profile and chat use the backend. The catalog is loaded from the backend. No demonstration users, sitters, bookings or reviews are seeded.
 
 ## Checks
 
@@ -29,3 +29,7 @@ Credentials, signing keys, build outputs and local configuration are excluded fr
 The app now defaults to `https://api.momiq.net/api`. Sign out and sign in after switching from localhost; local sessions are not migrated. Test verification code: `111111`. This is not phone ownership verification: use only test data until SMS authentication is implemented.
 
 For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080/api` and USB adb reverse. Run local live integration tests with the same URL override. GitHub Actions runs analysis and tests on pushes/PRs; mobile store releases/signing are not configured.
+
+## Data availability
+
+The backend sitter catalog starts empty. Listing publication, booking/payment processing, sitter chat and MyID verification are not connected yet; these must not claim success. Sitter service/profile drafts entered by the user remain device-local. Demo dashboards, reviews, care reports and invented photos/addresses were removed. Only the explicitly enabled login code 111111 remains simulated. Test fixtures are confined to test/.

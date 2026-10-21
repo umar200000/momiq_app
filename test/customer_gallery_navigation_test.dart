@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:map_launcher/map_launcher.dart';
@@ -30,13 +32,13 @@ void main() {
       t.view.devicePixelRatio = 1;
       addTearDown(t.view.reset);
       await t.pumpWidget(
-        const MaterialApp(
+        MaterialApp(
           home: Scaffold(
             body: SingleChildScrollView(
               child: CustomerHomePhotos(
                 sitter: {
                   'id': 'test',
-                  'homePhotos': [0, 1, 2, 0, 1],
+                  'homePhotos': List.filled(5, base64Encode(File('assets/images/service_cat.png').readAsBytesSync())),
                 },
               ),
             ),

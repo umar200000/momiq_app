@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../listings/presentation/listing_style.dart';
 import '../../../core/theme/app_colors.dart';
 
-// Preview care instructions until accepted bookings supply client care plans.
+// Care instructions supplied by accepted bookings.
 class CarePet {
   const CarePet(
     this.id,
@@ -25,13 +25,8 @@ class CarePet {
   final List<String> meals;
 }
 
-const previewCarePets = [
-  CarePet('MQ-0242', 'Momi', true, ['08:00', '13:00', '19:00'], medicine: true),
-  CarePet('MQ-0241', 'Boni', false, ['08:00', '13:00', '19:00']),
-];
-
 class DailyCarePage extends StatefulWidget {
-  const DailyCarePage({super.key, this.pets = previewCarePets, this.clock});
+  const DailyCarePage({super.key, this.pets = const [], this.clock});
   final List<CarePet> pets;
   final DateTime Function()? clock;
   @override

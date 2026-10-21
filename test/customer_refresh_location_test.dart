@@ -1,3 +1,4 @@
+import 'feed_fixture.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,7 +49,7 @@ class FakeFeed extends CustomerFeedRepository {
     calls++;
     if (fail) throw StateError('Offline');
     if (pending != null) return pending!.future;
-    return const MockCustomerFeedRepository(
+    return const FixtureCustomerFeedRepository(
       delay: Duration.zero,
     ).fetchSitters(location: location);
   }
@@ -231,7 +232,7 @@ void main() {
   });
   test('feed refresh does not reset profile, favorites or bookings', () async {
     final s = CustomerStore(
-      feedRepository: const MockCustomerFeedRepository(delay: Duration.zero),
+      feedRepository: const FixtureCustomerFeedRepository(delay: Duration.zero),
     );
     await s.load();
     await s.favorite('hoji');

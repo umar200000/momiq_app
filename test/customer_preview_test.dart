@@ -1,3 +1,4 @@
+import 'feed_fixture.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -12,7 +13,9 @@ import 'package:momiq_app/features/customer/presentation/customer_discovery.dart
 void main() {
   testWidgets('client design preview', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final store = CustomerStore();
+    final store = CustomerStore(
+      feedRepository: const FixtureCustomerFeedRepository(),
+    );
     await store.load();
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;

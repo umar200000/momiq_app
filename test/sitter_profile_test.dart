@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/core/localization/app_language.dart';
-import 'package:momiq_app/features/profile/presentation/mock_profile_page.dart';
+import 'package:momiq_app/features/profile/presentation/sitter_profile_page.dart';
 
 void main() {
   setUp(() {
@@ -14,7 +14,7 @@ void main() {
     await tester.pumpWidget(
       AppLanguage(
         child: MaterialApp(
-          home: MockProfilePage(
+          home: SitterProfilePage(
             section: section,
             firstName: 'Hoji',
             lastName: 'Sherhojiyiv',
@@ -45,6 +45,7 @@ void main() {
       find.byKey(const ValueKey('profileAbout')),
       'It va mushuklarni parvarish qilaman.',
     );
+    await tester.enterText(find.byKey(const ValueKey('profileYears')), '2');
     await save(tester);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('mock.profile.first'), 'Umar');
@@ -80,7 +81,9 @@ void main() {
       'false',
     );
   });
-  testWidgets('help saves only a mock request', (tester) async {
+  testWidgets('help does not pretend to submit while service is unavailable', (
+    tester,
+  ) async {
     await open(tester, 4);
     await tester.enterText(
       find.byKey(const ValueKey('supportMessage')),
@@ -89,11 +92,8 @@ void main() {
     await save(tester);
     expect(
       (await SharedPreferences.getInstance()).getString('mock.support.message'),
-      'Sinov murojaati',
+      isNull,
     );
-    expect(
-      find.text('Mock murojaat saqlandi. Haqiqiy xabar yuborilmadi.'),
-      findsOneWidget,
-    );
+    expect(find.text('Murojaatlar xizmati hali ulanmagan.'), findsOneWidget);
   });
 }

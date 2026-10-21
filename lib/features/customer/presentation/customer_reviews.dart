@@ -2,35 +2,6 @@ import 'package:flutter/material.dart';
 import 'customer_widgets.dart';
 
 List<CJson> customerSitterReviews(CustomerStore store, CJson sitter) {
-  final samples = <CJson>[
-    {
-      'name': 'Madina Karimova',
-      'stars': 5,
-      'text': 'Mehribon va mas’uliyatli enaga. Parvarishdan mamnun qoldim.',
-      'date': '2026-09-25',
-    },
-    {
-      'name': 'Dilnoza Akbarova',
-      'stars': 5,
-      'text':
-          'Ovqat va parvarish bo‘yicha ko‘rsatmalarimga amal qildi. Videolarni vaqtida yubordi.',
-      'date': '2026-09-20',
-    },
-    {
-      'name': 'Aziza Saidova',
-      'stars': 4,
-      'text':
-          'Hammasi yaxshi o‘tdi. Savollarimga javob berdi, do‘stimni xotirjam qoldirdim.',
-      'date': '2026-09-14',
-    },
-    {
-      'name': 'Javohir Usmonov',
-      'stars': 5,
-      'text':
-          'Kelishilgan vaqtda qabul qildi. Keyingi safar ham murojaat qilaman.',
-      'date': '2026-09-08',
-    },
-  ];
   final own = store
       .list('bookings')
       .where(
@@ -50,7 +21,7 @@ List<CJson> customerSitterReviews(CustomerStore store, CJson sitter) {
         };
       })
       .toList();
-  final reviews = [...own, ...samples];
+  final reviews = [...own];
   reviews.sort(
     (a, b) => DateTime.parse(b['date']).compareTo(DateTime.parse(a['date'])),
   );
@@ -59,6 +30,7 @@ List<CJson> customerSitterReviews(CustomerStore store, CJson sitter) {
 
 String customerReviewSummary(CustomerStore store, CJson sitter) {
   final reviews = customerSitterReviews(store, sitter);
+  if (reviews.isEmpty) return 'Hali sharh yo‘q';
   final average =
       reviews.fold<double>(0, (sum, r) => sum + (r['stars'] as num)) /
       reviews.length;
@@ -76,6 +48,7 @@ class CustomerReviewsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final reviews = customerSitterReviews(store, sitter);
+    if (reviews.isEmpty) return cCard(cText('Hali sharh yo‘q'));
     void open() =>
         cPush(context, CustomerSitterReviewsPage(store: store, sitter: sitter));
     return cCard(
@@ -141,9 +114,9 @@ class CustomerSitterReviewsPage extends StatelessWidget {
                 const SizedBox(height: 8),
                 cText(
                   lt(
-                    'Hozircha namuna sharhlar va shu qurilmada saqlangan fikrlar ko‘rsatilmoqda.',
-                    'Showing sample reviews and feedback saved on this device.',
-                    'Показаны примеры отзывов и отзывы, сохранённые на этом устройстве.',
+                    'Mijozlar qoldirgan sharhlar.',
+                    'Customer reviews.',
+                    'Отзывы клиентов.',
                   ),
                   size: 12,
                 ),

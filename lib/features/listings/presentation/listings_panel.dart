@@ -57,7 +57,7 @@ class _ListingsPanelState extends State<ListingsPanel> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            lt('E’lon saqlandi', 'Listing saved', 'Объявление сохранено'),
+            lt('Qoralama saqlandi', 'Draft saved', 'Черновик сохранён'),
           ),
         ),
       );
@@ -167,9 +167,9 @@ class _ListingsPanelState extends State<ListingsPanel> {
                 const SizedBox(height: 3),
                 Text(
                   lt(
-                    'Xizmatlaringizni boshqaring',
-                    'Manage your services',
-                    'Управляйте своими услугами',
+                    'Qoralamalar shu qurilmada saqlanadi. E’lon nashr qilish hali ulanmagan.',
+                    'Drafts are saved on this device. Publishing is not connected yet.',
+                    'Черновики хранятся на устройстве. Публикация пока не подключена.',
                   ),
                   style: profileText(13),
                 ),

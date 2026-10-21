@@ -601,8 +601,8 @@ class _CustomerSettingsPageState extends State<CustomerSettingsPage> {
         cText(
           lt(
             'Sozlamalar saqlanadi. Push xabarlar hali ulanmagan.',
-            'Mock settings. Push notifications are not connected.',
-            'Демо-настройки. Push-уведомления не подключены.',
+            'Push notifications are not connected.',
+            'Push-уведомления не подключены.',
           ),
           size: 12,
         ),
@@ -645,7 +645,7 @@ class _CustomerHelpPageState extends State<CustomerHelpPage> {
           context,
           widget.store.remote
               ? 'Murojaatingiz adminga yuborildi.'
-              : 'Mock murojaat saqlandi. Haqiqiy xabar yuborilmadi.',
+              : 'Murojaat yuborilmadi. Hisobingizga kiring.',
         );
       }
     } catch (_) {

@@ -12,86 +12,11 @@ const customerServices = [
   'Uyimga kelib qarash',
   'Shaxsiy enaga',
 ];
-const customerSitters = <CJson>[
-  {
-    'id': 'hoji',
-    'name': 'Hoji Sherhojiyiv',
-    'photo': 0,
-    'rating': 4.9,
-    'reviews': 24,
-    'years': 3,
-    'distance': 2.0,
-    'price': 80000,
-    'pets': ['Mushuk'],
-    'service': 0,
-    'capacity': 3,
-    'occupied': 0,
-    'homePhotos': [0, 1, 2],
-  },
-  {
-    'id': 'nilufar',
-    'name': 'Nilufar Karimova',
-    'photo': 1,
-    'rating': 4.8,
-    'reviews': 17,
-    'years': 4,
-    'distance': 3.0,
-    'price': 70000,
-    'pets': ['It', 'Mushuk', 'Boshqa'],
-    'service': 1,
-    'capacity': 3,
-    'occupied': 0,
-    'homePhotos': <int>[],
-  },
-  {
-    'id': 'aziz',
-    'name': 'Aziz Rahimov',
-    'photo': 0,
-    'rating': 4.7,
-    'reviews': 31,
-    'years': 2,
-    'distance': 5.0,
-    'price': 150000,
-    'pets': ['It'],
-    'service': 2,
-    'capacity': 1,
-    'occupied': 0,
-    'homePhotos': [0, 1, 2],
-  },
-  {
-    'id': 'sitora',
-    'name': 'Sitora Karimova',
-    'photo': 1,
-    'rating': 4.9,
-    'reviews': 12,
-    'years': 5,
-    'distance': 4.0,
-    'price': 90000,
-    'pets': ['It'],
-    'service': 0,
-    'capacity': 3,
-    'occupied': 3,
-    'busyDays': 3,
-    'homePhotos': [0, 1, 2],
-  },
-  {
-    'id': 'malika',
-    'name': 'Malika Aliyeva',
-    'photo': 1,
-    'rating': 4.8,
-    'reviews': 15,
-    'years': 3,
-    'distance': 6.0,
-    'price': 75000,
-    'pets': ['It', 'Mushuk', 'Boshqa'],
-    'service': 1,
-    'occupied': 1,
-    'busyDays': 2,
-    'homePhotos': <int>[],
-  },
-];
-CJson customerSitter(String id) =>
-    customerSitters.firstWhere((s) => s['id'] == id);
+final customerSitters = <CJson>[];
+CJson customerSitter(String id) => customerSitters.firstWhere(
+  (s) => s['id'] == id,
+  orElse: () => {'id': id, 'name': 'Enaga mavjud emas'},
+);
 DateTime calendarDate(DateTime v) => DateTime(v.year, v.month, v.day);
 int careDays(DateTime from, DateTime to) =>
     DateTime.utc(
@@ -200,6 +125,9 @@ class CustomerStore extends ChangeNotifier {
     final result = await feedRepository.fetchSitters(location: location);
     if (_disposed || version != _feedVersion) return;
     _sitters = result;
+    customerSitters
+      ..clear()
+      ..addAll(result);
     if (!_disposed) notifyListeners();
   }
 
@@ -221,7 +149,7 @@ class CustomerStore extends ChangeNotifier {
   CustomerStore({
     Future<SharedPreferences> Function()? preferences,
     CustomerPetSession? petSession,
-    this.feedRepository = const MockCustomerFeedRepository(),
+    this.feedRepository = const ApiCustomerFeedRepository(),
   }) : preferences = preferences ?? SharedPreferences.getInstance,
        petSession = petSession ?? CustomerPetSession.current {
     this.petSession.addListener(_petsChanged);
@@ -239,8 +167,18 @@ class CustomerStore extends ChangeNotifier {
     api ??= await CustomerApi.restore();
     final raw = (await preferences()).getString(_cacheKey);
     _data = raw == null
-        ? _seed()
+        ? _emptyAccount()
         : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    final legacyDemo = (_data['bookings'] as List? ?? []).any((b) => b['sample'] == true);
+    _data['bookings'] = <CJson>[];
+    if (api == null) {
+      _data['messages'] = <CJson>[];
+      _data['favorites'] = <String>[];
+      if (legacyDemo && _data['profile']['first'] == 'Madina' &&
+          _data['profile']['last'] == 'Karimova') {
+        _data['profile'] = {'first': '', 'last': '', 'photo': null};
+      }
+    }
     _data['pets'] =
         <CJson>[]; // Never restore pets from an earlier app session.
     if (api != null) {
@@ -292,6 +230,9 @@ class CustomerStore extends ChangeNotifier {
     items.contains(id) ? items.remove(id) : items.add(id);
   });
   Future<void> saveItem(String key, CJson value) async {
+    if (['messages', 'support'].contains(key) && api == null) {
+      throw StateError('Xabar yuborish uchun hisobingizga kiring.');
+    }
     if (key == 'messages' && api != null) {
       final result = await api!.request('POST', '/messages', {
         'sitter': value['sitter'],
@@ -318,7 +259,7 @@ class CustomerStore extends ChangeNotifier {
     });
   }
 
-  /// Mock occupancy is constant; local requests reserve their selected dates.
+  /// Availability is based on supplied data only.
   int availablePlaces(CJson sitter, {DateTime? from, DateTime? to}) {
     final capacity = sitterCapacity(sitter);
     final start = calendarDate(from ?? DateTime.now());
@@ -335,9 +276,7 @@ class CustomerStore extends ChangeNotifier {
       !day.isAfter(end);
       day = DateTime(day.year, day.month, day.day + 1)
     ) {
-      var occupied = day.isBefore(mockSitterFreeDate(sitter))
-          ? (sitter['occupied'] as int? ?? 0)
-          : 0;
+      var occupied = sitter['occupied'] as int? ?? 0;
       for (final b in orders) {
         if (!day.isBefore(calendarDate(DateTime.parse(b['from']))) &&
             !day.isAfter(calendarDate(DateTime.parse(b['to'])))) {
@@ -350,20 +289,9 @@ class CustomerStore extends ChangeNotifier {
     return (capacity - peak).clamp(0, capacity);
   }
 
-  DateTime firstAvailableDate(CJson sitter, {DateTime? after}) {
-    final start = calendarDate(after ?? DateTime.now());
-    final candidates = <DateTime>{start, mockSitterFreeDate(sitter)};
-    for (final b in list('bookings')) {
-      if (b['sitter'] == sitter['id'] &&
-          b['sample'] != true &&
-          ['pending', 'active'].contains(b['status'])) {
-        final end = DateTime.parse(b['to']);
-        candidates.add(DateTime(end.year, end.month, end.day + 1));
-      }
-    }
-    final sorted = candidates.where((d) => !d.isBefore(start)).toList()..sort();
-    return sorted.firstWhere((d) => availablePlaces(sitter, from: d) > 0);
-  }
+  // Earliest selectable date; does not promise availability.
+  DateTime firstAvailableDate(CJson sitter, {DateTime? after}) =>
+      calendarDate(after ?? DateTime.now());
 
   Future<String> book({
     required String sitterId,
@@ -376,73 +304,13 @@ class CustomerStore extends ChangeNotifier {
     Map<String, String> petPassports = const {},
     required CJson address,
   }) async {
-    final sitter = customerSitter(sitterId);
-    final ids = (petIds ?? [?petId]).toSet();
-    if (ids.isEmpty) throw ArgumentError('Hayvonni tanlang.');
-    final pets = ids
-        .map((id) => list('pets').firstWhere((p) => p['id'] == id))
-        .toList();
-    if (pets.any((p) => !allowedCustomerPetTypes(sitter).contains(p['type']))) {
-      throw ArgumentError('Hayvon ushbu xizmatga mos emas.');
-    }
-    if (calendarDate(from).isBefore(calendarDate(DateTime.now())) ||
-        careDays(from, to) < 1) {
-      throw ArgumentError('Sanalarni tekshiring.');
-    }
-    if (sitter['service'] == 1 &&
-        (address['lat'] is! num ||
-            address['lon'] is! num ||
-            (address['lat'] as num).abs() > 90 ||
-            (address['lon'] as num).abs() > 180 ||
-            !(address['lat'] as num).isFinite ||
-            !(address['lon'] as num).isFinite ||
-            '${address['address'] ?? ''}'.trim().isEmpty)) {
-      throw ArgumentError('Uy manzilini xaritadan belgilang.');
-    }
-    if (pets.length > availablePlaces(sitter, from: from, to: to)) {
-      throw StateError('Tanlangan hayvonlar uchun bo‘sh joy yetarli emas.');
-    }
-    final care = <String, CJson>{};
-    for (final pet in pets) {
-      final ins = petInstructions == null
-          ? instructions
-          : petInstructions[pet['id']];
-      care[pet['id']] = ins ?? {};
-    }
-    final id = 'MQ-${DateTime.now().microsecondsSinceEpoch}';
-    await update(
-      (d) => (d['bookings'] as List).insert(0, {
-        'id': id,
-        'sitter': sitterId,
-        'pet': pets.first,
-        'pets': pets,
-        'petInstructions': care,
-        'petPassports': {
-          for (final id in ids)
-            if (petPassports.containsKey(id)) id: petPassports[id],
-        },
-        'from': from.toIso8601String(),
-        'to': to.toIso8601String(),
-        'status': 'pending',
-        'price': sitter['price'],
-        'service': sitter['service'],
-        'instructions': care[pets.first['id']],
-        'address': address,
-        'review': null,
-      }),
-    );
-    return id;
+    throw StateError('Buyurtma berish xizmati hali ulanmagan.');
   }
 
-  Future<void> cancel(String id, String reason) => update((d) {
-    final b = (d['bookings'] as List).firstWhere((b) => b['id'] == id);
-    if (!['pending', 'active'].contains(b['status'])) {
-      throw StateError('Buyurtma yakunlangan.');
-    }
-    if (reason.trim().isEmpty) throw ArgumentError('Sababni kiriting.');
-    b['status'] = 'cancelled';
-    b['cancelReason'] = reason.trim();
-  });
+  Future<void> cancel(String id, String reason) async {
+    throw StateError('Buyurtmalar xizmati hali ulanmagan.');
+  }
+
   Future<void> send(String sitter, String text) async {
     if (text.trim().isEmpty) return;
     await saveItem('messages', {
@@ -454,79 +322,17 @@ class CustomerStore extends ChangeNotifier {
     });
   }
 
-  CJson _seed() {
-    final today = calendarDate(DateTime.now());
-    final pets = <CJson>[
-      {
-        'id': 'momi',
-        'name': 'Momi',
-        'type': 'Mushuk',
-        'age': '2',
-        'sex': 'Urg‘ochi',
-        'breed': '',
-        'notes': 'Kuniga 3 mahal ovqat',
-        'photo': null,
-      },
-      {
-        'id': 'boni',
-        'name': 'Boni',
-        'type': 'It',
-        'age': '3',
-        'sex': 'Erkak',
-        'breed': '',
-        'notes': 'Faol va do‘stona',
-        'photo': null,
-      },
-    ];
-    CJson booking(String id, int ago, String status) => {
-      'id': id,
-      'sitter': 'hoji',
-      'pet': pets.first,
-      'from': today.subtract(Duration(days: ago)).toIso8601String(),
-      'to': today.subtract(Duration(days: ago - 2)).toIso8601String(),
-      'status': status,
-      'price': 80000,
-      'service': 0,
-      'instructions': {
-        'meals': ['08:00', '13:00', '19:00'],
-        'food': 'Mijoz ko‘rsatmasi bo‘yicha',
-        'medicine': true,
-        'medicineTime': '09:00',
-        'medicineNote': 'Mijoz bilan kelishilgan ko‘rsatma',
-        'walk': true,
-        'walkTime': '18:00',
-        'walkMinutes': '20',
-      },
-      'address': {
-        'latitude': 41.2995,
-        'longitude': 69.2726,
-        'address': 'Toshkent, Oybek ko‘chasi, 12',
-      },
-      'review': null,
-      'sample': true,
-    };
-    return {
-      'profile': {'first': 'Madina', 'last': 'Karimova', 'photo': null},
-      'pets': <CJson>[],
-      'favorites': <String>[],
-      'addresses': <CJson>[],
-      'bookings': [
-        booking('MQ-DEMO-01', 0, 'active'),
-        booking('MQ-DEMO-02', 7, 'completed'),
-      ],
-      'notifications': {'orders': true, 'chat': true, 'video': true},
-      'messages': [
-        {
-          'id': 'welcome',
-          'sitter': 'hoji',
-          'mine': false,
-          'text': 'Salom! Momi o‘zini yaxshi his qilyapti.',
-          'time': DateTime.now().toIso8601String(),
-        },
-      ],
-      'support': <CJson>[],
-    };
-  }
+  CJson _emptyAccount() => {
+    'profile': {'first': '', 'last': '', 'photo': null},
+    'pets': <CJson>[],
+    'favorites': <String>[],
+    'addresses': <CJson>[],
+    'bookings': <CJson>[],
+    'messages': <CJson>[],
+    'support': <CJson>[],
+    'notifications': {'orders': true, 'chat': true, 'video': true},
+    'language': 'uz',
+  };
 }
 
 // Older single-pet orders remain readable.
@@ -549,10 +355,3 @@ int sitterCapacity(CJson sitter) => sitter['service'] == 2
     : sitter['service'] == 1
     ? 3
     : (sitter['capacity'] as int? ?? 1).clamp(1, 3);
-
-final _mockAvailabilityStart = calendarDate(DateTime.now());
-DateTime mockSitterFreeDate(CJson sitter) => DateTime(
-  _mockAvailabilityStart.year,
-  _mockAvailabilityStart.month,
-  _mockAvailabilityStart.day + (sitter['busyDays'] as int? ?? 0),
-);

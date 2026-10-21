@@ -1,3 +1,4 @@
+import 'dart:convert';
 import '../../../core/widgets/momiq_scaffold.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -335,7 +336,7 @@ class CustomerHomePhotos extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final photos = (sitter['homePhotos'] as List? ?? const [])
-        .cast<int>()
+        .whereType<String>()
         .toList();
     if (photos.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -378,9 +379,11 @@ class CustomerHomePhotos extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                           child: AspectRatio(
                             aspectRatio: 1.1,
-                            child: CustomerAtlasArt(
-                              index: photos[i],
-                              homes: true,
+                            child: Image.memory(
+                              base64Decode(photos[i]),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  const Icon(Icons.broken_image_outlined),
                             ),
                           ),
                         ),
@@ -402,7 +405,7 @@ class CustomerHomeGallery extends StatefulWidget {
     required this.photos,
     required this.initialIndex,
   });
-  final List<int> photos;
+  final List<String> photos;
   final int initialIndex;
   @override
   State<CustomerHomeGallery> createState() => _CustomerHomeGalleryState();
@@ -455,7 +458,7 @@ class _CustomerHomeGalleryState extends State<CustomerHomeGallery> {
 
 class _ZoomableHomePhoto extends StatefulWidget {
   const _ZoomableHomePhoto({required this.index, required this.onZoomChanged});
-  final int index;
+  final String index;
   final ValueChanged<bool> onZoomChanged;
   @override
   State<_ZoomableHomePhoto> createState() => _ZoomableHomePhotoState();
@@ -489,10 +492,10 @@ class _ZoomableHomePhotoState extends State<_ZoomableHomePhoto> {
     minScale: 1,
     maxScale: 4,
     panEnabled: _zoomed,
-    child: CustomerAtlasArt(
-      index: widget.index,
-      homes: true,
+    child: Image.memory(
+      base64Decode(widget.index),
       fit: BoxFit.contain,
+      errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),
     ),
   );
 }

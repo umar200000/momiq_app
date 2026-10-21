@@ -1,3 +1,4 @@
+import 'feed_fixture.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,20 +15,29 @@ void main() {
     'session starts empty, survives store recreation, never restores from disk',
     () async {
       final session = CustomerPetSession();
-      final a = CustomerStore(petSession: session);
+      final a = CustomerStore(
+        feedRepository: const FixtureCustomerFeedRepository(),
+        petSession: session,
+      );
       await a.load();
       expect(a.list('pets'), isEmpty);
       await seedTestPets(a);
       await a.favorite('hoji');
-      final b = CustomerStore(petSession: session);
+      final b = CustomerStore(
+        feedRepository: const FixtureCustomerFeedRepository(),
+        petSession: session,
+      );
       await b.load();
       expect(b.list('pets').length, 2);
       await b.saveItem('pets', {...b.list('pets').first, 'name': 'Yangi ism'});
       expect(a.list('pets').first['name'], 'Yangi ism');
-      final fresh = CustomerStore(petSession: CustomerPetSession());
+      final fresh = CustomerStore(
+        feedRepository: const FixtureCustomerFeedRepository(),
+        petSession: CustomerPetSession(),
+      );
       await fresh.load();
       expect(fresh.list('pets'), isEmpty);
-      expect(fresh.favorites, contains('hoji'));
+      expect(fresh.favorites, isEmpty);
       final prefs = await SharedPreferences.getInstance();
       expect(
         jsonDecode(prefs.getString(CustomerStore.storageKey)!)['pets'],
@@ -64,7 +74,10 @@ void main() {
   testWidgets(
     'single type is selected; photo required; optional fields may stay empty; edit preserves id',
     (t) async {
-      final s = CustomerStore(petSession: CustomerPetSession());
+      final s = CustomerStore(
+        feedRepository: const FixtureCustomerFeedRepository(),
+        petSession: CustomerPetSession(),
+      );
       await s.load();
       final photos = PetPhotos();
       Future<void> open({Map<String, dynamic>? pet}) async {
@@ -112,7 +125,10 @@ void main() {
   testWidgets(
     'other type requests species and gallery cancellation does not create a pet',
     (t) async {
-      final s = CustomerStore(petSession: CustomerPetSession());
+      final s = CustomerStore(
+        feedRepository: const FixtureCustomerFeedRepository(),
+        petSession: CustomerPetSession(),
+      );
       await s.load();
       final photos = PetPhotos()..cancel = true;
       await t.pumpWidget(
@@ -155,7 +171,10 @@ void main() {
   testWidgets(
     'booking add form receives listing type and existing pets have edit controls',
     (t) async {
-      final s = CustomerStore(petSession: CustomerPetSession());
+      final s = CustomerStore(
+        feedRepository: const FixtureCustomerFeedRepository(),
+        petSession: CustomerPetSession(),
+      );
       await s.load();
       await seedTestPets(s);
       await t.pumpWidget(
