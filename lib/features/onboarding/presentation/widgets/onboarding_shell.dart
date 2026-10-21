@@ -1,3 +1,4 @@
+import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import '../../../../core/widgets/momiq_logo.dart';
 import '../../../../core/localization/app_language.dart';
@@ -101,14 +102,16 @@ class ProfileButton extends StatelessWidget {
     super.key,
     required this.label,
     required this.onPressed,
+    this.loading = false,
   });
   final String label;
+  final bool loading;
   final VoidCallback? onPressed;
   @override
   Widget build(BuildContext context) => SizedBox(
     width: double.infinity,
     child: PressableButton(
-      onPressed: onPressed,
+      onPressed: loading ? null : onPressed,
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.gold,
         foregroundColor: AppColors.chocolate,
@@ -116,10 +119,13 @@ class ProfileButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: profileText(17, bold: true),
+      child: ButtonProgress(
+        loading: loading,
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: profileText(17, bold: true),
+        ),
       ),
     ),
   );

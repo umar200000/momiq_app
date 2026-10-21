@@ -681,6 +681,7 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
               const SizedBox(height: 20),
               ProfileButton(
                 key: const ValueKey('registerSubmit'),
+                loading: _submitting,
                 label: context.tr('Ro‘yxatdan o‘tish'),
                 onPressed: _picking || _submitting ? null : _submit,
               ),

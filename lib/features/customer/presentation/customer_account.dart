@@ -214,6 +214,7 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
       'Saqlash',
       _saving || _picking ? null : _save,
       id: 'saveCustomerPet',
+      loading: _saving,
     ),
     children: [
       Form(
@@ -415,6 +416,7 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
           : 'Saqlash',
       _saving || _picking ? null : _save,
       id: widget.registration ? 'registerCustomer' : 'saveCustomerProfile',
+      loading: _saving,
     ),
     children: [
       Form(
@@ -589,7 +591,7 @@ class _CustomerAddressFormState extends State<CustomerAddressForm> {
   @override
   Widget build(BuildContext context) => CustomerPage(
     title: 'Manzilni belgilang',
-    bottom: cButton('Saqlash', _saving ? null : _save),
+    bottom: cButton('Saqlash', _saving ? null : _save, loading: _saving),
     children: [
       CareLocationPreview(location: _location, onTap: _map),
       cButton(
@@ -636,12 +638,15 @@ class _CustomerSettingsPageState extends State<CustomerSettingsPage> {
                     : Icons.radio_button_off,
                 color: listingGold,
               ),
-              onTap: () => cAction(context, () async {
-                await widget.store.update((d) => d['language'] = l.$1);
-                await AppLanguage.select(l.$1);
-              }),
+              onTap: widget.store.busy
+                  ? null
+                  : () => cAction(context, () async {
+                      await widget.store.update((d) => d['language'] = l.$1);
+                      await AppLanguage.select(l.$1);
+                    }),
             ),
           ),
+        if (widget.store.busy) const LinearProgressIndicator(),
         cText('Bildirishnomalar', size: 20, bold: true),
         const SizedBox(height: 12),
         for (final n in [
@@ -747,7 +752,7 @@ class _CustomerHelpPageState extends State<CustomerHelpPage> {
           ),
         ),
       cField(_message, 'Murojaatingiz', lines: 4),
-      cButton('Yuborish', _saving ? null : _send),
+      cButton('Yuborish', _saving ? null : _send, loading: _saving),
     ],
   );
 }

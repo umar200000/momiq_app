@@ -1,3 +1,4 @@
+import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../../customer/data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
@@ -565,10 +566,13 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                           backgroundColor: listingGold,
                           minimumSize: const Size(0, 50),
                         ),
-                        child: Text(
-                          _saving
-                              ? tr('Saqlanmoqda…', 'Saving…', 'Сохранение…')
-                              : tr('Saqlash', 'Save', 'Сохранить'),
+                        child: ButtonProgress(
+                          loading: _saving,
+                          child: Text(
+                            _saving
+                                ? tr('Saqlanmoqda…', 'Saving…', 'Сохранение…')
+                                : tr('Saqlash', 'Save', 'Сохранить'),
+                          ),
                         ),
                       ),
                     ],

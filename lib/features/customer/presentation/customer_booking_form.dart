@@ -226,6 +226,7 @@ class _CustomerBookingFormState extends State<CustomerBookingForm> {
               _step == 3 ? 'So‘rov yuborish' : 'Davom etish',
               _saving || _pickingPhoto ? null : _next,
               id: 'bookingNext',
+              loading: _saving,
             ),
           ],
         ),

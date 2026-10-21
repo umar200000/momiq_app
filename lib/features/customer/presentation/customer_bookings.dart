@@ -1,3 +1,4 @@
+import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'customer_passport_photo.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
@@ -333,7 +334,11 @@ class _CustomerReviewPageState extends State<CustomerReviewPage> {
   @override
   Widget build(BuildContext context) => CustomerPage(
     title: 'Baho va fikr',
-    bottom: cButton('Fikrni yuborish', _saving ? null : _save),
+    bottom: cButton(
+      'Fikrni yuborish',
+      _saving ? null : _save,
+      loading: _saving,
+    ),
     children: [
       cCard(
         cRow(
@@ -925,7 +930,10 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
                   IconButton.filled(
                     onPressed: _sending ? null : _send,
                     style: IconButton.styleFrom(backgroundColor: listingGold),
-                    icon: const Icon(Icons.send_outlined),
+                    icon: ButtonProgress(
+                      loading: _sending,
+                      child: const Icon(Icons.send_outlined),
+                    ),
                     key: const ValueKey('customerChatSend'),
                   ),
                 ],

@@ -1,3 +1,4 @@
+import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'customer_availability.dart';
 import 'customer_reviews.dart';
 import 'customer_home_design.dart';
@@ -42,11 +43,14 @@ class SitterCard extends StatelessWidget {
               onPressed: store.busy
                   ? null
                   : () => cAction(context, () => store.favorite(sitter['id'])),
-              icon: Icon(
-                store.favorites.contains(sitter['id'])
-                    ? Icons.favorite
-                    : Icons.favorite_border,
-                color: listingGold,
+              icon: ButtonProgress(
+                loading: store.busy,
+                child: Icon(
+                  store.favorites.contains(sitter['id'])
+                      ? Icons.favorite
+                      : Icons.favorite_border,
+                  color: listingGold,
+                ),
               ),
             ),
           ],
@@ -281,11 +285,14 @@ class SitterDetailPage extends StatelessWidget {
           onPressed: store.busy
               ? null
               : () => cAction(context, () => store.favorite(sitter['id'])),
-          icon: Icon(
-            store.favorites.contains(sitter['id'])
-                ? Icons.favorite
-                : Icons.favorite_border,
-            color: listingGold,
+          icon: ButtonProgress(
+            loading: store.busy,
+            child: Icon(
+              store.favorites.contains(sitter['id'])
+                  ? Icons.favorite
+                  : Icons.favorite_border,
+              color: listingGold,
+            ),
           ),
         ),
       ],

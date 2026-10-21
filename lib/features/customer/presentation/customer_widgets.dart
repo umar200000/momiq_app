@@ -1,3 +1,4 @@
+import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'dart:typed_data';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
@@ -126,13 +127,14 @@ Widget cButton(
   VoidCallback? onTap, {
   String? id,
   bool secondary = false,
+  bool loading = false,
   IconData? icon,
 }) => SizedBox(
   width: double.infinity,
   child: Padding(
     padding: const EdgeInsets.symmetric(vertical: 6),
     child: FilledButton(
-      onPressed: onTap,
+      onPressed: loading ? null : onTap,
       key: id == null ? null : ValueKey(id),
       style: FilledButton.styleFrom(
         backgroundColor: secondary ? listingSurface : listingGold,
@@ -140,12 +142,18 @@ Widget cButton(
         minimumSize: const Size(0, 50),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (icon != null) ...[Icon(icon, size: 20), const SizedBox(width: 8)],
-          Flexible(child: Text(ct(title), textAlign: TextAlign.center)),
-        ],
+      child: ButtonProgress(
+        loading: loading,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 20),
+              const SizedBox(width: 8),
+            ],
+            Flexible(child: Text(ct(title), textAlign: TextAlign.center)),
+          ],
+        ),
       ),
     ),
   ),

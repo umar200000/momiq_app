@@ -73,7 +73,7 @@ void main() {
     (tester) async {
       await tester.pumpWidget(app(const PhonePage()));
       await click(tester, 'Kod yuborish');
-      expect(find.text('9 xonali telefon raqamini kiriting'), findsNothing);
+      expect(find.text('9 xonali telefon raqamini kiriting'), findsOneWidget);
       final phoneBorder = tester
           .widgetList<Container>(
             find.ancestor(
@@ -114,13 +114,13 @@ void main() {
       );
       expect(input.focusNode!.hasFocus, isTrue);
       expect(tester.testTextInput.isVisible, isTrue);
-      expect(find.text('Tasdiqlash'), findsNothing);
+      expect(find.text('Tasdiqlash'), findsOneWidget);
       await tester.enterText(find.byKey(const ValueKey('otpInput')), '22222');
       await tester.pump();
       expect(find.text('Kod noto‘g‘ri. Qayta urinib ko‘ring.'), findsNothing);
       await tester.enterText(find.byKey(const ValueKey('otpInput')), '222222');
       await tester.pump();
-      expect(find.text('Kod noto‘g‘ri. Qayta urinib ko‘ring.'), findsNothing);
+      expect(find.text('Kod noto‘g‘ri. Qayta urinib ko‘ring.'), findsOneWidget);
       for (var i = 0; i < 6; i++) {
         final box = tester.widget<Container>(find.byKey(ValueKey('otpBox$i')));
         expect(

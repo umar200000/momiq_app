@@ -155,6 +155,7 @@ class _ListingsPanelState extends State<ListingsPanel> {
       builder: (context, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_store.busy) const LinearProgressIndicator(),
           Padding(
             padding: const EdgeInsets.fromLTRB(2, 2, 2, 16),
             child: Column(

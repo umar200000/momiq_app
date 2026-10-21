@@ -1,3 +1,4 @@
+import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../session_destination.dart';
 import '../../../customer/data/customer_api.dart';
 import '../../../../core/config/auth_features.dart';
@@ -87,7 +88,7 @@ class _PhonePageState extends State<PhonePage> {
       setState(() => _error = '9 xonali telefon raqamini kiriting');
       return;
     }
-    _opening = true;
+    setState(() => _opening = true);
     FocusScope.of(context).unfocus();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -95,7 +96,7 @@ class _PhonePageState extends State<PhonePage> {
             OtpPage(phone: '+998 ${_phone.text}', customer: widget.customer),
       ),
     );
-    if (mounted) _opening = false;
+    if (mounted) setState(() => _opening = false);
   }
 
   @override
@@ -127,6 +128,7 @@ class _PhonePageState extends State<PhonePage> {
             Expanded(
               child: TextField(
                 key: const ValueKey('phoneInput'),
+                readOnly: _opening,
                 controller: _phone,
                 onTapOutside: (_) =>
                     FocusManager.instance.primaryFocus?.unfocus(),
@@ -149,14 +151,37 @@ class _PhonePageState extends State<PhonePage> {
           ],
         ),
       ),
+      if (_error != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Text(
+            context.tr(_error!),
+            style: authText(14, color: Colors.red.shade700),
+          ),
+        ),
       const SizedBox(height: 24),
-      AuthButton(label: context.tr('Kod yuborish'), onPressed: _send),
+      AuthButton(
+        label: context.tr('Kod yuborish'),
+        loading: _opening,
+        onPressed: _send,
+      ),
     ],
   );
 }
 
 class OtpPage extends StatefulWidget {
-  const OtpPage({super.key, required this.phone, this.customer = false});
+  const OtpPage({
+    super.key,
+    required this.phone,
+    this.customer = false,
+    this.authenticate,
+  });
+  final Future<Map<String, dynamic>> Function(
+    String phone,
+    String code,
+    bool customer,
+  )?
+  authenticate;
   final bool customer;
   final String phone;
   @override
@@ -189,7 +214,7 @@ class _OtpPageState extends State<OtpPage> {
   }
 
   void _resend() {
-    if (_seconds != 0 || _verified) return;
+    if (_seconds != 0 || _verified || _authenticating) return;
     setState(() {
       _code.clear();
       _error = null;
@@ -215,14 +240,24 @@ class _OtpPageState extends State<OtpPage> {
       _focus.requestFocus();
       return;
     }
-    if (CustomerApi.enabled) {
-      setState(() => _authenticating = true);
+    if (CustomerApi.enabled || widget.authenticate != null) {
+      _focus.unfocus();
+      setState(() {
+        _authenticating = true;
+        _error = null;
+      });
       try {
-        _account = await CustomerApi.login(
-          widget.phone,
-          _code.text,
-          customer: widget.customer,
-        );
+        _account = widget.authenticate != null
+            ? await widget.authenticate!(
+                widget.phone,
+                _code.text,
+                widget.customer,
+              )
+            : await CustomerApi.login(
+                widget.phone,
+                _code.text,
+                customer: widget.customer,
+              );
       } catch (e) {
         if (mounted) setState(() => _error = e.toString());
         return;
@@ -303,7 +338,7 @@ class _OtpPageState extends State<OtpPage> {
                   controller: _code,
                   focusNode: _focus,
                   autofocus: true,
-                  readOnly: _verified,
+                  readOnly: _verified || _authenticating,
                   onTapOutside: (_) =>
                       FocusManager.instance.primaryFocus?.unfocus(),
                   keyboardType: TextInputType.number,
@@ -369,11 +404,29 @@ class _OtpPageState extends State<OtpPage> {
           ],
         ),
       ),
+      if (_error != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Text(
+            context.tr(_error!),
+            key: const ValueKey('otpError'),
+            style: authText(14, color: Colors.red.shade700),
+          ),
+        ),
       const SizedBox(height: 16),
+      if (!_verified) ...[
+        AuthButton(
+          key: const ValueKey('verifyOtp'),
+          label: context.tr('Tasdiqlash'),
+          loading: _authenticating,
+          onPressed: _code.text.length == 6 ? _verify : null,
+        ),
+        const SizedBox(height: 12),
+      ],
       if (!_verified)
         PressableButton.outlinedIcon(
           key: const ValueKey('resendCode'),
-          onPressed: _seconds == 0 ? _resend : null,
+          onPressed: _seconds == 0 && !_authenticating ? _resend : null,
           icon: Icon(
             _seconds == 0 ? Icons.refresh_rounded : Icons.timer_outlined,
             size: 20,
@@ -579,14 +632,20 @@ class AuthAnimal extends StatelessWidget {
 }
 
 class AuthButton extends StatelessWidget {
-  const AuthButton({super.key, required this.label, required this.onPressed});
+  const AuthButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+  });
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool loading;
   @override
   Widget build(BuildContext context) => SizedBox(
     width: double.infinity,
     child: PressableButton(
-      onPressed: onPressed,
+      onPressed: loading ? null : onPressed,
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.gold,
         foregroundColor: AppColors.chocolate,
@@ -594,27 +653,30 @@ class AuthButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         shape: const StadiumBorder(),
       ),
-      child: Row(
-        children: [
-          const SizedBox(width: 38),
-          Expanded(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: authText(20, bold: true),
+      child: ButtonProgress(
+        loading: loading,
+        child: Row(
+          children: [
+            const SizedBox(width: 38),
+            Expanded(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: authText(20, bold: true),
+              ),
             ),
-          ),
-          Container(
-            width: 38,
-            height: 38,
-            padding: const EdgeInsets.all(9),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF8EEDF),
-              shape: BoxShape.circle,
+            Container(
+              width: 38,
+              height: 38,
+              padding: const EdgeInsets.all(9),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8EEDF),
+                shape: BoxShape.circle,
+              ),
+              child: const MomiqLogo(),
             ),
-            child: const MomiqLogo(),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );

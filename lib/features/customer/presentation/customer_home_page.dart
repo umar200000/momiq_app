@@ -280,7 +280,9 @@ class _CustomerHomePageState extends State<CustomerHomePage>
 
   void _search({int? service}) =>
       cPush(context, CustomerSearchPage(store: _store, service: service));
+  bool _loggingOut = false;
   Future<void> _logout() async {
+    if (_loggingOut) return;
     final yes = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -305,6 +307,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
       ),
     );
     if (yes == true && mounted) {
+      setState(() => _loggingOut = true);
       try {
         await CustomerApi.logout();
       } catch (_) {
@@ -315,6 +318,8 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           );
         }
         return;
+      } finally {
+        if (mounted) setState(() => _loggingOut = false);
       }
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
@@ -544,7 +549,13 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
           onTap: () => cPush(context, item.$3),
         ),
-      cButton('Chiqish', _logout, secondary: true, icon: Icons.logout_rounded),
+      cButton(
+        'Chiqish',
+        _logout,
+        loading: _loggingOut,
+        secondary: true,
+        icon: Icons.logout_rounded,
+      ),
     ];
   }
 

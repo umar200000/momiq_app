@@ -1,3 +1,4 @@
+import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../../../customer/data/customer_api.dart';
 import '../../../role_selection/presentation/pages/role_selection_page.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
@@ -74,7 +75,10 @@ class _SitterHomePageState extends State<SitterHomePage> {
     if (mounted) await _loadProfile();
   }
 
+  bool _loggingOut = false;
   Future<void> _logout() async {
+    if (_loggingOut) return;
+    setState(() => _loggingOut = true);
     try {
       await CustomerApi.logout();
     } catch (_) {
@@ -88,6 +92,8 @@ class _SitterHomePageState extends State<SitterHomePage> {
         );
       }
       return;
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
     }
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -275,9 +281,12 @@ class _SitterHomePageState extends State<SitterHomePage> {
   List<Widget> profile() => [
     ListTile(
       key: const ValueKey('sitterLogout'),
-      leading: const Icon(Icons.logout),
+      leading: ButtonProgress(
+        loading: _loggingOut,
+        child: const Icon(Icons.logout),
+      ),
       title: Text(t('Chiqish', 'Log out', 'Выйти')),
-      onTap: _logout,
+      onTap: _loggingOut ? null : _logout,
     ),
     banner(
       t('Momiq oilasidasiz', 'Part of Momiq', 'Вы в семье Momiq'),
