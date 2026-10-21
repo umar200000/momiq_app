@@ -92,6 +92,15 @@ class ListingStore extends ChangeNotifier {
   ListingStore({Future<SharedPreferences> Function()? preferences})
     : _preferences = preferences ?? SharedPreferences.getInstance;
   static final instance = ListingStore();
+  void resetSession() {
+    _listings = {};
+    _housing = HousingType.apartment;
+    _loaded = false;
+    _loading = null;
+    _prefs = null;
+    notifyListeners();
+  }
+
   static const storageKey = 'momiq.services.v1';
   final Future<SharedPreferences> Function() _preferences;
   Future<void>? _loading;

@@ -10,7 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/brand_typography.dart';
 import '../../../../core/utils/responsive.dart';
-import '../../../role_selection/presentation/pages/role_selection_page.dart';
+import '../../../auth/presentation/session_destination.dart';
 
 /// Splash ekran — dizayndagi HTML/CSS maketning aynan o'zi.
 ///
@@ -29,9 +29,11 @@ class _SplashPageState extends State<SplashPage> {
   @override
   void initState() {
     super.initState();
+    final destinationFuture = restoreDestination();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _timer = Timer(const Duration(seconds: 3), () {
+      _timer = Timer(const Duration(seconds: 3), () async {
+        final destination = await destinationFuture;
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           PageRouteBuilder<void>(
@@ -39,7 +41,7 @@ class _SplashPageState extends State<SplashPage> {
                 ? Duration.zero
                 : const Duration(milliseconds: 450),
             pageBuilder: (context, animation, secondaryAnimation) =>
-                const RoleSelectionPage(),
+                destination,
             transitionsBuilder:
                 (context, animation, secondaryAnimation, child) =>
                     FadeTransition(opacity: animation, child: child),

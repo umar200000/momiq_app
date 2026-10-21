@@ -1,3 +1,5 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -5,6 +7,10 @@ import 'package:momiq_app/features/splash/presentation/pages/splash_page.dart';
 import 'package:momiq_app/features/role_selection/presentation/pages/role_selection_page.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    CustomerApi.active = null;
+  });
   setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
 
   testWidgets('splash changes at three seconds and replaces its route', (
@@ -14,6 +20,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 2999));
     expect(find.byType(RoleSelectionPage), findsNothing);
     await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(RoleSelectionPage), findsOneWidget);
     expect(find.byType(SplashPage), findsNothing);

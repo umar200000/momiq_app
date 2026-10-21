@@ -1,3 +1,5 @@
+import '../../../customer/data/customer_api.dart';
+import '../../../role_selection/presentation/pages/role_selection_page.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -70,6 +72,28 @@ class _SitterHomePageState extends State<SitterHomePage> {
       ),
     );
     if (mounted) await _loadProfile();
+  }
+
+  Future<void> _logout() async {
+    try {
+      await CustomerApi.logout();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const RoleSelectionPage()),
+      (_) => false,
+    );
   }
 
   int _tab = 0;
@@ -249,6 +273,12 @@ class _SitterHomePageState extends State<SitterHomePage> {
     ),
   ];
   List<Widget> profile() => [
+    ListTile(
+      key: const ValueKey('sitterLogout'),
+      leading: const Icon(Icons.logout),
+      title: Text(t('Chiqish', 'Log out', 'Выйти')),
+      onTap: _logout,
+    ),
     banner(
       t('Momiq oilasidasiz', 'Part of Momiq', 'Вы в семье Momiq'),
       t(

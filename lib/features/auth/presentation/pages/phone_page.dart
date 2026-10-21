@@ -1,5 +1,5 @@
+import '../session_destination.dart';
 import '../../../customer/data/customer_api.dart';
-import '../../../customer/presentation/customer_home_page.dart';
 import '../../../../core/config/auth_features.dart';
 import '../../../customer/presentation/customer_registration_page.dart';
 import '../../../onboarding/presentation/pages/sitter_registration_page.dart';
@@ -199,7 +199,7 @@ class _OtpPageState extends State<OtpPage> {
   }
 
   bool _authenticating = false;
-  bool _hasProfile = false;
+  Map<String, dynamic>? _account;
   Future<void> _verify() async {
     if (_verified || _authenticating) return;
     if (_code.text.length != 6) {
@@ -215,13 +215,14 @@ class _OtpPageState extends State<OtpPage> {
       _focus.requestFocus();
       return;
     }
-    if (widget.customer && CustomerApi.enabled) {
+    if (CustomerApi.enabled) {
       setState(() => _authenticating = true);
       try {
-        final account = await CustomerApi.login(widget.phone, _code.text);
-        _hasProfile =
-            '${account['profile']['first']}'.isNotEmpty &&
-            '${account['profile']['last']}'.isNotEmpty;
+        _account = await CustomerApi.login(
+          widget.phone,
+          _code.text,
+          customer: widget.customer,
+        );
       } catch (e) {
         if (mounted) setState(() => _error = e.toString());
         return;
@@ -238,13 +239,21 @@ class _OtpPageState extends State<OtpPage> {
     });
     _nextPage = Timer(const Duration(milliseconds: 700), () {
       if (!mounted) return;
+      if (_account != null) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                accountDestination(_account!, customer: widget.customer),
+          ),
+          (_) => false,
+        );
+        return;
+      }
       if (widget.customer) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute<void>(
             // MyID is temporarily bypassed; the original route is retained.
-            builder: (_) => _hasProfile
-                ? const CustomerHomePage()
-                : myIdEnabled
+            builder: (_) => myIdEnabled
                 ? const MyIdPage(customer: true)
                 : const CustomerRegistrationPage(),
           ),

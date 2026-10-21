@@ -1,3 +1,4 @@
+import '../../customer/data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -57,6 +58,23 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   Future<void> _load() async {
     try {
       final p = await SharedPreferences.getInstance();
+      final api = await CustomerApi.restore();
+      if (api != null && widget.section == 0) {
+        final response = await api.request('GET', '/me');
+        final account = Map<String, dynamic>.from(response['account']);
+        final profile = account['profile'];
+        final sitter = account['sitterProfile'] as Map? ?? {};
+        _first.text = profile['first'];
+        _last.text = profile['last'];
+        _photo = profile['photo'] == null
+            ? null
+            : base64Decode(profile['photo']);
+        _years.text = '${sitter['years'] ?? ''}';
+        _about.text = sitter['about'] ?? '';
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+
       _years.text = p.getString('mock.profile.years') ?? '';
       _about.text = p.getString('mock.profile.about') ?? '';
       final days = p.getStringList('mock.profile.days');
@@ -114,6 +132,26 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       final p = await SharedPreferences.getInstance();
       final results = <bool>[];
       if (widget.section == 0) {
+        final api = await CustomerApi.restore();
+        if (api != null) {
+          final response = await api.request('GET', '/me');
+          final account = Map<String, dynamic>.from(response['account']);
+          account['profile'] = {
+            'first': _first.text.trim(),
+            'last': _last.text.trim(),
+            'photo': _photo == null ? null : base64Encode(_photo!),
+          };
+          account['sitterProfile'] = {
+            ...?account['sitterProfile'] as Map?,
+            'years': int.tryParse(_years.text),
+            'about': _about.text.trim(),
+          };
+          final saved = await api.request('PUT', '/me', account);
+          await CustomerApi.rememberAccount(
+            Map<String, dynamic>.from(saved['account']),
+          );
+        }
+
         results.add(
           await p.setString('mock.profile.first', _first.text.trim()),
         );

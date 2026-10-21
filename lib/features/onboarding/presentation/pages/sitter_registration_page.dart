@@ -1,3 +1,4 @@
+import '../../../customer/data/customer_api.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/config/auth_features.dart';
@@ -158,6 +159,29 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
     FocusScope.of(context).unfocus();
     setState(() => _submitting = true);
     try {
+      final api = await CustomerApi.restore();
+      if (CustomerApi.enabled && api == null) {
+        throw StateError('Hisobingizga qayta kiring');
+      }
+      if (api != null) {
+        final data = await api.request('GET', '/me');
+        final account = Map<String, dynamic>.from(data['account']);
+        account['profile'] = {
+          'first': _first.text.trim(),
+          'last': _last.text.trim(),
+          'photo': _avatar == null ? null : base64Encode(_avatar!),
+        };
+        account['sitterProfile'] = {
+          'years': _years,
+          'about': _experience.text.trim(),
+          'homePhotos': _home.map(base64Encode).toList(),
+          'housing': _housing.name,
+        };
+        final saved = await api.request('PUT', '/me', account);
+        await CustomerApi.rememberAccount(
+          Map<String, dynamic>.from(saved['account']),
+        );
+      }
       await ListingStore.instance.setHousing(_housing);
       final prefs = await SharedPreferences.getInstance();
       if (!await prefs.setString('mock.profile.first', _first.text.trim()) ||

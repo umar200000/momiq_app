@@ -33,3 +33,9 @@ For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080
 ## Data availability
 
 The backend sitter catalog starts empty. Listing publication, booking/payment processing, sitter chat and MyID verification are not connected yet; these must not claim success. Sitter service/profile drafts entered by the user remain device-local. Demo dashboards, reviews, care reports and invented photos/addresses were removed. Only the explicitly enabled login code 111111 remains simulated. Test fixtures are confined to test/.
+
+## Session lifecycle
+
+OTP login returns the existing server account. Completed profiles go straight to the selected role home; incomplete profiles resume registration. The token, selected role and last account snapshot persist across app restarts. Startup validates the session with `/api/me`; network failures keep the saved login, while expired/blocked sessions return to role selection.
+
+Logout revokes the current session when the server is reachable and clears this device's account/session caches, pets, sitter drafts and copied care videos. The server account remains intact. Offline logout still clears the device; the unreachable server session expires normally. Other devices' sessions are unaffected. Sitter registration data is saved to the account, but publishing a sitter listing remains separate.

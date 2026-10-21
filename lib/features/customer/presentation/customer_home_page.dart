@@ -308,7 +308,13 @@ class _CustomerHomePageState extends State<CustomerHomePage>
       try {
         await CustomerApi.logout();
       } catch (_) {
-        /* Local session was cleared. */
+        if (mounted) {
+          cNotice(
+            context,
+            'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
+          );
+        }
+        return;
       }
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(

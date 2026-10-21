@@ -52,6 +52,11 @@ class CustomerPetSession extends ChangeNotifier {
   final List<CJson> _pets = [];
   List<CJson> get pets =>
       _pets.map((p) => Map<String, dynamic>.from(p)).toList();
+  void clear() {
+    _pets.clear();
+    notifyListeners();
+  }
+
   void save(CJson pet) {
     if (!['It', 'Mushuk', 'Boshqa'].contains(pet['type']) ||
         '${pet['photo'] ?? ''}'.isEmpty ||
@@ -73,6 +78,7 @@ class CustomerPetSession extends ChangeNotifier {
 class CustomerStore extends ChangeNotifier {
   static const storageKey = 'momiq.customer.v1';
   CJson _data = {};
+  final int _sessionVersion = CustomerApi.sessionVersion;
   final CustomerFeedRepository feedRepository;
   List<CJson> _sitters = customerSitters
       .map((s) => Map<String, dynamic>.from(s))
@@ -95,6 +101,7 @@ class CustomerStore extends ChangeNotifier {
       'notifications',
       'pets',
       'support',
+      'sitterProfile',
     ])
       key: data[key],
     'language': data['language'] ?? 'uz',
@@ -106,7 +113,11 @@ class CustomerStore extends ChangeNotifier {
       final account = await api!.request('GET', '/me');
       final messages = await api!.request('GET', '/messages');
       if (_disposed || busy) return;
+      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
       _data.addAll(Map<String, dynamic>.from(account['account']));
+      await CustomerApi.rememberAccount(
+        Map<String, dynamic>.from(account['account']),
+      );
       _data['messages'] = messages['messages'];
       if (AppLanguage.current.value != _data['language']) {
         await AppLanguage.select(_data['language'] ?? 'uz');
@@ -169,12 +180,15 @@ class CustomerStore extends ChangeNotifier {
     _data = raw == null
         ? _emptyAccount()
         : Map<String, dynamic>.from(jsonDecode(raw) as Map);
-    final legacyDemo = (_data['bookings'] as List? ?? []).any((b) => b['sample'] == true);
+    final legacyDemo = (_data['bookings'] as List? ?? []).any(
+      (b) => b['sample'] == true,
+    );
     _data['bookings'] = <CJson>[];
     if (api == null) {
       _data['messages'] = <CJson>[];
       _data['favorites'] = <String>[];
-      if (legacyDemo && _data['profile']['first'] == 'Madina' &&
+      if (legacyDemo &&
+          _data['profile']['first'] == 'Madina' &&
           _data['profile']['last'] == 'Karimova') {
         _data['profile'] = {'first': '', 'last': '', 'photo': null};
       }
@@ -184,7 +198,11 @@ class CustomerStore extends ChangeNotifier {
     if (api != null) {
       final account = await api!.request('GET', '/me');
       final messages = await api!.request('GET', '/messages');
+      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
       _data.addAll(Map<String, dynamic>.from(account['account']));
+      await CustomerApi.rememberAccount(
+        Map<String, dynamic>.from(account['account']),
+      );
       _data['messages'] = messages['messages'];
       if (AppLanguage.current.value != _data['language']) {
         await AppLanguage.select(_data['language'] ?? 'uz');
@@ -201,6 +219,9 @@ class CustomerStore extends ChangeNotifier {
   }
 
   Future<void> update(void Function(CJson next) change) async {
+    if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
+      throw StateError('Sessiya tugagan');
+    }
     if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
     busy = true;
     if (!_disposed) notifyListeners();
@@ -215,6 +236,10 @@ class CustomerStore extends ChangeNotifier {
         final saved = await api!.request('PUT', '/me', _account(next));
         next.addAll(Map<String, dynamic>.from(saved['account']));
       }
+      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
+        throw StateError('Sessiya tugagan');
+      }
+      if (api != null) await CustomerApi.rememberAccount(_account(next));
       if (!await (await preferences()).setString(_cacheKey, jsonEncode(next))) {
         throw StateError('Saqlanmadi');
       }
