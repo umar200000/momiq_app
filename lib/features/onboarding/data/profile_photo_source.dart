@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 
-/// Picked photos remain local; there is no upload or backend in this flow.
+/// Picks resized images; the profile form saves selected bytes to the backend.
 class ProfilePhotoSource {
   final ImagePicker _picker = ImagePicker();
 

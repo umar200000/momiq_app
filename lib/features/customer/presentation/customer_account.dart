@@ -295,8 +295,10 @@ class CustomerProfileForm extends StatefulWidget {
     super.key,
     required this.store,
     this.registration = false,
+    this.photoSource,
   });
   final bool registration;
+  final ProfilePhotoSource? photoSource;
   final CustomerStore store;
   @override
   State<CustomerProfileForm> createState() => _CustomerProfileFormState();
@@ -314,23 +316,62 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
       ? null
       : widget.store.profile['photo'];
   bool _saving = false;
+  bool _picking = false;
+  late final _photos = widget.photoSource ?? ProfilePhotoSource();
   Future<void> _photoPick() async {
+    if (_picking || _saving) return;
+    setState(() => _picking = true);
     try {
-      final f = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 800,
-        imageQuality: 80,
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final source in ImageSource.values)
+                ListTile(
+                  key: ValueKey('profilePhoto-${source.name}'),
+                  leading: Icon(
+                    source == ImageSource.camera
+                        ? Icons.camera_alt_outlined
+                        : Icons.photo_library_outlined,
+                  ),
+                  title: Text(
+                    source == ImageSource.camera
+                        ? lt('Kamera', 'Camera', 'Камера')
+                        : lt('Galereya', 'Gallery', 'Галерея'),
+                  ),
+                  onTap: () => Navigator.pop(context, source),
+                ),
+            ],
+          ),
+        ),
       );
-      if (f == null) return;
-      final bytes = await f.readAsBytes();
-      if (mounted) setState(() => _photo = base64Encode(bytes));
+      if (!mounted || source == null) return;
+      final bytes = await _photos.pickProfile(source: source);
+      if (mounted && bytes != null) {
+        if (bytes.length > 3 * 1024 * 1024) {
+          cNotice(
+            context,
+            lt(
+              'Rasm 3 MB dan kichik bo‘lishi kerak.',
+              'Photo must be under 3 MB.',
+              'Фото должно быть меньше 3 МБ.',
+            ),
+          );
+          return;
+        }
+        setState(() => _photo = base64Encode(bytes));
+      }
     } catch (_) {
       if (mounted) cNotice(context, 'Rasm ochilmadi.');
+    } finally {
+      if (mounted) setState(() => _picking = false);
     }
   }
 
   Future<void> _save() async {
-    if (_saving || !_form.currentState!.validate()) return;
+    if (_saving || _picking || !_form.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
       await widget.store.update(
@@ -372,7 +413,7 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
       widget.registration
           ? lt('Ro‘yxatdan o‘tish', 'Register', 'Зарегистрироваться')
           : 'Saqlash',
-      _saving ? null : _save,
+      _saving || _picking ? null : _save,
       id: widget.registration ? 'registerCustomer' : 'saveCustomerProfile',
     ),
     children: [
@@ -391,14 +432,38 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
                   : null,
             ),
             TextButton.icon(
-              onPressed: _photoPick,
+              key: const ValueKey('pickCustomerProfilePhoto'),
+              onPressed: _picking || _saving ? null : _photoPick,
               icon: const Icon(Icons.camera_alt_outlined),
               label: Text(
                 widget.registration
-                    ? lt('Profil rasmi', 'Profile photo', 'Фото профиля')
+                    ? lt(
+                        'Profil rasmi (ixtiyoriy)',
+                        'Profile photo (optional)',
+                        'Фото профиля (необязательно)',
+                      )
                     : ct('Rasmni almashtirish'),
               ),
             ),
+            if (_photo != null)
+              TextButton(
+                key: const ValueKey('removeCustomerProfilePhoto'),
+                onPressed: _picking || _saving
+                    ? null
+                    : () => setState(() => _photo = null),
+                child: Text(
+                  lt('Rasmni olib tashlash', 'Remove photo', 'Удалить фото'),
+                ),
+              ),
+            if (widget.registration)
+              cText(
+                lt(
+                  'Rasmsiz ham ro‘yxatdan o‘tishingiz mumkin.',
+                  'You can register without a photo.',
+                  'Можно зарегистрироваться без фото.',
+                ),
+                size: 12,
+              ),
             const SizedBox(height: 24),
             cField(_first, 'Ism', required: true, id: 'customerFirst'),
             cField(_last, 'Familiya', required: true, id: 'customerLast'),

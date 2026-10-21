@@ -50,6 +50,48 @@ void main() {
     await t.pumpAndSettle();
   }
 
+  for (final remove in [false, true]) {
+    testWidgets(
+      'optional customer registration photo persists, remove=$remove',
+      (t) async {
+        final s = await store();
+        await open(
+          t,
+          CustomerProfileForm(
+            store: s,
+            registration: true,
+            photoSource: PetPhotos(),
+          ),
+        );
+        expect(find.text('Profil rasmi (ixtiyoriy)'), findsOneWidget);
+        await t.tap(find.byKey(const ValueKey('pickCustomerProfilePhoto')));
+        await t.pumpAndSettle();
+        await t.tap(find.byKey(const ValueKey('profilePhoto-gallery')));
+        await t.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('removeCustomerProfilePhoto')),
+          findsOneWidget,
+        );
+        if (remove) {
+          await t.tap(find.byKey(const ValueKey('removeCustomerProfilePhoto')));
+          await t.pumpAndSettle();
+        }
+        await t.ensureVisible(find.byKey(const ValueKey('customerFirst')));
+        await t.enterText(
+          find.byKey(const ValueKey('customerFirst')),
+          'Actual',
+        );
+        await t.enterText(find.byKey(const ValueKey('customerLast')), 'User');
+        FocusManager.instance.primaryFocus?.unfocus();
+        await t.pumpAndSettle();
+        await t.tap(find.byKey(const ValueKey('registerCustomer')));
+        await t.pumpAndSettle();
+        expect(find.byType(CustomerHomePage), findsOneWidget);
+        expect(s.profile['photo'], remove ? isNull : isNotEmpty);
+        await t.pumpWidget(const SizedBox());
+      },
+    );
+  }
   testWidgets('all four client tabs fit compact screen', (t) async {
     final s = await store();
     await open(t, CustomerHomePage(store: s));

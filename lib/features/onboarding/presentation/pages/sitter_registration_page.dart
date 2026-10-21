@@ -56,7 +56,7 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
   bool _choosingPhoto = false;
   final _sectionKeys = List.generate(4, (_) => GlobalKey());
   List<bool> get _valid => [
-    _avatar != null,
+    true, // Profile photo is optional.
     _years != null,
     _experience.text.trim().isNotEmpty,
     _home.length >= 3 && _home.length <= 9,
@@ -118,7 +118,23 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
       });
       if (profile) {
         final image = await _photos.pickProfile(source: source);
-        if (mounted && image != null) setState(() => _avatar = image);
+        if (mounted && image != null) {
+          if (image.length > 3 * 1024 * 1024) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  lt(
+                    'Rasm 3 MB dan kichik bo‘lishi kerak.',
+                    'Photo must be under 3 MB.',
+                    'Фото должно быть меньше 3 МБ.',
+                  ),
+                ),
+              ),
+            );
+          } else {
+            setState(() => _avatar = image);
+          }
+        }
       } else {
         final images = await _photos.pickHome(9 - _home.length, source: source);
         if (mounted) {
@@ -303,7 +319,9 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
                         button: true,
                         child: InkWell(
                           key: const ValueKey('profileUpload'),
-                          onTap: _picking ? null : () => _pick(true),
+                          onTap: _picking || _submitting
+                              ? null
+                              : () => _pick(true),
                           borderRadius: BorderRadius.circular(60),
                           child: Stack(
                             children: [
@@ -313,11 +331,7 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: const Color(0xFFDBD0C5),
-                                  border: Border.all(
-                                    color: _submitted && _avatar == null
-                                        ? Colors.red.shade700
-                                        : formBorder,
-                                  ),
+                                  border: Border.all(color: formBorder),
                                 ),
                                 child: _avatar == null
                                     ? const Icon(
@@ -354,9 +368,36 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        context.tr('Profil rasmi'),
+                        lt(
+                          'Profil rasmi (ixtiyoriy)',
+                          'Profile photo (optional)',
+                          'Фото профиля (необязательно)',
+                        ),
                         style: profileText(16, bold: true),
                       ),
+                      const SizedBox(height: 5),
+                      Text(
+                        lt(
+                          'Rasmsiz ham ro‘yxatdan o‘tishingiz mumkin.',
+                          'You can register without a photo.',
+                          'Можно зарегистрироваться без фото.',
+                        ),
+                        style: profileText(12),
+                      ),
+                      if (_avatar != null)
+                        TextButton(
+                          key: const ValueKey('removeSitterProfilePhoto'),
+                          onPressed: _picking || _submitting
+                              ? null
+                              : () => setState(() => _avatar = null),
+                          child: Text(
+                            lt(
+                              'Rasmni olib tashlash',
+                              'Remove photo',
+                              'Удалить фото',
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
