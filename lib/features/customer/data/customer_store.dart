@@ -15,7 +15,7 @@ const customerServices = [
 final customerSitters = <CJson>[];
 CJson customerSitter(String id) => customerSitters.firstWhere(
   (s) => s['id'] == id,
-  orElse: () => {'id': id, 'name': 'Enaga mavjud emas'},
+  orElse: () => {'id': id, 'name': 'Enaga mavjud emas', 'unavailable': true},
 );
 DateTime calendarDate(DateTime v) => DateTime(v.year, v.month, v.day);
 int careDays(DateTime from, DateTime to) =>

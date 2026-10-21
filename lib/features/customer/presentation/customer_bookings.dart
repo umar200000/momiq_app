@@ -550,14 +550,18 @@ class _CustomerChatListState extends State<CustomerChatList> {
     builder: (context, _) {
       final all = widget.store.list('messages');
       final ids = {
-        'hoji',
-        'nilufar',
-        ...all.map((m) => m['sitter'] as String),
+        ...all
+            .map((m) => m['sitter'])
+            .whereType<String>()
+            .where((id) => id.isNotEmpty),
       }.toList();
       DateTime lastTime(String id) =>
           all.where((m) => m['sitter'] == id).isEmpty
           ? DateTime(2000)
-          : DateTime.parse(all.lastWhere((m) => m['sitter'] == id)['time']);
+          : DateTime.tryParse(
+                  '${all.lastWhere((m) => m['sitter'] == id)['time'] ?? ''}',
+                ) ??
+                DateTime(2000);
       ids.sort((a, b) => lastTime(b).compareTo(lastTime(a)));
       final visible = ids
           .where(
@@ -598,8 +602,16 @@ class _CustomerChatListState extends State<CustomerChatList> {
                     color: listingGold,
                   ),
                   const SizedBox(height: 12),
-                  cText('Suhbat topilmadi', bold: true),
-                  cText('Enaganing ismi bilan qidirib ko‘ring.', size: 13),
+                  cText(
+                    _query.isEmpty ? 'Hali suhbat yo‘q' : 'Suhbat topilmadi',
+                    bold: true,
+                  ),
+                  cText(
+                    _query.isEmpty
+                        ? 'Enaga profilidan suhbatni boshlashingiz mumkin.'
+                        : 'Enaganing ismi bilan qidirib ko‘ring.',
+                    size: 13,
+                  ),
                 ],
               ),
             ),
@@ -644,7 +656,7 @@ class _CustomerChatListState extends State<CustomerChatList> {
                             ),
                             const SizedBox(height: 7),
                             cText(
-                              customerServices[sitter['service']],
+                              _chatService(sitter),
                               size: 11,
                               color: listingGold,
                             ),
@@ -679,8 +691,16 @@ class _CustomerChatListState extends State<CustomerChatList> {
   );
 }
 
-String _chatTime(String value) {
-  final time = DateTime.parse(value).toLocal();
+String _chatService(CJson sitter) {
+  final service = sitter['service'];
+  return service is int && service >= 0 && service < customerServices.length
+      ? customerServices[service]
+      : 'Enaga profili mavjud emas';
+}
+
+String _chatTime(String? value) {
+  final time = DateTime.tryParse(value ?? '')?.toLocal();
+  if (time == null) return '';
   return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 }
 
@@ -701,7 +721,10 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
   final _scroll = ScrollController();
   bool _sending = false;
   Future<void> _send() async {
-    if (_sending || _text.text.trim().isEmpty) return;
+    if (_sending ||
+        widget.sitter['unavailable'] == true ||
+        _text.text.trim().isEmpty)
+      return;
     final message = _text.text;
     setState(() => _sending = true);
     try {
@@ -775,7 +798,7 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
                 children: [
                   cText(widget.sitter['name'], bold: true, size: 16),
                   cText(
-                    customerServices[widget.sitter['service']],
+                    _chatService(widget.sitter),
                     size: 11,
                     color: listingGold,
                   ),
@@ -908,7 +931,9 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
               child: Row(
                 children: [
                   IconButton(
-                    onPressed: _sending ? null : _attach,
+                    onPressed: _sending || widget.sitter['unavailable'] == true
+                        ? null
+                        : _attach,
                     tooltip: 'Rasm yuborish',
                     icon: const Icon(
                       Icons.add_photo_alternate_outlined,
@@ -928,7 +953,9 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
                     ),
                   ),
                   IconButton.filled(
-                    onPressed: _sending ? null : _send,
+                    onPressed: _sending || widget.sitter['unavailable'] == true
+                        ? null
+                        : _send,
                     style: IconButton.styleFrom(backgroundColor: listingGold),
                     icon: ButtonProgress(
                       loading: _sending,

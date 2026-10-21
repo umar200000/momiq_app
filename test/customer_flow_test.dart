@@ -181,10 +181,63 @@ void main() {
       await t.pumpWidget(const SizedBox());
     },
   );
+  testWidgets('chat is empty without real conversations', (t) async {
+    final s = await store();
+    await open(
+      t,
+      Scaffold(
+        body: SingleChildScrollView(child: CustomerChatList(store: s)),
+      ),
+    );
+    expect(find.text('Hali suhbat yo‘q'), findsOneWidget);
+    expect(find.text('Hoji Sherhojiyiv'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets('conversation with unavailable sitter does not crash', (t) async {
+    final s = await store();
+    await s.update(
+      (d) => d['messages'] = [
+        {
+          'sitter': 'deleted-sitter',
+          'text': 'History',
+          'mine': true,
+          'time': 'bad-date',
+        },
+      ],
+    );
+    await open(
+      t,
+      Scaffold(
+        body: SingleChildScrollView(child: CustomerChatList(store: s)),
+      ),
+    );
+    expect(find.text('Enaga mavjud emas'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    await t.tap(find.text('Enaga mavjud emas'));
+    await t.pumpAndSettle();
+    expect(find.text('History'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
   testWidgets('chat search filters names and displays empty results', (
     t,
   ) async {
     final s = await store();
+    await s.update(
+      (d) => d['messages'] = [
+        {
+          'sitter': 'hoji',
+          'text': 'Hello',
+          'mine': true,
+          'time': '2026-01-01T12:00:00Z',
+        },
+        {
+          'sitter': 'nilufar',
+          'text': 'Hello',
+          'mine': true,
+          'time': '2026-01-01T13:00:00Z',
+        },
+      ],
+    );
     await open(
       t,
       Scaffold(
