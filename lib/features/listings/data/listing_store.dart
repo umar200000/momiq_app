@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../../customer/data/customer_api.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -87,9 +88,9 @@ class ListingException implements Exception {
   final ListingProblem problem;
 }
 
-/// Device-local listings. Commit to storage before notifying the UI.
+/// Authenticated listings are committed to the server before updating the UI.
 class ListingStore extends ChangeNotifier {
-  ListingStore({Future<SharedPreferences> Function()? preferences})
+  ListingStore({Future<SharedPreferences> Function()? preferences, this.api})
     : _preferences = preferences ?? SharedPreferences.getInstance;
   static final instance = ListingStore();
   void resetSession() {
@@ -98,11 +99,13 @@ class ListingStore extends ChangeNotifier {
     _loaded = false;
     _loading = null;
     _prefs = null;
+    api = null;
     notifyListeners();
   }
 
   static const storageKey = 'momiq.services.v1';
   final Future<SharedPreferences> Function() _preferences;
+  CustomerApi? api;
   Future<void>? _loading;
   bool _loaded = false;
   SharedPreferences? _prefs;
@@ -128,9 +131,28 @@ class ListingStore extends ChangeNotifier {
 
   Future<void> _read() async {
     _prefs = await _preferences();
-    final raw = _prefs!.getString(storageKey);
-    if (raw == null) return;
-    final json = jsonDecode(raw) as Map<String, dynamic>;
+    final version = CustomerApi.sessionVersion;
+    if (api == null && CustomerApi.enabled) {
+      api = await CustomerApi.restore();
+      if (api == null) throw const ListingException(ListingProblem.storage);
+    }
+    Map<String, dynamic> json;
+    if (api != null) {
+      json = await api!.request('GET', '/me/listings');
+      if (version != CustomerApi.sessionVersion) {
+        throw const ListingException(ListingProblem.storage);
+      }
+      // Legacy drafts belong to the current login (logout clears this key).
+      // Keep them editable until the user explicitly saves them to the server.
+      final legacy = _prefs!.getString(storageKey);
+      if ((json['listings'] as List).isEmpty && legacy != null) {
+        json = jsonDecode(legacy) as Map<String, dynamic>;
+      }
+    } else {
+      final raw = _prefs!.getString(storageKey);
+      if (raw == null) return;
+      json = jsonDecode(raw) as Map<String, dynamic>;
+    }
     final housing = HousingType.values.byName(json['housing'] as String);
     final listings = (json['listings'] as List).map(
       (e) => ServiceListing.fromJson(e as Map<String, dynamic>),
@@ -229,14 +251,21 @@ class ListingStore extends ChangeNotifier {
     busy = true;
     notifyListeners();
     try {
-      final saved = await _prefs!.setString(
-        storageKey,
-        jsonEncode({
-          'housing': housing.name,
-          'listings': values.values.map((v) => v.toJson()).toList(),
-        }),
-      );
-      if (!saved) throw const ListingException(ListingProblem.storage);
+      final payload = {
+        'housing': housing.name,
+        'listings': values.values.map((v) => v.toJson()).toList(),
+      };
+      if (api != null) {
+        final version = CustomerApi.sessionVersion;
+        await api!.request('PUT', '/me/listings', payload);
+        if (version != CustomerApi.sessionVersion) {
+          throw const ListingException(ListingProblem.storage);
+        }
+        await _prefs!.remove(storageKey);
+      } else {
+        final saved = await _prefs!.setString(storageKey, jsonEncode(payload));
+        if (!saved) throw const ListingException(ListingProblem.storage);
+      }
       _housing = housing;
       _listings = values;
     } finally {

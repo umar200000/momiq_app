@@ -58,6 +58,7 @@ class CustomerApi {
     final data = await anonymous.request('POST', '/auth/login', {
       'phone': phone,
       'code': code,
+      'role': customer ? 'customer' : 'sitter',
     });
     final prefs = await SharedPreferences.getInstance();
     if (!await prefs.setString('momiq.api.user', data['userId']) ||
