@@ -723,8 +723,9 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
   Future<void> _send() async {
     if (_sending ||
         widget.sitter['unavailable'] == true ||
-        _text.text.trim().isEmpty)
+        _text.text.trim().isEmpty) {
       return;
+    }
     final message = _text.text;
     setState(() => _sending = true);
     try {
