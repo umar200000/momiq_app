@@ -11,13 +11,13 @@ class CustomerApiException implements Exception {
   String toString() => message;
 }
 
-/// USB phone: adb reverse tcp:8080 tcp:8080. Change only MOMIQ_API_URL for deployment.
+/// Override MOMIQ_API_URL to use a local development server.
 class CustomerApi {
   CustomerApi(this.token, this.userId, {String? baseUrl})
     : baseUrl = baseUrl ?? configuredUrl;
   static const configuredUrl = String.fromEnvironment(
     'MOMIQ_API_URL',
-    defaultValue: 'http://127.0.0.1:8080/api',
+    defaultValue: 'https://api.momiq.net/api',
   );
   static bool get enabled =>
       !Platform.environment.containsKey('FLUTTER_TEST') &&

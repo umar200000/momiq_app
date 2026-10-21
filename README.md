@@ -23,3 +23,9 @@ flutter test
 The live API integration test is opt-in: `flutter test --dart-define=MOMIQ_INTEGRATION=true test/customer_api_integration_test.dart`.
 
 Credentials, signing keys, build outputs and local configuration are excluded from Git. Do not commit the local MapKit key.
+
+## Hosted test environment
+
+The app now defaults to `https://api.momiq.net/api`. Sign out and sign in after switching from localhost; local sessions are not migrated. Test verification code: `111111`. This is not phone ownership verification: use only test data until SMS authentication is implemented.
+
+For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080/api` and USB adb reverse. Run local live integration tests with the same URL override. GitHub Actions runs analysis and tests on pushes/PRs; mobile store releases/signing are not configured.
