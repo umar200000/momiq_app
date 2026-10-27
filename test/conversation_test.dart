@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/chat/data/conversation_controller.dart';
 import 'package:momiq_app/features/chat/presentation/conversation_page.dart';
+import 'package:momiq_app/features/chat/presentation/chat_reports.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/wallet/data/wallet_draft_storage.dart';
 
@@ -46,13 +47,18 @@ class ChatApi extends CustomerApi {
   final paths = <String>[];
   final reads = <String>[];
   bool loseResponse = false;
+  bool blocked = false;
+  int blockRevision = 0;
+  final redactions = <String>[];
   Completer<void>? postGate;
   ChatJson get summary => {
     'id': 'chat',
     'peerName': 'TEST sitter',
     'service': 'boarding',
     'myRole': 'customer',
-    'canSend': true,
+    'canSend': !blocked,
+    'blockedByMe': blocked,
+    'blockRevision': blockRevision,
     'unreadCount': 1,
     'peerReadThrough': '0',
     'lastMessage': items.lastOrNull,
@@ -60,6 +66,11 @@ class ChatApi extends CustomerApi {
   @override
   Future<ChatJson> request(String method, String path, [ChatJson? body]) async {
     paths.add('$method $path');
+    if (path.endsWith('/block')) {
+      blocked = body!['blocked'];
+      blockRevision++;
+      return summary;
+    }
     if (path.endsWith('/read')) {
       reads.add(body!['throughId']);
       return {'ok': true};
@@ -99,11 +110,118 @@ class ChatApi extends CustomerApi {
               : true,
         )
         .toList();
-    return {'items': selected, 'hasMore': false, 'conversation': summary};
+    return {
+      'items': selected,
+      'hasMore': false,
+      'conversation': summary,
+      'redactedIds': query.containsKey('changesAfter')
+          ? redactions
+          : <String>[],
+      'changeCursor': redactions.isEmpty ? '0' : '1',
+    };
+  }
+}
+
+class ReportApi extends CustomerApi {
+  ReportApi() : super('test', 'customer');
+  final posts = <ChatJson>[];
+  @override
+  Future<ChatJson> request(String method, String path, [ChatJson? body]) async {
+    posts.add(Map.of(body!));
+    if (posts.length == 1) throw CustomerApiException('Lost response');
+    return {'id': '1', 'status': 'open'};
   }
 }
 
 void main() {
+  test(
+    'moderation delta removes loaded content without advancing message cursor',
+    () async {
+      final api = ChatApi()..items.add(msg(1, text: 'private old text'));
+      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      await chat.initialize();
+      api.redactions.add('1');
+      await chat.refresh();
+      expect(chat.messages.single['hidden'], true);
+      expect(chat.messages.single['text'], '');
+      expect(chat.messages.single['hasImage'], false);
+      expect(chat.readCursor, '1');
+      // A response captured before moderation cannot resurrect cached content.
+      chat.merge({
+        'conversation': api.summary,
+        'items': [msg(1, text: 'stale text')],
+      });
+      expect(chat.messages.single['text'], '');
+      await chat.refresh();
+      expect(api.paths.last, contains('changesAfter=1'));
+      chat.dispose();
+    },
+  );
+  test(
+    'block updates composer capability and explicit discard clears only outbox',
+    () async {
+      final api = ChatApi()..loseResponse = true;
+      final storage = ChatDraft();
+      final chat = ConversationController(api, 'chat', storage: storage);
+      await chat.initialize();
+      await chat.send('already accepted', null);
+      await chat.setBlocked(true);
+      expect(chat.conversation!['canSend'], false);
+      expect(chat.conversation!['blockedByMe'], true);
+      await chat.discardPending();
+      expect(storage.value, isNull);
+      expect(chat.pending, isNull);
+      expect(api.items.length, 1);
+      await chat.setBlocked(false);
+      expect(chat.conversation!['canSend'], true);
+      chat.dispose();
+    },
+  );
+  testWidgets(
+    'report dialog retries the same evidence and request after lost response',
+    (tester) async {
+      final api = ReportApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => ChatReportDialog(
+                    api: api,
+                    conversationId: 'chat',
+                    messageId: '1',
+                  ),
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('chatReportReason')),
+        'TEST spam',
+      );
+      await tester.tap(find.byKey(const ValueKey('chatReportSubmit')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('chatReportReason')))
+            .enabled,
+        false,
+      );
+      await tester.tap(find.byKey(const ValueKey('chatReportSubmit')));
+      await tester.pumpAndSettle();
+      expect(api.posts.length, 2);
+      expect(api.posts[0], api.posts[1]);
+      expect(find.byType(ChatReportDialog), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   test(
     'lost response survives restart and reuses exact persisted request',
     () async {
@@ -157,7 +275,10 @@ void main() {
       expect(await chat.send('reply', null), true);
       expect(chat.readCursor, '8');
       await chat.refresh();
-      expect(api.paths, contains('GET /conversations/chat/messages?after=8'));
+      expect(
+        api.paths,
+        contains('GET /conversations/chat/messages?after=8&changesAfter=0'),
+      );
       expect(chat.messages.map((m) => m['id']), ['8', '9', '10']);
       expect(chat.readCursor, '10');
       chat.dispose();
@@ -205,7 +326,10 @@ void main() {
         tester.binding.handleAppLifecycleStateChanged(state);
       }
       await tester.pumpAndSettle();
-      expect(api.paths, contains('GET /conversations/chat/messages?after=1'));
+      expect(
+        api.paths,
+        contains('GET /conversations/chat/messages?after=1&changesAfter=0'),
+      );
       final navigator = tester.state<NavigatorState>(find.byType(Navigator));
       unawaited(
         navigator.push(

@@ -7,6 +7,7 @@ import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../wallet/data/receipt_image.dart';
 import '../data/conversation_controller.dart';
+import 'chat_reports.dart';
 
 String chatService(String? service) => switch (service) {
   'boarding' => lt('Uyda qarash', 'Boarding', 'Передержка'),
@@ -199,6 +200,7 @@ class _ConversationPageState extends State<ConversationPage>
   final _scroll = ScrollController();
   String? _image;
   bool _starting = false, _failed = false, _foreground = true, _picking = false;
+  bool _actionBusy = false;
   Timer? _timer;
   bool get _visible =>
       mounted && _foreground && (ModalRoute.of(context)?.isCurrent ?? true);
@@ -322,6 +324,88 @@ class _ConversationPageState extends State<ConversationPage>
     }
   }
 
+  Future<void> _menu(String action) async {
+    final chat = _chat;
+    if (chat == null || _actionBusy) return;
+    if (action == 'reports') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              ChatReportsPage(api: chat.api, conversationId: chat.id),
+        ),
+      );
+      return;
+    }
+    final discard = action == 'discard';
+    final block = chat.conversation?['blockedByMe'] != true;
+    final title = discard
+        ? lt('Qoralamani tozalash', 'Clear outbox', 'Очистить черновик')
+        : block
+        ? lt(
+            'Foydalanuvchini bloklash',
+            'Block user',
+            'Заблокировать пользователя',
+          )
+        : lt(
+            'Blokni olib tashlash',
+            'Unblock user',
+            'Разблокировать пользователя',
+          );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(
+          discard
+              ? lt(
+                  'Xabar serverga yetib borgan bo‘lishi mumkin. Bu faqat qurilmadagi qayta yuborish qoralamasini tozalaydi; yuborilgan xabarni qaytarib olmaydi.',
+                  'The server may already have accepted this message. This clears only the local retry draft; it does not recall a sent message.',
+                  'Сервер мог уже принять сообщение. Удалится только локальный черновик повтора, не отправленное сообщение.',
+                )
+              : lt(
+                  'Bu qaror shu foydalanuvchi bilan barcha xizmatlardagi yozishmalarga ta’sir qiladi. Buyurtmani bekor qilmaydi.',
+                  'This applies to all service conversations with this user. It does not cancel a booking.',
+                  'Это действует во всех переписках с пользователем и не отменяет заказ.',
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Bekor qilish', 'Cancel', 'Отмена')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(title),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _actionBusy = true);
+    try {
+      if (discard) {
+        await chat.discardPending();
+        if (mounted) {
+          setState(() {
+            _text.clear();
+            _image = null;
+          });
+        }
+      } else {
+        await chat.setBlocked(block);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(chatFailure())));
+      }
+      await chat.refresh();
+    } finally {
+      if (mounted) setState(() => _actionBusy = false);
+    }
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
@@ -340,7 +424,9 @@ class _ConversationPageState extends State<ConversationPage>
     final disabled =
         chat == null ||
         !chat.ready ||
+        !chat.live ||
         chat.sending ||
+        _actionBusy ||
         _picking ||
         chat.conversation?['canSend'] == false;
     final messages = chat?.messages.reversed.toList() ?? <ChatJson>[];
@@ -350,6 +436,42 @@ class _ConversationPageState extends State<ConversationPage>
           chat?.conversation?['peerName'] ??
               lt('Suhbat', 'Conversation', 'Переписка'),
         ),
+        actions: [
+          PopupMenuButton<String>(
+            enabled:
+                chat?.ready == true && chat?.sending == false && !_actionBusy,
+            onSelected: _menu,
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'block',
+                child: Text(
+                  chat?.conversation?['blockedByMe'] == true
+                      ? lt(
+                          'Blokni olib tashlash',
+                          'Unblock user',
+                          'Разблокировать',
+                        )
+                      : lt('Bloklash', 'Block user', 'Заблокировать'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'reports',
+                child: Text(lt('Murojaatlarim', 'My reports', 'Мои обращения')),
+              ),
+              if (pending)
+                PopupMenuItem(
+                  value: 'discard',
+                  child: Text(
+                    lt(
+                      'Qoralamani tozalash',
+                      'Clear outbox',
+                      'Очистить черновик',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -372,6 +494,17 @@ class _ConversationPageState extends State<ConversationPage>
               Padding(
                 padding: const EdgeInsets.all(8),
                 child: Text(chatService(chat!.conversation!['service'])),
+              ),
+            if (chat?.conversation?['canSend'] == false)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  lt(
+                    'Bu foydalanuvchi bilan yozishma to‘xtatilgan.',
+                    'Messaging with this user is unavailable.',
+                    'Переписка с этим пользователем недоступна.',
+                  ),
+                ),
               ),
             Expanded(
               child: ListView.builder(
@@ -423,6 +556,8 @@ class _ConversationPageState extends State<ConversationPage>
                             ),
                             if ((m['text'] as String).isNotEmpty)
                               SelectableText(m['text']),
+                            if (m['hidden'] == true)
+                              Text(reportStatus('removed')),
                             if (m['hasImage'] == true)
                               _ChatImage(
                                 api: chat!.api,
@@ -433,6 +568,21 @@ class _ConversationPageState extends State<ConversationPage>
                               '${time == null ? '' : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'}${mine ? ' · ${read ? lt('O‘qilgan', 'Read', 'Прочитано') : lt('Yuborildi', 'Sent', 'Отправлено')}' : ''}',
                               style: Theme.of(context).textTheme.labelSmall,
                             ),
+                            if (!mine && m['hidden'] != true)
+                              TextButton.icon(
+                                onPressed: () => showDialog<bool>(
+                                  context: context,
+                                  builder: (_) => ChatReportDialog(
+                                    api: chat!.api,
+                                    conversationId: chat.id,
+                                    messageId: m['id'],
+                                  ),
+                                ),
+                                icon: const Icon(Icons.flag_outlined, size: 16),
+                                label: Text(
+                                  lt('Shikoyat', 'Report', 'Пожаловаться'),
+                                ),
+                              ),
                           ],
                         ),
                       ),

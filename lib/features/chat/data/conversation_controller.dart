@@ -6,6 +6,11 @@ import '../../wallet/data/wallet_draft_storage.dart';
 
 typedef ChatJson = Map<String, dynamic>;
 
+String chatRequestId() {
+  final random = Random.secure();
+  return base64UrlEncode(List.generate(24, (_) => random.nextInt(256)));
+}
+
 class ConversationController extends ChangeNotifier {
   ConversationController(this.api, this.id, {WalletDraftStorage? storage})
     : storage =
@@ -24,6 +29,8 @@ class ConversationController extends ChangeNotifier {
   Object? error;
   bool _dead = false, _reading = false;
   String readCursor = '0';
+  String _changeCursor = '0';
+  final _redacted = <String>{};
   int _readAcknowledged = 0;
   bool get live => !_dead && _session == CustomerApi.sessionVersion;
   String get path => '/conversations/$id';
@@ -52,6 +59,7 @@ class ConversationController extends ChangeNotifier {
       check();
       merge(page);
       _advance(page);
+      _changeCursor = page['changeCursor'] ?? '0';
       more = page['hasMore'] == true;
       ready = true;
     } catch (e) {
@@ -64,9 +72,19 @@ class ConversationController extends ChangeNotifier {
 
   void merge(ChatJson page) {
     conversation = ChatJson.from(page['conversation']);
+    _redacted.addAll((page['redactedIds'] as List? ?? []).cast<String>());
     final byId = {for (final item in messages) item['id']: item};
     for (final item in page['items'] as List) {
+      if (item['hidden'] == true) _redacted.add(item['id'] as String);
       byId[item['id']] = ChatJson.from(item);
+    }
+    for (final id in _redacted) {
+      final item = byId[id];
+      if (item != null) {
+        item['hidden'] = true;
+        item['text'] = '';
+        item['hasImage'] = false;
+      }
     }
     messages
       ..clear()
@@ -89,11 +107,14 @@ class ConversationController extends ChangeNotifier {
     try {
       final cursor = older
           ? 'before=${messages.first['id']}'
-          : 'after=$readCursor';
+          : 'after=$readCursor&changesAfter=$_changeCursor';
       final page = await api.request('GET', '$path/messages?$cursor');
       check();
       merge(page);
-      if (!older) _advance(page);
+      if (!older) {
+        _advance(page);
+        _changeCursor = page['changeCursor'] ?? _changeCursor;
+      }
       if (older) more = page['hasMore'] == true;
     } catch (e) {
       error = e;
@@ -111,13 +132,10 @@ class ConversationController extends ChangeNotifier {
     try {
       if (pending == null) {
         if (text.trim().isEmpty && image == null) return false;
-        final random = Random.secure();
         pending = {
           'text': text.trim(),
           'image': image,
-          'requestId': base64UrlEncode(
-            List.generate(24, (_) => random.nextInt(256)),
-          ).replaceAll('=', ''),
+          'requestId': chatRequestId(),
         };
       }
       // Persist the exact request before sending. Restart/lost response retries
@@ -126,6 +144,12 @@ class ConversationController extends ChangeNotifier {
       check();
       final result = await api.request('POST', '$path/messages', pending);
       check();
+      if (result['hidden'] == true) _redacted.add(result['id'] as String);
+      if (_redacted.contains(result['id'])) {
+        result['hidden'] = true;
+        result['text'] = '';
+        result['hasImage'] = false;
+      }
       final existing = messages.indexWhere((m) => m['id'] == result['id']);
       if (existing < 0) {
         messages.add(result);
@@ -160,6 +184,26 @@ class ConversationController extends ChangeNotifier {
     } finally {
       _reading = false;
     }
+  }
+
+  Future<void> setBlocked(bool value) async {
+    check();
+    final result = await api.request('POST', '$path/block', {
+      'blocked': value,
+      'revision': conversation!['blockRevision'],
+    });
+    check();
+    conversation = result;
+    changed();
+  }
+
+  Future<void> discardPending() async {
+    if (sending) return;
+    await storage.clear();
+    check();
+    pending = null;
+    error = null;
+    changed();
   }
 
   @override
