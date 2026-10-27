@@ -18,6 +18,12 @@ class CustomerAvailability extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: store,
     builder: (context, _) {
+      if (sitter['availabilityKnown'] == false) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: cText('Mavjud sanalar hali tasdiqlanmagan', size: 13),
+        );
+      }
       final capacity = sitterCapacity(sitter);
       final free = store.availablePlaces(sitter, from: from, to: to);
       final occupied = capacity - free;
@@ -39,14 +45,8 @@ class CustomerAvailability extends StatelessWidget {
               ),
               if (free == 0) ...[
                 const SizedBox(height: 6),
-                cText(
-                  'Bo‘sh sana hali aniqlanmagan',
-                  size: 13,
-                ),
-                cText(
-                  'Buyurtma berish xizmati hali ulanmagan.',
-                  size: 12,
-                ),
+                cText('Bo‘sh sana hali aniqlanmagan', size: 13),
+                cText('Buyurtma berish xizmati hali ulanmagan.', size: 12),
               ],
             ],
           ),
@@ -73,14 +73,8 @@ class CustomerAvailability extends StatelessWidget {
             ),
             if (free == 0) ...[
               const SizedBox(height: 6),
-              cText(
-                'Bo‘sh sana hali aniqlanmagan',
-                size: 13,
-              ),
-              cText(
-                'Buyurtma berish xizmati hali ulanmagan.',
-                size: 12,
-              ),
+              cText('Bo‘sh sana hali aniqlanmagan', size: 13),
+              cText('Buyurtma berish xizmati hali ulanmagan.', size: 12),
             ],
             const SizedBox(height: 8),
             Row(

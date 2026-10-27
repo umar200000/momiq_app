@@ -131,7 +131,8 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
                     (s['pets'] as List).contains(_filter['pet'])) &&
                 s['price'] >= _filter['min'] &&
                 s['price'] <= _filter['max'] &&
-                s['distance'] <= _filter['distance'] &&
+                (s['distance'] is! num ||
+                    s['distance'] <= _filter['distance']) &&
                 (_filter['rating'] != true || s['rating'] >= 4.8),
           )
           .toList();
@@ -243,6 +244,10 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       cField(_min, 'Minimal narx (so‘m)', number: true),
       cField(_max, 'Maksimal narx (so‘m)', number: true),
       cText('Masofa: ${_distance.round()} km', bold: true),
+      cText(
+        'Masofa aniqlanmagan e’lonlar bu filtr bilan yashirilmaydi.',
+        size: 12,
+      ),
       Slider(
         value: _distance,
         min: 1,
@@ -311,13 +316,17 @@ class SitterDetailPage extends StatelessWidget {
             size: 18,
           ),
           cButton(
-            store.availablePlaces(sitter) == 0
+            sitter['availabilityKnown'] == false
+                ? 'Buyurtma berish hali ochilmagan'
+                : store.availablePlaces(sitter) == 0
                 ? 'Hozircha band'
                 : 'Band qilish',
-            () => cPush(
-              context,
-              CustomerBookingForm(store: store, sitter: sitter),
-            ),
+            sitter['availabilityKnown'] == false
+                ? null
+                : () => cPush(
+                    context,
+                    CustomerBookingForm(store: store, sitter: sitter),
+                  ),
             id: 'bookSitter',
           ),
         ],
