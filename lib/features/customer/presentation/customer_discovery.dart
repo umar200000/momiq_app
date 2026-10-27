@@ -63,7 +63,13 @@ class SitterCard extends StatelessWidget {
           (sitter['pets'] as List).map((v) => ct(v as String)).join(' · '),
         ),
         CustomerAvailability(store: store, sitter: sitter),
-        cText('${priceText(sitter['price'])} so‘m / kun', size: 18, bold: true),
+        if (sitter['testOnly'] == true)
+          cText('Test e’lon · MyID tekshiruvi yo‘q', size: 12),
+        cText(
+          '${priceText(sitter['price'])} so‘m / hayvon / kun',
+          size: 18,
+          bold: true,
+        ),
       ],
     ),
     onTap: () => cPush(context, SitterDetailPage(store: store, sitter: sitter)),
@@ -300,7 +306,7 @@ class SitterDetailPage extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           cText(
-            '${priceText(sitter['price'])} so‘m / kun',
+            '${priceText(sitter['price'])} so‘m / hayvon / kun',
             bold: true,
             size: 18,
           ),
@@ -329,6 +335,8 @@ class SitterDetailPage extends StatelessWidget {
                     cText(sitter['name'], size: 20, bold: true),
                     cRating(customerReviewSummary(store, sitter)),
                     cText('${sitter['years']} yillik tajriba', size: 13),
+                    if (sitter['testOnly'] == true)
+                      cText('Test e’lon · MyID tekshiruvi yo‘q', size: 12),
                   ],
                 ),
               ),

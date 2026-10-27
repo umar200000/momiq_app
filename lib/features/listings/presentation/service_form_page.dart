@@ -2,6 +2,7 @@ import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import '../data/map_access.dart';
 import 'map_requirements_panel.dart';
 import 'package:flutter/material.dart';
+import '../../customer/data/customer_api.dart';
 import 'price_input_formatter.dart';
 import '../../../core/theme/app_colors.dart';
 import 'care_location_preview.dart';
@@ -117,9 +118,13 @@ class _ServiceFormPageState extends State<ServiceFormPage> {
     } catch (error) {
       if (mounted) {
         setState(
-          () => _error = problemText(
-            error is ListingException ? error.problem : ListingProblem.storage,
-          ),
+          () => _error = error is CustomerApiException
+              ? error.message
+              : problemText(
+                  error is ListingException
+                      ? error.problem
+                      : ListingProblem.storage,
+                ),
         );
       }
     } finally {

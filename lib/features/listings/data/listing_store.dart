@@ -99,6 +99,8 @@ class ListingStore extends ChangeNotifier {
     _loaded = false;
     _loading = null;
     _prefs = null;
+    _revision = 0;
+    _moderation = {};
     api = null;
     notifyListeners();
   }
@@ -111,12 +113,20 @@ class ListingStore extends ChangeNotifier {
   SharedPreferences? _prefs;
   HousingType _housing = HousingType.apartment;
   Map<ServiceType, ServiceListing> _listings = {};
+  int _revision = 0;
+  Map<String, dynamic> _moderation = {};
+  String status(ServiceType type) =>
+      _moderation[type.name]?['status'] as String? ?? 'draft';
+  String reason(ServiceType type) =>
+      _moderation[type.name]?['reason'] as String? ?? '';
+  bool isTest(ServiceType type) => _moderation[type.name]?['testOnly'] == true;
   bool busy = false;
   HousingType get housing => _housing;
   int get maxCapacity => housing == HousingType.apartment ? 1 : 3;
   ServiceListing? operator [](ServiceType type) => _listings[type];
 
-  Future<void> load() {
+  Future<void> load({bool refresh = false}) {
+    if (refresh && !busy) _loaded = false;
     if (_loaded) return Future<void>.value();
     return _loading ??= _read()
         .then((_) {
@@ -146,13 +156,22 @@ class ListingStore extends ChangeNotifier {
       // Keep them editable until the user explicitly saves them to the server.
       final legacy = _prefs!.getString(storageKey);
       if ((json['listings'] as List).isEmpty && legacy != null) {
-        json = jsonDecode(legacy) as Map<String, dynamic>;
+        json = {
+          ...jsonDecode(legacy) as Map<String, dynamic>,
+          '_revision': json['_revision'],
+          'moderation': json['moderation'],
+        };
       }
     } else {
       final raw = _prefs!.getString(storageKey);
       if (raw == null) return;
       json = jsonDecode(raw) as Map<String, dynamic>;
     }
+    _apply(json);
+    notifyListeners();
+  }
+
+  void _apply(Map<String, dynamic> json) {
     final housing = HousingType.values.byName(json['housing'] as String);
     final listings = (json['listings'] as List).map(
       (e) => ServiceListing.fromJson(e as Map<String, dynamic>),
@@ -171,7 +190,8 @@ class ListingStore extends ChangeNotifier {
     }
     _housing = housing;
     _listings = restored;
-    notifyListeners();
+    _revision = json['_revision'] as int? ?? 0;
+    _moderation = Map<String, dynamic>.from(json['moderation'] as Map? ?? {});
   }
 
   List<ServiceListing> conflictsFor(ServiceType type) => _listings.values
@@ -223,6 +243,50 @@ class ListingStore extends ChangeNotifier {
     if (value != null) await save(value.withActive(active));
   }
 
+  Future<void> archive(ServiceType type) async {
+    await load();
+    if (busy) throw const ListingException(ListingProblem.busy);
+    if (api == null) {
+      final item = _listings[type];
+      if (item == null) return;
+      final saved = {
+        'housing': housing.name,
+        '_revision': _revision,
+        'listings': {
+          ..._listings,
+          type: item.withActive(false),
+        }.values.map((v) => v.toJson()).toList(),
+        'moderation': {
+          ..._moderation,
+          type.name: {'status': 'archived', 'reason': ''},
+        },
+      };
+      if (!await _prefs!.setString(storageKey, jsonEncode(saved))) {
+        throw const ListingException(ListingProblem.storage);
+      }
+      _apply(saved);
+      notifyListeners();
+      return;
+    }
+    busy = true;
+    notifyListeners();
+    try {
+      final version = CustomerApi.sessionVersion;
+      final saved = await api!.request(
+        'POST',
+        '/me/listings/${type.name}/archive',
+        {'_revision': _revision},
+      );
+      if (version != CustomerApi.sessionVersion) {
+        throw const ListingException(ListingProblem.storage);
+      }
+      _apply(saved);
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> setHousing(HousingType value) async {
     await load();
     final updated = {..._listings};
@@ -252,22 +316,24 @@ class ListingStore extends ChangeNotifier {
     notifyListeners();
     try {
       final payload = {
+        '_revision': _revision,
         'housing': housing.name,
         'listings': values.values.map((v) => v.toJson()).toList(),
       };
       if (api != null) {
         final version = CustomerApi.sessionVersion;
-        await api!.request('PUT', '/me/listings', payload);
+        final saved = await api!.request('PUT', '/me/listings', payload);
         if (version != CustomerApi.sessionVersion) {
           throw const ListingException(ListingProblem.storage);
         }
         await _prefs!.remove(storageKey);
+        _apply(saved);
       } else {
         final saved = await _prefs!.setString(storageKey, jsonEncode(payload));
         if (!saved) throw const ListingException(ListingProblem.storage);
+        _housing = housing;
+        _listings = values;
       }
-      _housing = housing;
-      _listings = values;
     } finally {
       busy = false;
       notifyListeners();

@@ -76,7 +76,7 @@ void main() {
       expect(find.byType(ServiceFormPage), findsNothing);
       expect(store[ServiceType.boarding]!.pets, {PetType.cat});
       expect(store[ServiceType.boarding]!.capacity, 3);
-      expect(find.text('80 000 so‘m / kun'), findsOneWidget);
+      expect(find.text('80 000 so‘m / hayvon / kun'), findsOneWidget);
       await tapVisible(tester, 'edit-boarding');
       expect(
         tester
