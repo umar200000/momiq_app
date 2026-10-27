@@ -11,6 +11,7 @@ class WalletApi extends CustomerApi {
   WalletApi() : super('test', 'sitter');
   final sent = <Map<String, dynamic>>[];
   bool fail = false;
+  bool qrActive = true;
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -33,6 +34,8 @@ class WalletApi extends CustomerApi {
         'commissionBps': 1000,
         'minimumBalanceMinor': 1500000,
         'qrImage': png,
+        'qrActive': qrActive,
+        'recipientName': 'TEST recipient',
         'testOnly': true,
         'termsVersion': 'balance-no-refund-v1',
       },
@@ -41,6 +44,15 @@ class WalletApi extends CustomerApi {
 }
 
 void main() {
+  testWidgets('paused QR does not invite new payments', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: WalletPage(api: WalletApi()..qrActive = false)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('topupAmount')), findsNothing);
+    expect(find.byKey(const ValueKey('submitTopup')), findsNothing);
+    expect(find.textContaining('QR orqali yangi to‘lovlar'), findsOneWidget);
+  });
   test('money is exact in minor units and rejects ambiguous input', () {
     expect(parseWalletAmount('15000.01'), 1500001);
     expect(parseWalletAmount('0,10'), 10);

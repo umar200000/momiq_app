@@ -281,15 +281,28 @@ class _WalletPageState extends State<WalletPage> {
           ),
           style: const TextStyle(color: Colors.red),
         ),
-      if (qr == null)
+      if (qr == null || config['qrActive'] != true)
         Text(
           lt(
-            'QR kod hali yuklanmagan.',
-            'QR code is not available yet.',
-            'QR-код ещё не загружен.',
+            'QR orqali yangi to‘lovlar hozir ochilmagan. Oldingi to‘lov cheki bo‘lsa yordam xizmatiga murojaat qiling.',
+            'New QR payments are paused. Contact support if you already paid.',
+            'Новые оплаты по QR приостановлены. Если вы уже оплатили, обратитесь в поддержку.',
           ),
         )
       else ...[
+        Text(
+          '${lt('Oluvchi', 'Recipient', 'Получатель')}: ${config['recipientName'] ?? ''}',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        if ((config['paymentInstructions'] as String? ?? '').isNotEmpty)
+          Text(config['paymentInstructions'] as String),
+        Text(
+          lt(
+            'Provayderdagi oluvchi nomi bilan solishtiring. Nom mos kelmasa to‘lov qilmang.',
+            'Check the recipient name in the provider app. Do not pay if it differs.',
+            'Сверьте имя получателя в приложении провайдера. При несовпадении не платите.',
+          ),
+        ),
         Image.memory(
           base64Decode(qr),
           height: 240,
