@@ -45,6 +45,8 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   String? _error;
   bool _loading = true, _sending = false, _picking = false, _accepted = false;
   final _amount = TextEditingController();
+  final _payerReference = TextEditingController();
+  DateTime? _paidAt;
   Uint8List? _receipt;
   String? _requestId;
   WalletDraftStorage? _draftStorage;
@@ -69,6 +71,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     _draftTimer?.cancel();
     if (_paymentStarted) unawaited(_saveDraftSafely());
     _amount.dispose();
+    _payerReference.dispose();
     super.dispose();
   }
 
@@ -91,6 +94,8 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     final data = <String, dynamic>{
       'formatVersion': 1,
       'amount': _amount.text,
+      'payerReference': _payerReference.text,
+      'paidAt': _paidAt?.toUtc().toIso8601String(),
       'receipt': _receipt == null ? null : base64Encode(_receipt!),
       'requestId': _requestId,
       'config': _paymentConfig,
@@ -202,6 +207,8 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         _requestId = null;
         _accepted = false;
         _amount.clear();
+        _payerReference.clear();
+        _paidAt = null;
       });
       await _load();
     } catch (error) {
@@ -244,6 +251,10 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
             }
             _paymentConfig = Map<String, dynamic>.from(draft['config']);
             _amount.text = draft['amount'] as String;
+            _payerReference.text = draft['payerReference'] as String? ?? '';
+            _paidAt = draft['paidAt'] == null
+                ? null
+                : DateTime.parse(draft['paidAt'] as String).toLocal();
             _receipt = draft['receipt'] == null
                 ? null
                 : base64Decode(draft['receipt'] as String);
@@ -356,6 +367,15 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     setState(() => _sending = true);
     try {
       final value = parseWalletAmount(_amount.text);
+      if (_paidAt == null && _payerReference.text.trim().isEmpty) {
+        throw CustomerApiException(
+          lt(
+            'Chekdagi to‘lov vaqtini yoki operatsiya ID raqamini kiriting.',
+            'Enter the payment time or transaction ID from the receipt.',
+            'Укажите время платежа или ID операции из чека.',
+          ),
+        );
+      }
       final config = _paymentConfig!;
       _requestId ??= base64UrlEncode(
         List<int>.generate(18, (_) => Random.secure().nextInt(256)),
@@ -366,6 +386,8 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       await _api!.request('POST', '/wallet/topups', {
         'requestId': _requestId,
         'amountMinor': value,
+        'payerReference': _payerReference.text.trim(),
+        'paidAt': _paidAt?.toUtc().toIso8601String(),
         'receipt': base64Encode(_receipt!),
         'qrVersion': config['version'],
         'termsVersion': config['termsVersion'],
@@ -382,6 +404,8 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         _requestId = null;
         _accepted = false;
         _amount.clear();
+        _payerReference.clear();
+        _paidAt = null;
       });
       _notice(
         lt(
@@ -396,6 +420,42 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Future<void> _pickPaymentTime() async {
+    final current = DateTime.now();
+    final day = await showDatePicker(
+      context: context,
+      initialDate: _paidAt ?? current,
+      firstDate: DateTime(2000),
+      lastDate: current,
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_paidAt ?? current),
+    );
+    if (time == null || !mounted) return;
+    final value = DateTime(
+      day.year,
+      day.month,
+      day.day,
+      time.hour,
+      time.minute,
+    );
+    if (value.isAfter(DateTime.now().add(const Duration(minutes: 5)))) {
+      _notice(
+        lt(
+          'Kelajakdagi vaqtni kiritmang.',
+          'Payment time cannot be in the future.',
+          'Время платежа не может быть в будущем.',
+        ),
+      );
+      return;
+    }
+    _paidAt = value;
+    _draftChanged();
+    await _saveDraftSafely();
   }
 
   String _status(String value) => switch (value) {
@@ -588,6 +648,41 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           ),
         ),
         const SizedBox(height: 12),
+        TextField(
+          key: const ValueKey('topupReference'),
+          controller: _payerReference,
+          enabled: !_sending,
+          maxLength: 200,
+          onChanged: (_) => _draftChanged(),
+          decoration: InputDecoration(
+            labelText: lt(
+              'Chekdagi operatsiya ID / reference',
+              'Transaction ID / reference on receipt',
+              'ID операции из чека',
+            ),
+          ),
+        ),
+        Text(
+          lt(
+            'Chekdagi vaqt yoki operatsiya ID raqamidan kamida bittasini kiriting.',
+            'Provide at least the payment time or transaction ID from the receipt.',
+            'Укажите хотя бы время платежа или ID операции из чека.',
+          ),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('topupPaidAt'),
+          onPressed: _sending ? null : _pickPaymentTime,
+          icon: const Icon(Icons.schedule),
+          label: Text(
+            _paidAt == null
+                ? lt(
+                    'Chekdagi to‘lov vaqti',
+                    'Payment time on receipt',
+                    'Время платежа из чека',
+                  )
+                : '${MaterialLocalizations.of(context).formatMediumDate(_paidAt!)} ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(_paidAt!))} (UTC${_paidAt!.timeZoneOffset.isNegative ? '-' : '+'}${_paidAt!.timeZoneOffset.inHours.abs()}:${(_paidAt!.timeZoneOffset.inMinutes.abs() % 60).toString().padLeft(2, '0')})',
+          ),
+        ),
         OutlinedButton.icon(
           key: const ValueKey('pickTopupReceipt'),
           onPressed: _sending || _picking ? null : _pick,

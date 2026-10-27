@@ -140,7 +140,7 @@ void main() {
   testWidgets(
     'requires consent and receipt, retries same request without adding pending funds',
     (tester) async {
-      tester.view.physicalSize = const Size(800, 1800);
+      tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -175,6 +175,16 @@ void main() {
       await tester.ensureVisible(submit);
       await tester.tap(submit);
       await tester.pumpAndSettle();
+      expect(api.sent, isEmpty);
+      await tester.ensureVisible(find.byKey(const ValueKey('topupReference')));
+      await tester.enterText(
+        find.byKey(const ValueKey('topupReference')),
+        'TEST-REFERENCE-001',
+      );
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.sent.single['payerReference'], 'TEST-REFERENCE-001');
       expect(api.sent.single['amountMinor'], 1500001);
       expect(api.sent.single['acceptNonRefundable'], isTrue);
       expect(api.sent.single['qrVersion'], 2);
@@ -215,6 +225,7 @@ void main() {
       expect(api.sent.length, 2);
       expect(api.sent[0]['requestId'], api.sent[1]['requestId']);
       expect(api.sent[1]['qrVersion'], 2);
+      expect(api.sent[1]['payerReference'], 'TEST-REFERENCE-001');
       expect(draft.data, isNull);
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('walletBalance')),

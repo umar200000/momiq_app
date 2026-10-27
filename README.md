@@ -40,7 +40,7 @@ The backend sitter catalog starts empty. Listings and profiles are revisioned se
 
 ## Manual wallet payment drafts
 
-Opening a payment QR first persists its version, recipient and instructions on this device. Amount, receipt and stable retry ID are saved in an AES-256-GCM authenticated file in the app support directory. A device-only secure-storage key and account/API URL binding isolate drafts. If a write fails the initial QR remains hidden; subsequent save failures are shown with a retry action. Corrupt drafts are preserved until explicitly discarded. Consent must be reconfirmed after reopening.
+Opening a payment QR first persists its version, recipient and instructions on this device. New receipt submissions require the payment time or transaction ID shown by the provider. The user supplies these as evidence; they do not pre-fill the admin's verified transfer ID. Amount, receipt and stable retry ID are saved in an AES-256-GCM authenticated file in the app support directory. A device-only secure-storage key and account/API URL binding isolate drafts. If a write fails the initial QR remains hidden; subsequent save failures are shown with a retry action. Corrupt drafts are preserved until explicitly discarded. Consent must be reconfirmed after reopening.
 
 A successful server response clears the draft. A lost response preserves the same request ID for a safe retry; the server credits nothing until an admin verifies actual incoming funds. Signing out or clearing an incompatible session removes the local encrypted files and key. Drafts do not survive uninstall, logout or device loss; the original provider receipt remains the recovery evidence. No real payment should be made through local TEST QR images.
 
