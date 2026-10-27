@@ -1,3 +1,4 @@
+import '../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'customer_availability.dart';
 import 'customer_reviews.dart';
@@ -328,6 +329,15 @@ class SitterDetailPage extends StatelessWidget {
                     CustomerBookingForm(store: store, sitter: sitter),
                   ),
             id: 'bookSitter',
+          ),
+          TextButton.icon(
+            key: const ValueKey('contactSitter'),
+            onPressed: () =>
+                openConversation(context, sitter['id'], api: store.api),
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: Text(
+              lt('Enaga bilan yozishish', 'Message sitter', 'Написать няне'),
+            ),
           ),
         ],
       ),

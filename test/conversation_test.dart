@@ -1,0 +1,274 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:momiq_app/features/chat/data/conversation_controller.dart';
+import 'package:momiq_app/features/chat/presentation/conversation_page.dart';
+import 'package:momiq_app/features/customer/data/customer_api.dart';
+import 'package:momiq_app/features/wallet/data/wallet_draft_storage.dart';
+
+class ChatDraft extends WalletDraftStorage {
+  ChatJson? value;
+  bool failWrite = false, failClear = false;
+  @override
+  Future<ChatJson?> read() async => value == null ? null : Map.of(value!);
+  @override
+  Future<void> write(ChatJson data) async {
+    if (failWrite) throw StateError('Disk unavailable');
+    value = Map.of(data);
+  }
+
+  @override
+  Future<void> clear() async {
+    if (failClear) throw StateError('Disk unavailable');
+    value = null;
+  }
+}
+
+ChatJson msg(
+  int id, {
+  bool mine = false,
+  String? request,
+  String text = 'hello',
+}) => {
+  'id': '$id',
+  'mine': mine,
+  'senderRole': mine ? 'customer' : 'sitter',
+  'text': text,
+  'hasImage': false,
+  'created': '2026-10-28T10:00:00Z',
+  'requestId': request,
+};
+
+class ChatApi extends CustomerApi {
+  ChatApi() : super('test', 'customer');
+  final items = <ChatJson>[];
+  final posts = <ChatJson>[];
+  final paths = <String>[];
+  final reads = <String>[];
+  bool loseResponse = false;
+  Completer<void>? postGate;
+  ChatJson get summary => {
+    'id': 'chat',
+    'peerName': 'TEST sitter',
+    'service': 'boarding',
+    'myRole': 'customer',
+    'canSend': true,
+    'unreadCount': 1,
+    'peerReadThrough': '0',
+    'lastMessage': items.lastOrNull,
+  };
+  @override
+  Future<ChatJson> request(String method, String path, [ChatJson? body]) async {
+    paths.add('$method $path');
+    if (path.endsWith('/read')) {
+      reads.add(body!['throughId']);
+      return {'ok': true};
+    }
+    if (method == 'POST') {
+      posts.add(Map.of(body!));
+      if (postGate != null) await postGate!.future;
+      var item = items
+          .where((m) => m['requestId'] == body['requestId'])
+          .firstOrNull;
+      item ??= msg(
+        items.isEmpty ? 1 : int.parse(items.last['id']) + 1,
+        mine: true,
+        request: body['requestId'],
+        text: body['text'],
+      );
+      if (!items.any((m) => m['id'] == item!['id'])) items.add(item);
+      if (loseResponse) {
+        loseResponse = false;
+        throw CustomerApiException('Lost response');
+      }
+      return Map.of(item);
+    }
+    if (path.startsWith('/conversations?') || path == '/conversations') {
+      return {
+        'items': [summary],
+        'nextCursor': null,
+      };
+    }
+    final query = Uri.parse(path).queryParameters;
+    final selected = items
+        .where(
+          (m) => query.containsKey('after')
+              ? int.parse(m['id']) > int.parse(query['after']!)
+              : query.containsKey('before')
+              ? int.parse(m['id']) < int.parse(query['before']!)
+              : true,
+        )
+        .toList();
+    return {'items': selected, 'hasMore': false, 'conversation': summary};
+  }
+}
+
+void main() {
+  test(
+    'lost response survives restart and reuses exact persisted request',
+    () async {
+      final api = ChatApi()..loseResponse = true;
+      final storage = ChatDraft();
+      final first = ConversationController(api, 'chat', storage: storage);
+      await first.initialize();
+      expect(await first.send('original', null), false);
+      expect(api.items.length, 1);
+      final request = storage.value!['requestId'];
+      first.dispose();
+      final restored = ConversationController(api, 'chat', storage: storage);
+      await restored.initialize();
+      expect(restored.pending!['text'], 'original');
+      expect(await restored.send('accidental replacement', null), true);
+      expect(api.posts.map((p) => p['requestId']), [request, request]);
+      expect(api.posts.map((p) => p['text']), ['original', 'original']);
+      expect(api.items.length, 1);
+      expect(restored.messages.length, 1);
+      expect(storage.value, isNull);
+      restored.dispose();
+    },
+  );
+  test(
+    'failed draft write prevents POST and cleanup failure keeps retry safe',
+    () async {
+      final api = ChatApi();
+      final storage = ChatDraft()..failWrite = true;
+      final chat = ConversationController(api, 'chat', storage: storage);
+      await chat.initialize();
+      expect(await chat.send('hello', null), false);
+      expect(api.posts, isEmpty);
+      storage
+        ..failWrite = false
+        ..failClear = true;
+      expect(await chat.send('ignored', null), false);
+      expect(api.items.length, 1);
+      storage.failClear = false;
+      expect(await chat.send('ignored', null), true);
+      expect(api.items.length, 1);
+      chat.dispose();
+    },
+  );
+  test(
+    'local send never advances delta past unseen incoming message',
+    () async {
+      final api = ChatApi()..items.add(msg(8));
+      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      await chat.initialize();
+      api.items.add(msg(9, text: 'arrived during send'));
+      expect(await chat.send('reply', null), true);
+      expect(chat.readCursor, '8');
+      await chat.refresh();
+      expect(api.paths, contains('GET /conversations/chat/messages?after=8'));
+      expect(chat.messages.map((m) => m['id']), ['8', '9', '10']);
+      expect(chat.readCursor, '10');
+      chat.dispose();
+    },
+  );
+  test('double tap sends once and expired session cannot send', () async {
+    final api = ChatApi()..postGate = Completer<void>();
+    final chat = ConversationController(api, 'chat', storage: ChatDraft());
+    await chat.initialize();
+    final first = chat.send('hello', null);
+    await Future<void>.delayed(Duration.zero);
+    expect(await chat.send('hello', null), false);
+    api.postGate!.complete();
+    expect(await first, true);
+    expect(api.posts.length, 1);
+    CustomerApi.sessionVersion++;
+    expect(await chat.send('new', null), false);
+    chat.dispose();
+  });
+  testWidgets(
+    'background and covered route do not poll; resume fetches delta',
+    (tester) async {
+      final api = ChatApi()..items.add(msg(1));
+      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      await tester.pumpWidget(
+        MaterialApp(home: ConversationPage(controller: chat)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('TEST sitter'), findsWidgets);
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      final count = api.paths.length;
+      await tester.pump(const Duration(seconds: 11));
+      expect(api.paths.length, count);
+      for (final state in [
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await tester.pumpAndSettle();
+      expect(api.paths, contains('GET /conversations/chat/messages?after=1'));
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Other page')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final covered = api.paths.length;
+      await tester.pump(const Duration(seconds: 11));
+      expect(api.paths.length, covered);
+      await tester.pumpWidget(const SizedBox());
+      chat.dispose();
+    },
+  );
+  testWidgets('pending outbox locks composer and offers exact retry', (
+    tester,
+  ) async {
+    final api = ChatApi()..loseResponse = true;
+    final chat = ConversationController(api, 'chat', storage: ChatDraft());
+    await tester.pumpWidget(
+      MaterialApp(home: ConversationPage(controller: chat)),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('conversationText')),
+      'TEST message',
+    );
+    await tester.tap(find.byKey(const ValueKey('conversationSend')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('conversationText')))
+          .enabled,
+      false,
+    );
+    await tester.tap(find.byKey(const ValueKey('conversationSend')));
+    await tester.pumpAndSettle();
+    expect(api.items.length, 1);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('conversationText')))
+          .controller!
+          .text,
+      '',
+    );
+    await tester.pumpWidget(const SizedBox());
+    chat.dispose();
+  });
+  testWidgets('both roles use authenticated inbox and unread count', (
+    tester,
+  ) async {
+    final api = ChatApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ConversationInbox(api: api)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('TEST sitter'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(api.paths, contains('GET /conversations'));
+    await tester.pumpWidget(const SizedBox());
+  });
+}

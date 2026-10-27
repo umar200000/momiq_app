@@ -36,7 +36,7 @@ For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080
 
 ## Data availability
 
-The backend sitter catalog starts empty. Listings and profiles are revisioned server data. Admin moderation can publish explicitly marked test listings outside production; MyID approval and real date availability remain unfinished. Booking/commission processing and sitter chat must not claim success. Demo dashboards, reviews, care reports and invented photos/addresses were removed. Login code `111111` is confined to an explicitly enabled test environment.
+The backend sitter catalog starts empty. Listings and profiles are revisioned server data. Admin moderation can publish explicitly marked test listings outside production; MyID approval and real date availability remain unfinished. Booking/commission processing must not claim success. Participant chat now uses the authenticated conversation API; moderation, booking linkage and physical device verification remain open. Demo dashboards, reviews, care reports and invented photos/addresses were removed. Login code `111111` is confined to an explicitly enabled test environment.
 
 ## Manual wallet payment drafts
 
@@ -56,3 +56,12 @@ Logout revokes the current session when the server is reachable and clears this 
 
 
 Payment QR media: the original draft QR can be enlarged or explicitly saved to the system gallery with `gal` 2.3.3. Only the operator QR is exported; private receipts stay in the encrypted draft and authenticated API. Saved QR files remain outside the app after logout, so the screen instructs users to fetch the current QR before each new payment. Gallery permission denial/storage failure never reports success. Receipt selection offers camera/gallery, requests no full metadata, and validates PNG/JPEG/WebP size, dimensions and decoding before replacing the previous evidence. iOS add-only photo permission and Android legacy write permission (API <=29 only) are declared. Before launching the external picker, an encrypted interruption marker preserves the prior evidence. If the process dies, the wallet requires explicit reselection before submission; cancellation does not bypass that requirement. Global lost-picker data is never automatically attached across profile/pet/payment flows. Native process-death verification and physical iPhone permission/media checks remain open in M139.
+
+
+## Participant chat
+
+Customer and sitter chat tabs use the same authenticated conversation inbox. A listing contact button creates a server-validated conversation. Only participants can read/write; admin support history is labelled separately. History pages use server sequence cursors, images load on demand, and the peer read marker controls the Read label. Sent means accepted by the server, not delivered to a device.
+
+Active chat polls only deltas every five seconds and inbox metadata every ten seconds. Background or covered routes stop polling; switching tabs disposes their timer. The former global three-second account/full-message poll was removed. Before POST, the exact message and random request ID are saved with the existing AES-GCM storage implementation under a separate account/API/conversation scope. Failed response or restart locks that request for exact retry. The same logout cleanup removes these encrypted outboxes. Typing and image selection before Send remain in memory; this limitation must be kept visible in release review. New sent messages never advance the incoming cursor, so a concurrently received message cannot be skipped.
+
+Local API/widget tests cover ownership, retry/restart, concurrent send, pagination, read markers and lifecycle. Native screenshot capture is currently unavailable (black emulator capture); no physical Android/iOS chat acceptance is claimed. Report/block/moderation, booking linkage and external push remain unfinished.

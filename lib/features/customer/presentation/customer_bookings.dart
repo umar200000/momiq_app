@@ -1,3 +1,4 @@
+import '../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'customer_passport_photo.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
@@ -203,8 +204,7 @@ class CustomerBookingDetail extends StatelessWidget {
             ),
           cButton(
             'Enaga bilan yozishish',
-            () =>
-                cPush(context, CustomerChatPage(store: store, sitter: sitter)),
+            () => openConversation(context, sitter['id'], api: store.api),
             icon: Icons.chat_bubble_outline,
           ),
           for (final pet in bookingPets(b))
@@ -589,7 +589,13 @@ class _CustomerChatListState extends State<CustomerChatList> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          cText('Enagalar bilan suhbatlaringiz', size: 14),
+          Text(
+            lt(
+              'Oldingi yordam yozishmalari',
+              'Earlier support conversations',
+              'Предыдущие обращения',
+            ),
+          ),
           const SizedBox(height: 16),
           TextField(
             key: const ValueKey('customerChatSearch'),
@@ -842,7 +848,7 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
               padding: const EdgeInsets.all(10),
               child: cText(
                 widget.store.remote
-                    ? 'Enaga bilan suhbat'
+                    ? 'Momiq yordam xizmati'
                     : 'Suhbat · xabarlar hozircha qurilmada saqlanadi',
                 size: 11,
               ),

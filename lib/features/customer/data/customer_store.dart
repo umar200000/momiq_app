@@ -87,7 +87,6 @@ class CustomerStore extends ChangeNotifier {
   int _feedVersion = 0;
   bool _disposed = false;
   CustomerApi? api;
-  Timer? _syncTimer;
   bool _syncing = false;
   String? syncError;
   bool get remote => api != null;
@@ -146,7 +145,6 @@ class CustomerStore extends ChangeNotifier {
 
   @override
   void dispose() {
-    _syncTimer?.cancel();
     petSession.removeListener(_petsChanged);
     _disposed = true;
     super.dispose();
@@ -208,12 +206,6 @@ class CustomerStore extends ChangeNotifier {
       _data['messages'] = messages['messages'];
       if (AppLanguage.current.value != _data['language']) {
         await AppLanguage.select(_data['language'] ?? 'uz');
-      }
-      if (!_disposed) {
-        _syncTimer = Timer.periodic(
-          const Duration(seconds: 3),
-          (_) => refreshRemote(),
-        );
       }
     }
     loaded = true;

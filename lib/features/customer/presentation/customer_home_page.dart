@@ -1,3 +1,4 @@
+import '../../chat/presentation/conversation_page.dart';
 import '../data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'customer_home_design.dart';
@@ -662,7 +663,20 @@ class _CustomerHomePageState extends State<CustomerHomePage>
                                 ]
                               : _home(),
                         1 => [CustomerOrders(store: _store)],
-                        2 => [CustomerChatList(store: _store)],
+                        2 => [
+                          ConversationInbox(api: _store.api),
+                          if (_store.list('messages').isNotEmpty)
+                            ExpansionTile(
+                              title: Text(
+                                lt(
+                                  'Oldingi yordam yozishmalari',
+                                  'Earlier support conversations',
+                                  'Предыдущие обращения',
+                                ),
+                              ),
+                              children: [CustomerChatList(store: _store)],
+                            ),
+                        ],
                         _ => _profile(),
                       },
                     ),

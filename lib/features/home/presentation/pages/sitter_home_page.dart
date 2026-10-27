@@ -1,3 +1,4 @@
+import '../../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../../../customer/data/customer_api.dart';
 import '../../../wallet/presentation/wallet_page.dart';
@@ -292,17 +293,7 @@ class _SitterHomePageState extends State<SitterHomePage> {
       ),
     ),
   ];
-  List<Widget> chats() => [
-    card(
-      text(
-        t(
-          'Hozircha suhbatlar yo‘q',
-          'No conversations yet',
-          'Переписок пока нет',
-        ),
-      ),
-    ),
-  ];
+  List<Widget> chats() => [const ConversationInbox()];
   List<Widget> profile() => [
     ListTile(
       key: const ValueKey('sitterWallet'),
