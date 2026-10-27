@@ -16,6 +16,7 @@ import 'customer_widgets.dart';
 import 'customer_discovery.dart';
 import 'customer_bookings.dart';
 import 'customer_account.dart';
+import '../../notifications/presentation/notifications_page.dart';
 
 class CustomerHomePage extends StatefulWidget {
   const CustomerHomePage({super.key, this.store, this.locationService});
@@ -391,7 +392,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         ),
         IconButton(
-          onPressed: () => cPush(context, CustomerSettingsPage(store: _store)),
+          onPressed: () => cPush(context, const NotificationsPage()),
           icon: const Icon(Icons.notifications_none_rounded),
         ),
       ],

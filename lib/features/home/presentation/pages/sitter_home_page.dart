@@ -1,6 +1,7 @@
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../../../customer/data/customer_api.dart';
 import '../../../wallet/presentation/wallet_page.dart';
+import '../../../notifications/presentation/notifications_page.dart';
 import '../../../role_selection/presentation/pages/role_selection_page.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
@@ -471,10 +472,22 @@ class _SitterHomePageState extends State<SitterHomePage> {
                             ],
                           ),
                         ),
-                        const Icon(
-                          Icons.notifications_none_rounded,
-                          color: AppColors.brown,
-                          size: 27,
+                        IconButton(
+                          tooltip: t(
+                            'Bildirishnomalar',
+                            'Notifications',
+                            'Уведомления',
+                          ),
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const NotificationsPage(),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.notifications_none_rounded,
+                            color: AppColors.brown,
+                            size: 27,
+                          ),
                         ),
                       ],
                     ),
