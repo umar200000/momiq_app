@@ -6,23 +6,25 @@ Flutter application for pet owners and pet sitters.
 
 ## Local setup
 
-1. Install Flutter and run `flutter pub get`.
+1. On Windows run `./tool/setup-flutter.ps1`, then `./tool/flutter.ps1 pub get --enforce-lockfile`. This installs the pinned Flutter 3.44.5 in the project without replacing the global SDK. Other hosts should use `.flutter-version`.
 2. Copy `lib/core/config/maps_key.example.dart` to `lib/core/config/maps_key.local.dart`.
 3. Set your Yandex MapKit key in the local file, or pass `--dart-define=YANDEX_MAPKIT_API_KEY=YOUR_KEY` (the local file must still exist).
-4. Start the separate Momiq backend on port 8080.
-5. For a USB-connected Android phone, run `adb reverse tcp:8080 tcp:8080`.
-6. Run `flutter run`. Override the API URL with `--dart-define=MOMIQ_API_URL=https://your-server/api` when needed.
+4. Start the separate Momiq backend with `./start.ps1 -Port 8081 -Seed` after its Python setup.
+5. For a USB-connected Android device, run `adb reverse tcp:8081 tcp:8081`.
+6. Run `./tool/flutter.ps1 run --dart-define-from-file=config/preview.json`. `config/local.json` still targets port 8080; preview uses the isolated database on 8081. Changing the API URL clears an existing session by design.
 
-The localhost backend uses development verification code `111111`; real SMS is not connected. Client profile and chat use the backend. The catalog is loaded from the backend. No demonstration users, sitters, bookings or reviews are seeded.
+The localhost backend uses development verification code `111111`; real SMS is not connected. `-Seed` explicitly creates marked test accounts in an isolated preview database; production never auto-seeds them. Profile, preferences and manual Paynet Xolis top-up requests use the backend. Booking/commission integration and real sitter publication are still incomplete.
 
 ## Checks
 
 ```sh
-flutter analyze
-flutter test
+./tool/flutter.ps1 analyze
+./tool/flutter.ps1 test --concurrency=1
 ```
 
-The live API integration test is opt-in: `flutter test --dart-define=MOMIQ_INTEGRATION=true test/customer_api_integration_test.dart`.
+The live API integration test is opt-in: `./tool/flutter.ps1 test --dart-define=MOMIQ_INTEGRATION=true --dart-define-from-file=config/preview.json test/customer_api_integration_test.dart`.
+
+The Windows wrapper keeps Gradle and temporary build files in `.local/gradle` and `.local/tmp` to avoid filling the system drive. CI checks analysis, tests, an Android ARM64 debug build with Java 21 and an iOS simulator build. Release signing remains deferred. For an x64 Android emulator preview APK, run `./tool/flutter.ps1 build apk --debug --target-platform android-x64 --dart-define-from-file=config/preview.json`.
 
 Credentials, signing keys, build outputs and local configuration are excluded from Git. Do not commit the local MapKit key.
 
