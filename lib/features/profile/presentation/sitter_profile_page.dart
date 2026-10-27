@@ -33,6 +33,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   final _message = TextEditingController();
   Uint8List? _photo;
   Map<String, dynamic>? _loadedAccount;
+  bool _loadFailed = false;
   bool _loading = true,
       _saving = false,
       _orders = true,
@@ -58,10 +59,16 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   }
 
   Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadFailed = false;
+      });
+    }
     try {
       final p = await SharedPreferences.getInstance();
       final api = await CustomerApi.restore();
-      if (api != null && widget.section == 0) {
+      if (api != null && [0, 1, 3, 5].contains(widget.section)) {
         final response = await api.request('GET', '/me');
         final account = Map<String, dynamic>.from(response['account']);
         _loadedAccount = account;
@@ -74,6 +81,19 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
             : base64Decode(profile['photo']);
         _years.text = '${sitter['years'] ?? ''}';
         _about.text = sitter['about'] ?? '';
+        final notifications = account['notifications'] as Map? ?? {};
+        _orders = notifications['orders'] != false;
+        _chat = notifications['chat'] != false;
+        _care = notifications['video'] != false;
+        final schedule = sitter['schedule'] as Map?;
+        if (schedule != null) {
+          _days = List<bool>.from(schedule['days']);
+          final start = schedule['start'] as int;
+          final end = schedule['end'] as int;
+          _start = TimeOfDay(hour: start ~/ 60, minute: start % 60);
+          _end = TimeOfDay(hour: end ~/ 60, minute: end % 60);
+        }
+        await AppLanguage.select(account['language'] ?? 'uz');
         if (mounted) setState(() => _loading = false);
         return;
       }
@@ -90,6 +110,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       _start = TimeOfDay(hour: a ~/ 60, minute: a % 60);
       _end = TimeOfDay(hour: b ~/ 60, minute: b % 60);
     } catch (_) {
+      _loadFailed = true;
       if (mounted) {
         _notice(
           tr(
@@ -109,7 +130,6 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   Future<void> _save() async {
     if (_saving || !(_form.currentState?.validate() ?? true)) return;
     if (widget.section == 1 &&
-        _days.any((v) => v) &&
         _start.hour * 60 + _start.minute >= _end.hour * 60 + _end.minute) {
       _notice(
         tr(
@@ -132,15 +152,13 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     }
     setState(() => _saving = true);
     try {
-      final p = await SharedPreferences.getInstance();
-      final results = <bool>[];
-      if (widget.section == 0) {
-        final api = await CustomerApi.restore();
-        if (api != null) {
-          if (_loadedAccount == null) {
-            throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
-          }
-          final account = Map<String, dynamic>.from(_loadedAccount!);
+      final api = await CustomerApi.restore();
+      if (api != null) {
+        if (_loadedAccount == null) {
+          throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
+        }
+        final account = Map<String, dynamic>.from(_loadedAccount!);
+        if (widget.section == 0) {
           account['profile'] = {
             'first': _first.text.trim(),
             'last': _last.text.trim(),
@@ -151,12 +169,32 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
             'years': int.tryParse(_years.text),
             'about': _about.text.trim(),
           };
-          final saved = await api.request('PUT', '/me', account);
-          await CustomerApi.rememberAccount(
-            Map<String, dynamic>.from(saved['account']),
-          );
+        } else if (widget.section == 1) {
+          account['sitterProfile'] = {
+            ...?account['sitterProfile'] as Map?,
+            'schedule': {
+              'days': _days,
+              'start': _start.hour * 60 + _start.minute,
+              'end': _end.hour * 60 + _end.minute,
+            },
+          };
+        } else if (widget.section == 3) {
+          account['notifications'] = {
+            'orders': _orders,
+            'chat': _chat,
+            'video': _care,
+          };
         }
-
+        final saved = await api.request('PUT', '/me', account);
+        _loadedAccount = Map<String, dynamic>.from(saved['account']);
+        await CustomerApi.rememberAccount(_loadedAccount!);
+        if (mounted) Navigator.pop(context, true);
+        return;
+      }
+      if (CustomerApi.enabled) throw StateError('Hisobingizga qayta kiring');
+      final p = await SharedPreferences.getInstance();
+      final results = <bool>[];
+      if (widget.section == 0) {
         results.add(
           await p.setString('mock.profile.first', _first.text.trim()),
         );
@@ -196,16 +234,44 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       if (results.any((ok) => !ok)) throw StateError('Save failed');
       if (!mounted) return;
       Navigator.pop(context, true);
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         _notice(
-          tr(
-            'Saqlanmadi. Qayta urinib ko‘ring.',
-            'Could not save. Retry.',
-            'Не удалось сохранить. Повторите.',
-          ),
+          e is CustomerApiException
+              ? e.message
+              : tr(
+                  'Saqlanmadi. Qayta urinib ko‘ring.',
+                  'Could not save. Retry.',
+                  'Не удалось сохранить. Повторите.',
+                ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _selectLanguage(String value) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final api = await CustomerApi.restore();
+      if (api != null) {
+        if (_loadedAccount == null) {
+          throw StateError('Profil yuklanmagan');
+        }
+        final saved = await api.request('PUT', '/me', {
+          ..._loadedAccount!,
+          'language': value,
+        });
+        _loadedAccount = Map<String, dynamic>.from(saved['account']);
+        await CustomerApi.rememberAccount(_loadedAccount!);
+      } else if (CustomerApi.enabled) {
+        throw StateError('Hisobingizga qayta kiring');
+      }
+      await AppLanguage.select(value);
+    } catch (e) {
+      if (mounted) _notice(e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -292,6 +358,13 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       appBar: AppBar(backgroundColor: listingBackground, title: Text(title)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : _loadFailed
+          ? Center(
+              child: FilledButton(
+                onPressed: _load,
+                child: Text(tr('Qayta urinish', 'Retry', 'Повторить')),
+              ),
+            )
           : SafeArea(
               child: Form(
                 key: _form,
@@ -325,6 +398,22 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                                   ),
                                 ),
                               ),
+                              if (_photo != null)
+                                TextButton(
+                                  key: const ValueKey(
+                                    'removeSitterProfilePhoto',
+                                  ),
+                                  onPressed: _saving
+                                      ? null
+                                      : () => setState(() => _photo = null),
+                                  child: Text(
+                                    tr(
+                                      'Rasmni olib tashlash',
+                                      'Remove photo',
+                                      'Удалить фото',
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -555,9 +644,9 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                                   : Icons.radio_button_off,
                               color: listingGold,
                             ),
-                            onTap: () async {
-                              await AppLanguage.select(item.$1);
-                            },
+                            onTap: _saving
+                                ? null
+                                : () => _selectLanguage(item.$1),
                           ),
                         ),
                     ],

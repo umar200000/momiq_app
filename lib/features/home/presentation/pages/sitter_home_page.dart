@@ -45,6 +45,27 @@ class _SitterHomePageState extends State<SitterHomePage> {
   }
 
   Future<void> _loadProfile() async {
+    final api = await CustomerApi.restore();
+    if (api != null) {
+      try {
+        final response = await api.request('GET', '/me');
+        final account = Map<String, dynamic>.from(response['account']);
+        await CustomerApi.rememberAccount(account);
+        await AppLanguage.select(account['language'] ?? 'uz');
+        if (!mounted) return;
+        final profile = account['profile'];
+        setState(() {
+          _firstName = profile['first'] ?? '';
+          _lastName = profile['last'] ?? '';
+          _profileAvatar = profile['photo'] == null
+              ? null
+              : base64Decode(profile['photo']);
+        });
+      } catch (_) {
+        // Keep the last server-backed view; local mock values cannot replace it.
+      }
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     final photo = prefs.getString('mock.profile.avatar');
