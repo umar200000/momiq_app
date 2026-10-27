@@ -52,8 +52,8 @@ class CustomerPetsPage extends StatelessWidget {
                     ),
                   ],
                 ),
-                if ('${pet['notes']}'.isNotEmpty)
-                  cRow(Icons.notes_outlined, pet['notes']),
+                if ('${pet['notes'] ?? ''}'.trim().isNotEmpty)
+                  cRow(Icons.notes_outlined, '${pet['notes']}'),
               ],
             ),
             onTap: select
@@ -102,13 +102,13 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
     _type = widget.allowedTypes.length == 1 ? widget.allowedTypes.single : null;
     final p = widget.pet;
     if (p != null) {
-      _name.text = p['name'];
-      _age.text = p['age'];
-      _breed.text = p['breed'];
-      _notes.text = p['notes'];
+      _name.text = p['name'] ?? '';
+      _age.text = p['age'] ?? '';
+      _breed.text = p['breed'] ?? '';
+      _notes.text = p['notes'] ?? '';
       if (widget.allowedTypes.contains(p['type'])) _type = p['type'];
       _otherType.text = p['otherType'] ?? '';
-      _sex = p['sex'];
+      _sex = p['sex'] ?? '';
       _photo = p['photo'];
     }
   }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:momiq_app/core/config/app_environment.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
@@ -65,6 +66,7 @@ void main() {
       'momiq.api.token': 'saved-token',
       'momiq.api.user': 'saved-user',
       'momiq.api.role': 'sitter',
+      'momiq.api.scope': AppEnvironment.current.sessionScope,
     });
     final restored = await CustomerApi.restore();
     expect(restored!.token, 'saved-token');

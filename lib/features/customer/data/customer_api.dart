@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/config/app_environment.dart';
 
 class CustomerApiException implements Exception {
   CustomerApiException(this.message, [this.status]);
@@ -19,10 +20,7 @@ class CustomerApiException implements Exception {
 class CustomerApi {
   CustomerApi(this.token, this.userId, {String? baseUrl})
     : baseUrl = baseUrl ?? configuredUrl;
-  static const configuredUrl = String.fromEnvironment(
-    'MOMIQ_API_URL',
-    defaultValue: 'https://api.momiq.net/api',
-  );
+  static String get configuredUrl => AppEnvironment.current.apiUrl;
   static bool get enabled =>
       !Platform.environment.containsKey('FLUTTER_TEST') &&
       const bool.fromEnvironment('MOMIQ_API_ENABLED', defaultValue: true);
@@ -55,6 +53,10 @@ class CustomerApi {
     bool customer = true,
   }) async {
     final anonymous = CustomerApi('', '');
+    AppEnvironment.current.validate();
+    AppEnvironment.current.validateHealth(
+      await anonymous.request('GET', '/health'),
+    );
     final data = await anonymous.request('POST', '/auth/login', {
       'phone': phone,
       'code': code,
@@ -70,6 +72,10 @@ class CustomerApi {
           'momiq.api.account',
           jsonEncode(data['account']),
         ) ||
+        !await prefs.setString(
+          'momiq.api.scope',
+          AppEnvironment.current.sessionScope,
+        ) ||
         !await prefs.setString('momiq.api.token', data['token'])) {
       await clearLocal();
       throw StateError('Sessiya saqlanmadi');
@@ -81,6 +87,17 @@ class CustomerApi {
   static Future<CustomerApi?> restore() async {
     if (active != null) return active;
     final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('momiq.api.token') == null &&
+        prefs.getString('momiq.api.user') == null &&
+        prefs.getString('momiq.api.scope') == null) {
+      return null;
+    }
+    if (prefs.getString('momiq.api.scope') !=
+        AppEnvironment.current.sessionScope) {
+      // Unknown legacy or other-environment credentials must never be transmitted.
+      await clearLocal();
+      return null;
+    }
     final token = prefs.getString('momiq.api.token');
     final user = prefs.getString('momiq.api.user');
     if (token == null || user == null) return null;

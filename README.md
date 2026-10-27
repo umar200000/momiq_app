@@ -1,5 +1,7 @@
 # Momiq app
 
+Current development builds default to `http://127.0.0.1:8080/api` with `MOMIQ_ENV=local`. Use `config/local.json` or explicit defines; `config/production.json` is reserved for the final production build. Hosted staging requires its own URL and `MOMIQ_ENV=staging`. Unknown/other-environment sessions are cleared before reuse. Production login requires real SMS and rejects a server advertising test login. See the sibling backend's `LOCAL_DEVELOPMENT.md` and `PRODUCTION_CHECKLIST.md` for current setup and progress.
+
 Flutter application for pet owners and pet sitters.
 
 ## Local setup
@@ -26,7 +28,7 @@ Credentials, signing keys, build outputs and local configuration are excluded fr
 
 ## Hosted test environment
 
-The app now defaults to `https://api.momiq.net/api`. Sign out and sign in after switching from localhost; local sessions are not migrated. Test verification code: `111111`. This is not phone ownership verification: use only test data until SMS authentication is implemented.
+The existing hosted test server is `https://api.momiq.net/api`; it is not a production-ready customer launch. New environment-guarded builds must use a separate staging endpoint for hosted test login. SMS integration and production signing are deferred to the final phase.
 
 For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080/api` and USB adb reverse. Run local live integration tests with the same URL override. GitHub Actions runs analysis and tests on pushes/PRs; mobile store releases/signing are not configured.
 

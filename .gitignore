@@ -60,3 +60,5 @@ lib/core/config/maps_key.local.dart
 
 **/build/
 *.recovery-backup
+.local/
+config/*.local.json
