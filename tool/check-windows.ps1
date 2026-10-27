@@ -1,4 +1,4 @@
-param([string]$Flutter = 'flutter')
+param([string]$Flutter = (Join-Path $PSScriptRoot 'flutter.ps1'))
 $ErrorActionPreference = 'Stop'
 $appRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $appRoot

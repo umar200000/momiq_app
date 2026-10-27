@@ -1,5 +1,6 @@
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../../../customer/data/customer_api.dart';
+import '../../../wallet/presentation/wallet_page.dart';
 import '../../../role_selection/presentation/pages/role_selection_page.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
@@ -302,6 +303,14 @@ class _SitterHomePageState extends State<SitterHomePage> {
     ),
   ];
   List<Widget> profile() => [
+    ListTile(
+      key: const ValueKey('sitterWallet'),
+      leading: const Icon(Icons.account_balance_wallet_outlined),
+      title: Text(t('Momiq balansi', 'Momiq balance', 'Баланс Momiq')),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const WalletPage())),
+    ),
     ListTile(
       key: const ValueKey('sitterLogoutAll'),
       leading: const Icon(Icons.devices),

@@ -17,7 +17,7 @@ jobs:
           channel: stable
           cache: true
       - run: cp lib/core/config/maps_key.example.dart lib/core/config/maps_key.local.dart
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
       - run: flutter test
   ios-simulator:
@@ -31,5 +31,5 @@ jobs:
           channel: stable
           cache: true
       - run: cp lib/core/config/maps_key.example.dart lib/core/config/maps_key.local.dart
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: flutter build ios --simulator --debug --no-codesign --dart-define-from-file=config/local.json
