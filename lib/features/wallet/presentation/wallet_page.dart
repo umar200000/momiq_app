@@ -3,6 +3,9 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
+import '../data/receipt_image.dart';
+import 'payment_qr.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../customer/data/customer_api.dart';
@@ -36,7 +39,7 @@ class WalletPage extends StatefulWidget {
     this.topupId,
   });
   final CustomerApi? api;
-  final Future<Uint8List?> Function()? pickReceipt;
+  final Future<Uint8List?> Function(ImageSource source)? pickReceipt;
   final WalletDraftStorage? draftStorage;
   final String? topupId;
   @override
@@ -384,38 +387,94 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     if (_picking || _sending) return;
     setState(() => _picking = true);
     try {
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                key: const ValueKey('receiptGallery'),
+                leading: const Icon(Icons.photo_library),
+                title: Text(
+                  lt(
+                    'Galereyadan tanlash',
+                    'Choose from gallery',
+                    'Выбрать из галереи',
+                  ),
+                ),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              ListTile(
+                key: const ValueKey('receiptCamera'),
+                leading: const Icon(Icons.camera_alt),
+                title: Text(
+                  lt(
+                    'Chekni suratga olish',
+                    'Photograph receipt',
+                    'Сфотографировать чек',
+                  ),
+                ),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (source == null || !mounted) return;
       Uint8List? bytes;
       if (widget.pickReceipt != null) {
-        bytes = await widget.pickReceipt!();
+        bytes = await widget.pickReceipt!(source);
       } else {
         final file = await ImagePicker().pickImage(
-          source: ImageSource.gallery,
+          source: source,
           maxWidth: 2400,
+          maxHeight: 2400,
           imageQuality: 95,
+          requestFullMetadata: false,
         );
-        bytes = await file?.readAsBytes();
+        if (file != null) {
+          if (await file.length() > 3 * 1024 * 1024) {
+            throw const FormatException('size');
+          }
+          bytes = await file.readAsBytes();
+        }
       }
       if (bytes != null) {
-        if (bytes.length > 3 * 1024 * 1024) {
-          throw CustomerApiException(
-            lt(
-              'Chek 3 MB dan kichik bo‘lsin.',
-              'Receipt must be under 3 MB.',
-              'Чек должен быть меньше 3 МБ.',
-            ),
-          );
-        }
+        await validateReceiptImage(bytes);
         if (mounted) {
           setState(() {
             _receipt = bytes;
             _requestId = null;
             _draftRevision++;
           });
-          await _persistDraft();
+          await _saveDraftSafely();
         }
       }
-    } catch (error) {
-      _notice(error.toString());
+    } on PlatformException {
+      _notice(
+        lt(
+          'Kamera yoki galereya ochilmadi. Ruxsatlarni tekshiring yoki boshqa usulni tanlang.',
+          'Could not open camera or gallery. Check permissions or choose another source.',
+          'Не удалось открыть камеру или галерею. Проверьте разрешения или выберите другой способ.',
+        ),
+      );
+    } on FormatException {
+      _notice(
+        lt(
+          'Chek to‘liq PNG, JPEG yoki WebP rasm bo‘lsin: 3 MB va 12 megapikseldan oshmasin.',
+          'Choose a complete PNG, JPEG or WebP receipt under 3 MB and 12 megapixels.',
+          'Выберите целое изображение PNG, JPEG или WebP до 3 МБ и 12 мегапикселей.',
+        ),
+      );
+    } catch (_) {
+      _notice(
+        lt(
+          'Chek ochilmadi yoki qoralama saqlanmadi. Oldingi ma’lumotlar saqlandi; qayta urinib ko‘ring.',
+          'Could not load the receipt or save the draft. Previous data is retained; please retry.',
+          'Не удалось открыть чек или сохранить черновик. Предыдущие данные сохранены; повторите попытку.',
+        ),
+      );
     } finally {
       if (mounted) setState(() => _picking = false);
     }
@@ -707,17 +766,11 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
             ),
           ),
         if (!_editing)
-          Image.memory(
-            base64Decode(qr),
-            height: 240,
-            semanticLabel: 'Paynet Xolis QR',
-            errorBuilder: (_, _, _) => Text(
-              lt(
-                'QR rasm ochilmadi.',
-                'Could not load QR image.',
-                'Не удалось открыть QR.',
-              ),
-            ),
+          PaymentQr(
+            bytes: base64Decode(qr),
+            version: config['version'] as int,
+            recipient: config['recipientName'] as String? ?? '',
+            testOnly: config['testOnly'] == true,
           ),
         if (!_editing)
           Text(

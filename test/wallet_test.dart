@@ -1,18 +1,21 @@
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/wallet/presentation/wallet_page.dart';
 import 'package:momiq_app/features/wallet/data/wallet_draft_storage.dart';
 
 const png =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg==';
 
 class MemoryDraft extends WalletDraftStorage {
   Map<String, dynamic>? data;
   bool failWrite = false, failClear = false;
   Completer<void>? gate;
+  var receiptSaved = Completer<void>();
   @override
   Future<Map<String, dynamic>?> read() async => data == null
       ? null
@@ -22,6 +25,9 @@ class MemoryDraft extends WalletDraftStorage {
     if (failWrite) throw StateError('Storage unavailable');
     if (gate != null) await gate!.future;
     data = Map<String, dynamic>.from(jsonDecode(jsonEncode(value)));
+    if (data!["receipt"] != null && !receiptSaved.isCompleted) {
+      receiptSaved.complete();
+    }
   }
 
   @override
@@ -243,6 +249,62 @@ void main() {
     }
   });
   testWidgets(
+    'camera denial retains original evidence and offers gallery fallback',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final api = WalletApi();
+      final config = (await api.request('GET', '/wallet'))['config'];
+      final draft = MemoryDraft()
+        ..data = {
+          'formatVersion': 1,
+          'config': config,
+          'amount': '15000',
+          'receipt': png,
+          'payerReference': 'TEST-saved',
+          'requestId': 'stable-original',
+        };
+      final sources = <ImageSource>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WalletPage(
+            api: api,
+            draftStorage: draft,
+            pickReceipt: (source) async {
+              sources.add(source);
+              if (source == ImageSource.camera) {
+                throw PlatformException(code: 'camera_access_denied');
+              }
+              return null; // User cancels the gallery picker.
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('pickTopupReceipt')),
+      );
+      await tester.tap(find.byKey(const ValueKey('pickTopupReceipt')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('receiptCamera')));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Kamera yoki galereya ochilmadi.'),
+        findsOneWidget,
+      );
+      expect(draft.data!['receipt'], png);
+      expect(draft.data!['requestId'], 'stable-original');
+      await tester.tap(find.byKey(const ValueKey('pickTopupReceipt')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('receiptGallery')));
+      await tester.pumpAndSettle();
+      expect(sources, [ImageSource.camera, ImageSource.gallery]);
+      expect(draft.data!['receipt'], png);
+      expect(api.sent, isEmpty);
+    },
+  );
+  testWidgets(
     'requires consent and receipt, retries same request without adding pending funds',
     (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
@@ -256,7 +318,7 @@ void main() {
           home: WalletPage(
             api: api,
             draftStorage: draft,
-            pickReceipt: () async => base64Decode(png),
+            pickReceipt: (_) async => base64Decode(png),
           ),
         ),
       );
@@ -269,7 +331,13 @@ void main() {
         find.byKey(const ValueKey('topupAmount')),
         '15000.01',
       );
-      await tester.tap(find.byKey(const ValueKey('pickTopupReceipt')));
+      await tester.runAsync(() async {
+        draft.receiptSaved = Completer<void>();
+        await tester.tap(find.byKey(const ValueKey('pickTopupReceipt')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('receiptGallery')));
+        await draft.receiptSaved.future.timeout(const Duration(seconds: 3));
+      });
       await tester.pumpAndSettle();
       expect(tester.widget<FilledButton>(submit).onPressed, isNull);
       await tester.ensureVisible(

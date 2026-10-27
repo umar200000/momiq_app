@@ -51,6 +51,7 @@ dependencies:
   flutter_secure_storage: 11.2.0
   cryptography: 2.9.0
   cryptography_flutter: 2.3.4
+  gal: 2.3.3
 
 dev_dependencies:
   flutter_test:
