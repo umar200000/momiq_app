@@ -20,6 +20,8 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
       - run: flutter test
+      - name: Build Android debug for ARM64
+        run: flutter build apk --debug --no-pub --target-platform android-arm64 --dart-define-from-file=config/local.json
   ios-simulator:
     runs-on: macos-15
     timeout-minutes: 30
