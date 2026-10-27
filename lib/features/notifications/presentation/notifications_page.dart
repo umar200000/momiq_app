@@ -94,9 +94,20 @@ class _NotificationsPageState extends State<NotificationsPage>
       'approved' => lt('Tasdiqlangan', 'Approved', 'Одобрено'),
       'rejected' => lt('Rad etilgan', 'Rejected', 'Отклонено'),
       'suspended' => lt('To‘xtatilgan', 'Suspended', 'Приостановлено'),
+      'needs_info' => lt(
+        'Aniqlashtirish kerak',
+        'More information needed',
+        'Нужно уточнение',
+      ),
       _ => lt('Yangilangan', 'Updated', 'Обновлено'),
     };
     return '$topic · $status';
+  }
+
+  String _date(String value) {
+    final date = DateTime.parse(value).toLocal();
+    final labels = MaterialLocalizations.of(context);
+    return '${labels.formatMediumDate(date)} ${labels.formatTimeOfDay(TimeOfDay.fromDateTime(date))}';
   }
 
   Future<void> _open(Map<String, dynamic> item) async {
@@ -237,7 +248,7 @@ class _NotificationsPageState extends State<NotificationsPage>
                 ),
                 title: Text(_title(item)),
                 subtitle: Text(
-                  '${item['reason']}\n${DateTime.parse(item['created'] as String).toLocal()}',
+                  '${item['reason']}\n${_date(item['created'] as String)}',
                   maxLines: 4,
                   overflow: TextOverflow.ellipsis,
                 ),

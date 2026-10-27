@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../customer/data/customer_api.dart';
 import '../data/wallet_draft_storage.dart';
+import 'topup_history_page.dart';
 
 int parseWalletAmount(String text) {
   final value = text.trim().replaceAll(',', '.');
@@ -27,10 +28,17 @@ String walletMoney(int minor) =>
     '${minor < 0 ? '-' : ''}${minor.abs() ~/ 100}${minor.abs() % 100 == 0 ? '' : '.${(minor.abs() % 100).toString().padLeft(2, '0')}'} so‘m';
 
 class WalletPage extends StatefulWidget {
-  const WalletPage({super.key, this.api, this.pickReceipt, this.draftStorage});
+  const WalletPage({
+    super.key,
+    this.api,
+    this.pickReceipt,
+    this.draftStorage,
+    this.topupId,
+  });
   final CustomerApi? api;
   final Future<Uint8List?> Function()? pickReceipt;
   final WalletDraftStorage? draftStorage;
+  final String? topupId;
   @override
   State<WalletPage> createState() => _WalletPageState();
 }
@@ -58,6 +66,8 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       _draftUnreadable = false;
   String? _draftError;
   int _draftRevision = 0, _savedDraftRevision = 0;
+  int? _editingRevision;
+  bool get _editing => widget.topupId != null;
   @override
   void initState() {
     super.initState();
@@ -93,6 +103,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     final version = _draftRevision;
     final data = <String, dynamic>{
       'formatVersion': 1,
+      if (_editing) 'topupRevision': _editingRevision,
       'amount': _amount.text,
       'payerReference': _payerReference.text,
       'paidAt': _paidAt?.toUtc().toIso8601String(),
@@ -238,7 +249,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           widget.draftStorage ??
           EncryptedWalletDraftStorage(
             owner: _api!.userId,
-            scope: _api!.baseUrl,
+            scope: _api!.baseUrl + (_editing ? '/topup/${widget.topupId}' : ''),
           );
       if (!_draftRestored) {
         try {
@@ -259,6 +270,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
                 ? null
                 : base64Decode(draft['receipt'] as String);
             _requestId = draft['requestId'] as String?;
+            if (_editing) _editingRevision = draft['topupRevision'] as int;
             _paymentStarted = true;
           }
           _draftRestored = true;
@@ -275,6 +287,53 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       }
       final wallet = await _api!.request('GET', '/wallet');
       final topups = await _api!.request('GET', '/wallet/topups');
+      if (_editing && !_paymentStarted) {
+        final result = await _api!.request(
+          'GET',
+          '/wallet/topups/${widget.topupId}',
+        );
+        final row = Map<String, dynamic>.from(result['topup']);
+        if (row['status'] != 'needs_info' && row['status'] != 'rejected') {
+          throw CustomerApiException(
+            lt(
+              'Bu so‘rov hozir tahrirlashga ochiq emas.',
+              'This request is not open for changes.',
+              'Этот запрос сейчас нельзя изменить.',
+            ),
+          );
+        }
+        final evidence = await _api!.request(
+          'GET',
+          '/wallet/topups/${widget.topupId}/receipt',
+        );
+        if (evidence['revision'] != row['revision']) {
+          throw CustomerApiException(
+            lt(
+              'So‘rov o‘zgargan. Qayta yuklang.',
+              'This request changed. Please reload.',
+              'Запрос изменился. Обновите страницу.',
+            ),
+          );
+        }
+        _paymentConfig = {
+          ...Map<String, dynamic>.from(wallet['config']),
+          ...Map<String, dynamic>.from(evidence['paymentSnapshot']),
+          'qrActive': true,
+        };
+        _editingRevision = row['revision'] as int;
+        _amount.text = walletMoney(
+          row['amountMinor'] as int,
+        ).replaceAll(' so‘m', '');
+        _payerReference.text = row['payerReference'] as String? ?? '';
+        _paidAt = row['paidAt'] == null
+            ? null
+            : DateTime.parse(row['paidAt'] as String).toLocal();
+        _receipt = base64Decode(evidence['receipt'] as String);
+        _requestId = null;
+        _paymentStarted = true;
+        _paymentSubmitted = false;
+        await _saveDraftSafely();
+      }
       if (mounted) {
         setState(() {
           _wallet = wallet;
@@ -366,36 +425,45 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     if (_sending || _receipt == null || !_accepted || _api == null) return;
     setState(() => _sending = true);
     try {
-      final value = parseWalletAmount(_amount.text);
-      if (_paidAt == null && _payerReference.text.trim().isEmpty) {
-        throw CustomerApiException(
-          lt(
-            'Chekdagi to‘lov vaqtini yoki operatsiya ID raqamini kiriting.',
-            'Enter the payment time or transaction ID from the receipt.',
-            'Укажите время платежа или ID операции из чека.',
-          ),
+      if (!_paymentSubmitted) {
+        final value = parseWalletAmount(_amount.text);
+        if (_paidAt == null && _payerReference.text.trim().isEmpty) {
+          throw CustomerApiException(
+            lt(
+              'Chekdagi to‘lov vaqtini yoki operatsiya ID raqamini kiriting.',
+              'Enter the payment time or transaction ID from the receipt.',
+              'Укажите время платежа или ID операции из чека.',
+            ),
+          );
+        }
+        final config = _paymentConfig!;
+        _requestId ??= base64UrlEncode(
+          List<int>.generate(18, (_) => Random.secure().nextInt(256)),
         );
+        _draftTimer?.cancel();
+        _draftRevision++;
+        await _persistDraft(); // Stable retry id must survive before sending money evidence.
+        await _api!.request(
+          'POST',
+          _editing
+              ? '/wallet/topups/${widget.topupId}/amend'
+              : '/wallet/topups',
+          {
+            if (_editing) 'revision': _editingRevision,
+            'requestId': _requestId,
+            'amountMinor': value,
+            'payerReference': _payerReference.text.trim(),
+            'paidAt': _paidAt?.toUtc().toIso8601String(),
+            'receipt': base64Encode(_receipt!),
+            'qrVersion': config['version'],
+            'termsVersion': config['termsVersion'],
+            'acceptNonRefundable': true,
+          },
+        );
+        // Lifecycle/dispose saves must not recreate a successfully submitted draft
+        // while its queued clear is still completing.
+        _paymentSubmitted = true;
       }
-      final config = _paymentConfig!;
-      _requestId ??= base64UrlEncode(
-        List<int>.generate(18, (_) => Random.secure().nextInt(256)),
-      );
-      _draftTimer?.cancel();
-      _draftRevision++;
-      await _persistDraft(); // Stable retry id must survive before sending money evidence.
-      await _api!.request('POST', '/wallet/topups', {
-        'requestId': _requestId,
-        'amountMinor': value,
-        'payerReference': _payerReference.text.trim(),
-        'paidAt': _paidAt?.toUtc().toIso8601String(),
-        'receipt': base64Encode(_receipt!),
-        'qrVersion': config['version'],
-        'termsVersion': config['termsVersion'],
-        'acceptNonRefundable': true,
-      });
-      // Lifecycle/dispose saves must not recreate a successfully submitted draft
-      // while its queued clear is still completing.
-      _paymentSubmitted = true;
       await _draftStorage!.clear();
       if (!mounted) return;
       setState(() {
@@ -407,6 +475,10 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         _payerReference.clear();
         _paidAt = null;
       });
+      if (_editing) {
+        Navigator.of(context).pop(true);
+        return;
+      }
       _notice(
         lt(
           'Chek yuborildi. Balans admin tekshirganidan keyin to‘ldiriladi.',
@@ -459,6 +531,11 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   }
 
   String _status(String value) => switch (value) {
+    'needs_info' => lt(
+      'Aniqlashtirish kerak',
+      'More information needed',
+      'Нужно уточнение',
+    ),
     'approved' => lt('Tasdiqlangan', 'Approved', 'Подтверждено'),
     'rejected' => lt('Rad etilgan', 'Rejected', 'Отклонено'),
     _ => lt('Tekshirilmoqda', 'Under review', 'На проверке'),
@@ -539,7 +616,20 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
       ),
       const Divider(height: 32),
-      Text('Paynet Xolis', style: Theme.of(context).textTheme.titleLarge),
+      Text(
+        _editing
+            ? lt('Chekni aniqlashtirish', 'Clarify receipt', 'Уточнение чека')
+            : 'Paynet Xolis',
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
+      if (_editing)
+        Text(
+          lt(
+            'Bu avvalgi to‘lovni aniqlashtirish. Qayta pul o‘tkazmang.',
+            'This clarifies an existing payment. Do not pay again.',
+            'Это уточнение уже совершённого платежа. Не платите повторно.',
+          ),
+        ),
       if (config['testOnly'] == true)
         Text(
           lt(
@@ -605,38 +695,42 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           '${lt('Oluvchi', 'Recipient', 'Получатель')}: ${config['recipientName'] ?? ''}',
           style: Theme.of(context).textTheme.titleMedium,
         ),
-        if ((config['paymentInstructions'] as String? ?? '').isNotEmpty)
+        if (!_editing &&
+            (config['paymentInstructions'] as String? ?? '').isNotEmpty)
           Text(config['paymentInstructions'] as String),
-        Text(
-          lt(
-            'Provayderdagi oluvchi nomi bilan solishtiring. Nom mos kelmasa to‘lov qilmang.',
-            'Check the recipient name in the provider app. Do not pay if it differs.',
-            'Сверьте имя получателя в приложении провайдера. При несовпадении не платите.',
-          ),
-        ),
-        Image.memory(
-          base64Decode(qr),
-          height: 240,
-          semanticLabel: 'Paynet Xolis QR',
-          errorBuilder: (_, _, _) => Text(
+        if (!_editing)
+          Text(
             lt(
-              'QR rasm ochilmadi.',
-              'Could not load QR image.',
-              'Не удалось открыть QR.',
+              'Provayderdagi oluvchi nomi bilan solishtiring. Nom mos kelmasa to‘lov qilmang.',
+              'Check the recipient name in the provider app. Do not pay if it differs.',
+              'Сверьте имя получателя в приложении провайдера. При несовпадении не платите.',
             ),
           ),
-        ),
-        Text(
-          lt(
-            'Provayder ilovasida QR kodni skanerlang. To‘lovdan keyin chekni shu yerga yuboring.',
-            'Scan the QR in the provider app, then submit your receipt here.',
-            'Отсканируйте QR в приложении провайдера, затем отправьте чек здесь.',
+        if (!_editing)
+          Image.memory(
+            base64Decode(qr),
+            height: 240,
+            semanticLabel: 'Paynet Xolis QR',
+            errorBuilder: (_, _, _) => Text(
+              lt(
+                'QR rasm ochilmadi.',
+                'Could not load QR image.',
+                'Не удалось открыть QR.',
+              ),
+            ),
           ),
-        ),
+        if (!_editing)
+          Text(
+            lt(
+              'Provayder ilovasida QR kodni skanerlang. To‘lovdan keyin chekni shu yerga yuboring.',
+              'Scan the QR in the provider app, then submit your receipt here.',
+              'Отсканируйте QR в приложении провайдера, затем отправьте чек здесь.',
+            ),
+          ),
         TextField(
           key: const ValueKey('topupAmount'),
           controller: _amount,
-          enabled: !_sending,
+          enabled: !_sending && !_paymentSubmitted,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           onChanged: (_) => _draftChanged(),
           decoration: InputDecoration(
@@ -651,7 +745,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         TextField(
           key: const ValueKey('topupReference'),
           controller: _payerReference,
-          enabled: !_sending,
+          enabled: !_sending && !_paymentSubmitted,
           maxLength: 200,
           onChanged: (_) => _draftChanged(),
           decoration: InputDecoration(
@@ -671,7 +765,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
         OutlinedButton.icon(
           key: const ValueKey('topupPaidAt'),
-          onPressed: _sending ? null : _pickPaymentTime,
+          onPressed: _sending || _paymentSubmitted ? null : _pickPaymentTime,
           icon: const Icon(Icons.schedule),
           label: Text(
             _paidAt == null
@@ -685,7 +779,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
         OutlinedButton.icon(
           key: const ValueKey('pickTopupReceipt'),
-          onPressed: _sending || _picking ? null : _pick,
+          onPressed: _sending || _picking || _paymentSubmitted ? null : _pick,
           icon: const Icon(Icons.receipt_long),
           label: Text(lt('Chekni tanlash', 'Choose receipt', 'Выбрать чек')),
         ),
@@ -704,7 +798,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           key: const ValueKey('nonRefundableConsent'),
           contentPadding: EdgeInsets.zero,
           value: _accepted,
-          onChanged: _sending
+          onChanged: _sending || _paymentSubmitted
               ? null
               : (value) => setState(() => _accepted = value == true),
           title: Text(
@@ -727,44 +821,84 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : Text(
-                  lt(
-                    'Chekni tekshirishga yuborish',
-                    'Submit receipt for review',
-                    'Отправить чек на проверку',
-                  ),
+                  _paymentSubmitted
+                      ? lt(
+                          'Chek yuborildi — qoralamani tozalash',
+                          'Receipt sent — clear draft',
+                          'Чек отправлен — удалить черновик',
+                        )
+                      : lt(
+                          'Chekni tekshirishga yuborish',
+                          'Submit receipt for review',
+                          'Отправить чек на проверку',
+                        ),
                 ),
         ),
       ],
-      const Divider(height: 32),
-      Text(
-        lt('To‘ldirish so‘rovlari', 'Top-up requests', 'Заявки на пополнение'),
-        style: Theme.of(context).textTheme.titleLarge,
-      ),
-      for (final row in _topups)
-        ListTile(
-          title: Text(walletMoney(row['amountMinor'] as int)),
-          subtitle: Text(
-            [
-              _status(row['status']),
-              if (row['reviewReason'] != null) row['reviewReason'],
-            ].join(' · '),
+      if (!_editing) ...[
+        const Divider(height: 32),
+        Text(
+          lt(
+            'To‘ldirish so‘rovlari',
+            'Top-up requests',
+            'Заявки на пополнение',
           ),
+          style: Theme.of(context).textTheme.titleLarge,
         ),
-      if (_nextCursor != null)
-        TextButton(
-          onPressed: _moreLoading ? null : _more,
-          child: Text(lt('Yana yuklash', 'Load more', 'Загрузить ещё')),
+        for (final row in _topups) ...[
+          ListTile(
+            title: Text(walletMoney(row['amountMinor'] as int)),
+            subtitle: Text(
+              [
+                _status(row['status']),
+                if (row['reviewReason'] != null) row['reviewReason'],
+              ].join(' · '),
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    TopupHistoryPage(api: _api!, topupId: row['id'] as String),
+              ),
+            ),
+            trailing: const Icon(Icons.history),
+          ),
+          if (row['status'] == 'needs_info' || row['status'] == 'rejected')
+            TextButton(
+              key: ValueKey('amendTopup-${row['id']}'),
+              onPressed: () async {
+                final result = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        WalletPage(api: _api, topupId: row['id'] as String),
+                  ),
+                );
+                if (mounted && result == true) await _load();
+              },
+              child: Text(
+                lt(
+                  'Chekni to‘ldirib qayta yuborish',
+                  'Clarify and resubmit',
+                  'Уточнить и отправить повторно',
+                ),
+              ),
+            ),
+        ],
+        if (_nextCursor != null)
+          TextButton(
+            onPressed: _moreLoading ? null : _more,
+            child: Text(lt('Yana yuklash', 'Load more', 'Загрузить ещё')),
+          ),
+        const Divider(height: 32),
+        Text(
+          lt('Balans harakatlari', 'Balance history', 'История баланса'),
+          style: Theme.of(context).textTheme.titleLarge,
         ),
-      const Divider(height: 32),
-      Text(
-        lt('Balans harakatlari', 'Balance history', 'История баланса'),
-        style: Theme.of(context).textTheme.titleLarge,
-      ),
-      for (final row in wallet['entries'] as List)
-        ListTile(
-          title: Text(walletMoney(row['amountMinor'] as int)),
-          subtitle: Text(row['reason'] as String),
-        ),
+        for (final row in wallet['entries'] as List)
+          ListTile(
+            title: Text(walletMoney(row['amountMinor'] as int)),
+            subtitle: Text(row['reason'] as String),
+          ),
+      ],
     ];
   }
 }

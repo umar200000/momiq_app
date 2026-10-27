@@ -11,7 +11,7 @@ const png =
 
 class MemoryDraft extends WalletDraftStorage {
   Map<String, dynamic>? data;
-  bool failWrite = false;
+  bool failWrite = false, failClear = false;
   Completer<void>? gate;
   @override
   Future<Map<String, dynamic>?> read() async => data == null
@@ -26,6 +26,7 @@ class MemoryDraft extends WalletDraftStorage {
 
   @override
   Future<void> clear() async {
+    if (failClear) throw StateError('Storage unavailable');
     data = null;
   }
 }
@@ -67,7 +68,111 @@ class WalletApi extends CustomerApi {
   }
 }
 
+class AmendmentApi extends WalletApi {
+  final paths = <String>[];
+  @override
+  Future<Map<String, dynamic>> request(
+    String method,
+    String path, [
+    Map<String, dynamic>? body,
+  ]) async {
+    paths.add('$method $path');
+    if (method == 'GET' && path == '/wallet/topups/test') {
+      return {
+        'topup': {
+          'id': 'test',
+          'revision': 1,
+          'status': 'needs_info',
+          'amountMinor': 100,
+          'payerReference': 'TEST-original',
+          'paidAt': null,
+        },
+      };
+    }
+    if (method == 'GET' && path.endsWith('/receipt')) {
+      return {
+        'receipt': png,
+        'revision': 1,
+        'paymentSnapshot': {
+          'version': 2,
+          'qrImage': png,
+          'recipientName': 'TEST old recipient',
+          'testOnly': true,
+        },
+      };
+    }
+    return super.request(method, path, body);
+  }
+}
+
 void main() {
+  testWidgets(
+    'clarification keeps original evidence version and retry id without offering a new payment',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final api = AmendmentApi()..fail = true;
+      final draft = MemoryDraft();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => WalletPage(
+                      api: api,
+                      topupId: 'test',
+                      draftStorage: draft,
+                    ),
+                  ),
+                ),
+                child: const Text('Open amendment'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open amendment'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Qayta pul o‘tkazmang'), findsOneWidget);
+      expect(find.byKey(const ValueKey('startTopup')), findsNothing);
+      expect(find.bySemanticsLabel('Paynet Xolis QR'), findsNothing);
+      await tester.enterText(find.byKey(const ValueKey('topupAmount')), '2');
+      await tester.tap(find.byKey(const ValueKey('nonRefundableConsent')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('submitTopup')));
+      await tester.pumpAndSettle();
+      expect(api.paths, contains('POST /wallet/topups/test/amend'));
+      expect(api.sent.single['revision'], 1);
+      expect(api.sent.single['amountMinor'], 200);
+      final requestId = api.sent.single['requestId'];
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      api.qrVersion = 9;
+      api.fail = false;
+      await tester.tap(find.text('Open amendment'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const ValueKey('nonRefundableConsent')),
+            )
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const ValueKey('nonRefundableConsent')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('submitTopup')));
+      await tester.pumpAndSettle();
+      expect(api.sent.last['requestId'], requestId);
+      expect(api.sent.last['qrVersion'], 2);
+      expect(api.sent.last['revision'], 1);
+      expect(draft.data, isNull);
+      expect(find.text('Open amendment'), findsOneWidget);
+    },
+  );
   testWidgets('QR stays hidden until its draft is durably saved', (
     tester,
   ) async {
@@ -219,7 +324,16 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('nonRefundableConsent')));
       await tester.pumpAndSettle();
       api.fail = false;
+      draft.failClear = true;
       await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      expect(api.sent.length, 2);
+      expect(
+        find.textContaining('Chek yuborildi — qoralamani tozalash'),
+        findsOneWidget,
+      );
+      draft.failClear = false;
       await tester.tap(submit);
       await tester.pumpAndSettle();
       expect(api.sent.length, 2);

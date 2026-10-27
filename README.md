@@ -44,6 +44,8 @@ Opening a payment QR first persists its version, recipient and instructions on t
 
 A successful server response clears the draft. A lost response preserves the same request ID for a safe retry; the server credits nothing until an admin verifies actual incoming funds. Signing out or clearing an incompatible session removes the local encrypted files and key. Drafts do not survive uninstall, logout or device loss; the original provider receipt remains the recovery evidence. No real payment should be made through local TEST QR images.
 
+Rejected requests and requests needing clarification open an amendment form with their original QR/evidence revision. It explicitly asks the sitter not to pay again. Amendment drafts have separate encrypted storage from new-payment drafts. The original QR, stable retry ID and renewed consent are preserved across restart. Stale form revisions cannot change current evidence. Request history loads older snapshots and images on demand. A successful server submission followed by local cleanup failure offers cleanup retry without posting a second request.
+
 ## Session lifecycle
 
 The customer and sitter bell buttons open server-backed notification history. Wallet and listing review events paginate, retain read state and open only known local wallet/listing destinations. Existing decisions before migration 6 have no retroactive notice. External push and booking/chat/care notifications remain unfinished; optional order/chat/care preferences do not hide transactional wallet/moderation history.
