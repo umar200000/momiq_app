@@ -36,7 +36,13 @@ For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080
 
 ## Data availability
 
-The backend sitter catalog starts empty. Listing publication, booking/payment processing, sitter chat and MyID verification are not connected yet; these must not claim success. Sitter service/profile drafts entered by the user remain device-local. Demo dashboards, reviews, care reports and invented photos/addresses were removed. Only the explicitly enabled login code 111111 remains simulated. Test fixtures are confined to test/.
+The backend sitter catalog starts empty. Listings and profiles are revisioned server data. Admin moderation can publish explicitly marked test listings outside production; MyID approval and real date availability remain unfinished. Booking/commission processing and sitter chat must not claim success. Demo dashboards, reviews, care reports and invented photos/addresses were removed. Login code `111111` is confined to an explicitly enabled test environment.
+
+## Manual wallet payment drafts
+
+Opening a payment QR first persists its version, recipient and instructions on this device. Amount, receipt and stable retry ID are saved in an AES-256-GCM authenticated file in the app support directory. A device-only secure-storage key and account/API URL binding isolate drafts. If a write fails the initial QR remains hidden; subsequent save failures are shown with a retry action. Corrupt drafts are preserved until explicitly discarded. Consent must be reconfirmed after reopening.
+
+A successful server response clears the draft. A lost response preserves the same request ID for a safe retry; the server credits nothing until an admin verifies actual incoming funds. Signing out or clearing an incompatible session removes the local encrypted files and key. Drafts do not survive uninstall, logout or device loss; the original provider receipt remains the recovery evidence. No real payment should be made through local TEST QR images.
 
 ## Session lifecycle
 

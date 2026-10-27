@@ -3,6 +3,7 @@ import '../../listings/data/listing_store.dart';
 import 'package:flutter/painting.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
+import '../../wallet/data/wallet_draft_storage.dart';
 import 'dart:io';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -126,6 +127,9 @@ class CustomerApi {
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
     await SessionVault.clear();
+    await EncryptedWalletDraftStorage.clearAll(
+      removeFiles: !Platform.environment.containsKey('FLUTTER_TEST'),
+    );
     final prefs = await SharedPreferences.getInstance();
     for (final key in prefs.getKeys().toList()) {
       if (key.startsWith('momiq.') || key.startsWith('mock.')) {

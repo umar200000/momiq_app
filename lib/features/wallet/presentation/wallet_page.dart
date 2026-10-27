@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../customer/data/customer_api.dart';
+import '../data/wallet_draft_storage.dart';
 
 int parseWalletAmount(String text) {
   final value = text.trim().replaceAll(',', '.');
@@ -25,14 +27,15 @@ String walletMoney(int minor) =>
     '${minor < 0 ? '-' : ''}${minor.abs() ~/ 100}${minor.abs() % 100 == 0 ? '' : '.${(minor.abs() % 100).toString().padLeft(2, '0')}'} so‘m';
 
 class WalletPage extends StatefulWidget {
-  const WalletPage({super.key, this.api, this.pickReceipt});
+  const WalletPage({super.key, this.api, this.pickReceipt, this.draftStorage});
   final CustomerApi? api;
   final Future<Uint8List?> Function()? pickReceipt;
+  final WalletDraftStorage? draftStorage;
   @override
   State<WalletPage> createState() => _WalletPageState();
 }
 
-class _WalletPageState extends State<WalletPage> {
+class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   CustomerApi? _api;
   Map<String, dynamic>? _wallet;
   Map<String, dynamic>? _paymentConfig;
@@ -44,16 +47,166 @@ class _WalletPageState extends State<WalletPage> {
   final _amount = TextEditingController();
   Uint8List? _receipt;
   String? _requestId;
+  WalletDraftStorage? _draftStorage;
+  Timer? _draftTimer;
+  bool _paymentStarted = false,
+      _paymentSubmitted = false,
+      _draftRestored = false,
+      _starting = false,
+      _draftUnreadable = false;
+  String? _draftError;
+  int _draftRevision = 0, _savedDraftRevision = 0;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _draftTimer?.cancel();
+    if (_paymentStarted) unawaited(_saveDraftSafely());
     _amount.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && _paymentStarted) {
+      _draftTimer?.cancel();
+      unawaited(_saveDraftSafely());
+    }
+  }
+
+  Future<void> _persistDraft() async {
+    if (!_paymentStarted ||
+        _paymentSubmitted ||
+        _draftStorage == null ||
+        _paymentConfig == null) {
+      return;
+    }
+    final version = _draftRevision;
+    final data = <String, dynamic>{
+      'formatVersion': 1,
+      'amount': _amount.text,
+      'receipt': _receipt == null ? null : base64Encode(_receipt!),
+      'requestId': _requestId,
+      'config': _paymentConfig,
+    };
+    await _draftStorage!.write(data);
+    if (mounted) {
+      setState(() {
+        _savedDraftRevision = version;
+        _draftError = null;
+      });
+    }
+  }
+
+  Future<void> _saveDraftSafely() async {
+    try {
+      await _persistDraft();
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _draftError = lt(
+            'Qoralama saqlanmadi. Ilovani yopishdan oldin qayta urinib ko‘ring.',
+            'Draft was not saved. Retry before closing the app.',
+            'Черновик не сохранён. Повторите перед закрытием приложения.',
+          ),
+        );
+      }
+    }
+  }
+
+  void _draftChanged() {
+    _requestId = null;
+    _draftRevision++;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 500), _saveDraftSafely);
+    setState(() {});
+  }
+
+  Future<void> _startPayment() async {
+    if (_starting) return;
+    setState(() => _starting = true);
+    try {
+      final config = Map<String, dynamic>.from(_paymentConfig!);
+      await _draftStorage!.write({
+        'formatVersion': 1,
+        'amount': '',
+        'receipt': null,
+        'requestId': null,
+        'config': config,
+      });
+      if (!mounted) return;
+      setState(() {
+        _paymentConfig = config;
+        _paymentStarted = true;
+        _paymentSubmitted = false;
+        _draftRevision++;
+        _savedDraftRevision = _draftRevision;
+      });
+    } catch (_) {
+      _paymentStarted = false;
+      _notice(
+        lt(
+          'QR’ni ochish uchun qoralamani saqlab bo‘lmadi. Qayta urinib ko‘ring.',
+          'Could not save the payment draft. Please retry.',
+          'Не удалось сохранить черновик. Повторите попытку.',
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _discardDraft() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          lt('Qoralamani bekor qilish?', 'Discard draft?', 'Удалить черновик?'),
+        ),
+        content: Text(
+          lt(
+            'Bu amalga oshgan to‘lovni bekor qilmaydi. Agar pul o‘tkazgan bo‘lsangiz, avval chekni yuboring.',
+            'This does not cancel a payment. If you already paid, submit the receipt first.',
+            'Это не отменяет платёж. Если вы уже оплатили, сначала отправьте чек.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Saqlab qolish', 'Keep draft', 'Оставить')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(lt('Bekor qilish', 'Discard', 'Удалить')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _draftTimer?.cancel();
+    try {
+      await _draftStorage?.clear();
+      if (!mounted) return;
+      setState(() {
+        _paymentStarted = false;
+        _draftRestored = true;
+        _draftUnreadable = false;
+        _draftError = null;
+        _receipt = null;
+        _requestId = null;
+        _accepted = false;
+        _amount.clear();
+      });
+      await _load();
+    } catch (error) {
+      _notice(error.toString());
+    }
   }
 
   Future<void> _load() async {
@@ -74,6 +227,41 @@ class _WalletPageState extends State<WalletPage> {
           ),
         );
       }
+      _draftStorage ??=
+          widget.draftStorage ??
+          EncryptedWalletDraftStorage(
+            owner: _api!.userId,
+            scope: _api!.baseUrl,
+          );
+      if (!_draftRestored) {
+        try {
+          final draft = await _draftStorage!.read();
+          if (draft != null) {
+            if (draft['formatVersion'] != 1 ||
+                draft['amount'] is! String ||
+                draft['config'] is! Map) {
+              throw const FormatException('Invalid payment draft');
+            }
+            _paymentConfig = Map<String, dynamic>.from(draft['config']);
+            _amount.text = draft['amount'] as String;
+            _receipt = draft['receipt'] == null
+                ? null
+                : base64Decode(draft['receipt'] as String);
+            _requestId = draft['requestId'] as String?;
+            _paymentStarted = true;
+          }
+          _draftRestored = true;
+        } catch (_) {
+          _draftUnreadable = true;
+          throw CustomerApiException(
+            lt(
+              'To‘lov qoralamasini ochib bo‘lmadi. U avtomatik o‘chirilmagan.',
+              'Could not open the payment draft. It has not been deleted.',
+              'Не удалось открыть черновик платежа. Он не удалён.',
+            ),
+          );
+        }
+      }
       final wallet = await _api!.request('GET', '/wallet');
       final topups = await _api!.request('GET', '/wallet/topups');
       if (mounted) {
@@ -81,8 +269,7 @@ class _WalletPageState extends State<WalletPage> {
           _wallet = wallet;
           _topups = topups['topups'] as List;
           _nextCursor = topups['nextCursor'] as String?;
-          if (_paymentConfig == null ||
-              (_receipt == null && _amount.text.isEmpty)) {
+          if (!_paymentStarted) {
             _paymentConfig = Map<String, dynamic>.from(wallet['config']);
           }
         });
@@ -152,7 +339,9 @@ class _WalletPageState extends State<WalletPage> {
           setState(() {
             _receipt = bytes;
             _requestId = null;
+            _draftRevision++;
           });
+          await _persistDraft();
         }
       }
     } catch (error) {
@@ -171,6 +360,9 @@ class _WalletPageState extends State<WalletPage> {
       _requestId ??= base64UrlEncode(
         List<int>.generate(18, (_) => Random.secure().nextInt(256)),
       );
+      _draftTimer?.cancel();
+      _draftRevision++;
+      await _persistDraft(); // Stable retry id must survive before sending money evidence.
       await _api!.request('POST', '/wallet/topups', {
         'requestId': _requestId,
         'amountMinor': value,
@@ -179,8 +371,13 @@ class _WalletPageState extends State<WalletPage> {
         'termsVersion': config['termsVersion'],
         'acceptNonRefundable': true,
       });
+      // Lifecycle/dispose saves must not recreate a successfully submitted draft
+      // while its queued clear is still completing.
+      _paymentSubmitted = true;
+      await _draftStorage!.clear();
       if (!mounted) return;
       setState(() {
+        _paymentStarted = false;
         _receipt = null;
         _requestId = null;
         _accepted = false;
@@ -212,9 +409,19 @@ class _WalletPageState extends State<WalletPage> {
     appBar: AppBar(
       title: Text(lt('Momiq balansi', 'Momiq balance', 'Баланс Momiq')),
       actions: [
+        if (_paymentStarted || _draftUnreadable)
+          IconButton(
+            tooltip: lt(
+              'Qoralamani bekor qilish',
+              'Discard draft',
+              'Удалить черновик',
+            ),
+            onPressed: _sending || _picking || _starting ? null : _discardDraft,
+            icon: const Icon(Icons.delete_outline),
+          ),
         IconButton(
           tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
-          onPressed: _loading || _sending ? null : _load,
+          onPressed: _loading || _sending || _starting ? null : _load,
           icon: const Icon(Icons.refresh),
         ),
       ],
@@ -243,6 +450,7 @@ class _WalletPageState extends State<WalletPage> {
   List<Widget> _content() {
     final wallet = _wallet!;
     final config = _paymentConfig!;
+    final currentConfig = Map<String, dynamic>.from(wallet['config']);
     final qr = config['qrImage'] as String?;
     return [
       Text(
@@ -257,10 +465,10 @@ class _WalletPageState extends State<WalletPage> {
               'Minimum balance for new clients: ',
               'Минимальный баланс для новых клиентов: ',
             ) +
-            walletMoney(config['minimumBalanceMinor'] as int),
+            walletMoney(currentConfig['minimumBalanceMinor'] as int),
       ),
       Text(
-        '${lt('Komissiya', 'Commission', 'Комиссия')}: ${(config['commissionBps'] as int) / 100}%',
+        '${lt('Komissiya', 'Commission', 'Комиссия')}: ${(currentConfig['commissionBps'] as int) / 100}%',
       ),
       const SizedBox(height: 12),
       Text(
@@ -289,7 +497,50 @@ class _WalletPageState extends State<WalletPage> {
             'Новые оплаты по QR приостановлены. Если вы уже оплатили, обратитесь в поддержку.',
           ),
         )
-      else ...[
+      else if (!_paymentStarted) ...[
+        Text(
+          lt(
+            'To‘lovni boshlash uchun QR kodni oching. Qoralama shu qurilmada saqlanadi.',
+            'Open the QR to start. Your draft will be saved on this device.',
+            'Откройте QR для оплаты. Черновик сохранится на этом устройстве.',
+          ),
+        ),
+        FilledButton(
+          onPressed: _starting ? null : _startPayment,
+          key: const ValueKey('startTopup'),
+          child: Text(lt('QR kodni ochish', 'Open QR code', 'Открыть QR-код')),
+        ),
+      ] else ...[
+        Text(
+          lt(
+            'To‘lov qoralamasi · QR v${config['version']}',
+            'Payment draft · QR v${config['version']}',
+            'Черновик платежа · QR v${config['version']}',
+          ),
+        ),
+        if (_draftError != null)
+          Text(_draftError!, style: const TextStyle(color: Colors.red)),
+        if (_draftError != null)
+          TextButton(
+            onPressed: _saveDraftSafely,
+            child: Text(
+              lt(
+                'Qoralamani qayta saqlash',
+                'Retry saving draft',
+                'Повторить сохранение',
+              ),
+            ),
+          )
+        else
+          Text(
+            _savedDraftRevision == _draftRevision
+                ? lt(
+                    'Qoralama shu qurilmada saqlandi. Hisobdan chiqishda o‘chiriladi.',
+                    'Draft saved on this device. Signing out removes it.',
+                    'Черновик сохранён. При выходе из аккаунта он удаляется.',
+                  )
+                : lt('Qoralama saqlanmoqda…', 'Saving draft…', 'Сохранение…'),
+          ),
         Text(
           '${lt('Oluvchi', 'Recipient', 'Получатель')}: ${config['recipientName'] ?? ''}',
           style: Theme.of(context).textTheme.titleMedium,
@@ -327,7 +578,7 @@ class _WalletPageState extends State<WalletPage> {
           controller: _amount,
           enabled: !_sending,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          onChanged: (_) => _requestId = null,
+          onChanged: (_) => _draftChanged(),
           decoration: InputDecoration(
             labelText: lt(
               'To‘langan summa (so‘m)',

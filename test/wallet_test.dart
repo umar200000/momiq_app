@@ -1,17 +1,41 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/wallet/presentation/wallet_page.dart';
+import 'package:momiq_app/features/wallet/data/wallet_draft_storage.dart';
 
 const png =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+
+class MemoryDraft extends WalletDraftStorage {
+  Map<String, dynamic>? data;
+  bool failWrite = false;
+  Completer<void>? gate;
+  @override
+  Future<Map<String, dynamic>?> read() async => data == null
+      ? null
+      : Map<String, dynamic>.from(jsonDecode(jsonEncode(data)));
+  @override
+  Future<void> write(Map<String, dynamic> value) async {
+    if (failWrite) throw StateError('Storage unavailable');
+    if (gate != null) await gate!.future;
+    data = Map<String, dynamic>.from(jsonDecode(jsonEncode(value)));
+  }
+
+  @override
+  Future<void> clear() async {
+    data = null;
+  }
+}
 
 class WalletApi extends CustomerApi {
   WalletApi() : super('test', 'sitter');
   final sent = <Map<String, dynamic>>[];
   bool fail = false;
   bool qrActive = true;
+  int qrVersion = 2;
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -30,7 +54,7 @@ class WalletApi extends CustomerApi {
       'balanceMinor': 0,
       'entries': [],
       'config': {
-        'version': 2,
+        'version': qrVersion,
         'commissionBps': 1000,
         'minimumBalanceMinor': 1500000,
         'qrImage': png,
@@ -44,9 +68,60 @@ class WalletApi extends CustomerApi {
 }
 
 void main() {
+  testWidgets('QR stays hidden until its draft is durably saved', (
+    tester,
+  ) async {
+    final draft = MemoryDraft()..gate = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WalletPage(api: WalletApi(), draftStorage: draft),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('startTopup')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('topupAmount')), findsNothing);
+    draft.gate!.complete();
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('topupAmount')),
+      250,
+    );
+    expect(find.byKey(const ValueKey('topupAmount')), findsOneWidget);
+  });
+  testWidgets(
+    'storage failure prevents starting a payment and can be retried',
+    (tester) async {
+      final draft = MemoryDraft()..failWrite = true;
+      final api = WalletApi();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WalletPage(api: api, draftStorage: draft),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('startTopup')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('topupAmount')), findsNothing);
+      expect(api.sent, isEmpty);
+      draft.failWrite = false;
+      await tester.tap(find.byKey(const ValueKey('startTopup')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('topupAmount')),
+        250,
+      );
+      expect(find.byKey(const ValueKey('topupAmount')), findsOneWidget);
+    },
+  );
   testWidgets('paused QR does not invite new payments', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: WalletPage(api: WalletApi()..qrActive = false)),
+      MaterialApp(
+        home: WalletPage(
+          api: WalletApi()..qrActive = false,
+          draftStorage: MemoryDraft(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('topupAmount')), findsNothing);
@@ -70,16 +145,20 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final api = WalletApi()..fail = true;
+      final draft = MemoryDraft();
       await tester.pumpWidget(
         MaterialApp(
           home: WalletPage(
             api: api,
+            draftStorage: draft,
             pickReceipt: () async => base64Decode(png),
           ),
         ),
       );
       await tester.pumpAndSettle();
       final submit = find.byKey(const ValueKey('submitTopup'));
+      await tester.tap(find.byKey(const ValueKey('startTopup')));
+      await tester.pumpAndSettle();
       expect(tester.widget<FilledButton>(submit).onPressed, isNull);
       await tester.enterText(
         find.byKey(const ValueKey('topupAmount')),
@@ -99,11 +178,44 @@ void main() {
       expect(api.sent.single['amountMinor'], 1500001);
       expect(api.sent.single['acceptNonRefundable'], isTrue);
       expect(api.sent.single['qrVersion'], 2);
+      expect(draft.data!['requestId'], api.sent.single['requestId']);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      api.qrVersion = 9;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WalletPage(api: api, draftStorage: draft),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('topupAmount')))
+            .controller!
+            .text,
+        '15000.01',
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('nonRefundableConsent')),
+      );
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const ValueKey('nonRefundableConsent')),
+            )
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const ValueKey('nonRefundableConsent')));
+      await tester.pumpAndSettle();
       api.fail = false;
+      await tester.ensureVisible(submit);
       await tester.tap(submit);
       await tester.pumpAndSettle();
       expect(api.sent.length, 2);
       expect(api.sent[0]['requestId'], api.sent[1]['requestId']);
+      expect(api.sent[1]['qrVersion'], 2);
+      expect(draft.data, isNull);
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('walletBalance')),
         -500,
