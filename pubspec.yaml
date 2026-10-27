@@ -48,6 +48,7 @@ dependencies:
   yandex_maps_mapkit: ^4.45.0
   geolocator: ^14.1.1
   map_launcher: 6.0.0
+  flutter_secure_storage: 11.2.0
 
 dev_dependencies:
   flutter_test:

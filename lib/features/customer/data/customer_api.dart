@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/config/app_environment.dart';
+import '../../../core/storage/session_vault.dart';
 
 class CustomerApiException implements Exception {
   CustomerApiException(this.message, [this.status]);
@@ -75,10 +76,20 @@ class CustomerApi {
         !await prefs.setString(
           'momiq.api.scope',
           AppEnvironment.current.sessionScope,
-        ) ||
-        !await prefs.setString('momiq.api.token', data['token'])) {
+        )) {
       await clearLocal();
       throw StateError('Sessiya saqlanmadi');
+    }
+    try {
+      await SessionVault.save(
+        token: data['token'],
+        userId: data['userId'],
+        scope: AppEnvironment.current.sessionScope,
+      );
+      await prefs.remove('momiq.api.token');
+    } catch (_) {
+      await clearLocal();
+      rethrow;
     }
     active = CustomerApi(data['token'], data['userId']);
     return Map<String, dynamic>.from(data['account']);
@@ -87,21 +98,24 @@ class CustomerApi {
   static Future<CustomerApi?> restore() async {
     if (active != null) return active;
     final prefs = await SharedPreferences.getInstance();
-    if (prefs.getString('momiq.api.token') == null &&
+    final credential = await SessionVault.read();
+    if (credential == null &&
+        prefs.getString('momiq.api.token') == null &&
         prefs.getString('momiq.api.user') == null &&
         prefs.getString('momiq.api.scope') == null) {
       return null;
     }
-    if (prefs.getString('momiq.api.scope') !=
-        AppEnvironment.current.sessionScope) {
+    if (credential == null ||
+        credential['scope'] != AppEnvironment.current.sessionScope ||
+        prefs.getString('momiq.api.scope') !=
+            AppEnvironment.current.sessionScope ||
+        prefs.getString('momiq.api.user') != credential['userId']) {
       // Unknown legacy or other-environment credentials must never be transmitted.
       await clearLocal();
       return null;
     }
-    final token = prefs.getString('momiq.api.token');
-    final user = prefs.getString('momiq.api.user');
-    if (token == null || user == null) return null;
-    return active = CustomerApi(token, user);
+    await prefs.remove('momiq.api.token');
+    return active = CustomerApi(credential['token']!, credential['userId']!);
   }
 
   static Future<void> clearLocal() async {
@@ -111,6 +125,7 @@ class CustomerApi {
     ListingStore.instance.resetSession();
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
+    await SessionVault.clear();
     final prefs = await SharedPreferences.getInstance();
     for (final key in prefs.getKeys().toList()) {
       if (key.startsWith('momiq.') || key.startsWith('mock.')) {
@@ -126,8 +141,14 @@ class CustomerApi {
     }
   }
 
-  static Future<void> logout() async {
+  static Future<void> logout({bool allDevices = false}) async {
     final current = active ?? await restore();
+    if (allDevices && current != null) {
+      // An offline request must not claim that other devices were signed out.
+      await current.request('POST', '/auth/logout-all', {});
+      await clearLocal();
+      return;
+    }
     try {
       if (current != null) await current.request('POST', '/auth/logout', {});
     } catch (_) {

@@ -35,10 +35,35 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
   HousingType _housing = ListingStore.instance.housing;
   bool _housingTouched = false;
   bool _submitting = false;
+  late final Future<Map<String, dynamic>?> _initialAccount;
+
+  Future<Map<String, dynamic>?> _loadAccount() async {
+    try {
+      final api = await CustomerApi.restore();
+      if (api == null) return null;
+      final response = await api.request('GET', '/me');
+      final account = Map<String, dynamic>.from(response['account']);
+      if (mounted) {
+        setState(() {
+          final profile = account['profile'] as Map;
+          if (_first.text.isEmpty) _first.text = profile['first'] ?? '';
+          if (_last.text.isEmpty) _last.text = profile['last'] ?? '';
+          if (_avatar == null && profile['photo'] is String) {
+            _avatar = base64Decode(profile['photo']);
+          }
+        });
+      }
+      return account;
+    } catch (_) {
+      // Saving requires a loaded snapshot; never refetch and overwrite a stale form.
+      return null;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _initialAccount = _loadAccount();
     ListingStore.instance
         .load()
         .then((_) {
@@ -180,8 +205,11 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
         throw StateError('Hisobingizga qayta kiring');
       }
       if (api != null) {
-        final data = await api.request('GET', '/me');
-        final account = Map<String, dynamic>.from(data['account']);
+        final initial = await _initialAccount;
+        if (initial == null) {
+          throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
+        }
+        final account = Map<String, dynamic>.from(initial);
         account['profile'] = {
           'first': _first.text.trim(),
           'last': _last.text.trim(),

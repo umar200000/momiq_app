@@ -32,6 +32,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   final _about = TextEditingController();
   final _message = TextEditingController();
   Uint8List? _photo;
+  Map<String, dynamic>? _loadedAccount;
   bool _loading = true,
       _saving = false,
       _orders = true,
@@ -63,6 +64,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       if (api != null && widget.section == 0) {
         final response = await api.request('GET', '/me');
         final account = Map<String, dynamic>.from(response['account']);
+        _loadedAccount = account;
         final profile = account['profile'];
         final sitter = account['sitterProfile'] as Map? ?? {};
         _first.text = profile['first'];
@@ -135,8 +137,10 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       if (widget.section == 0) {
         final api = await CustomerApi.restore();
         if (api != null) {
-          final response = await api.request('GET', '/me');
-          final account = Map<String, dynamic>.from(response['account']);
+          if (_loadedAccount == null) {
+            throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
+          }
+          final account = Map<String, dynamic>.from(_loadedAccount!);
           account['profile'] = {
             'first': _first.text.trim(),
             'last': _last.text.trim(),

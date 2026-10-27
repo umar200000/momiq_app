@@ -83,6 +83,7 @@ class CustomerPetForm extends StatefulWidget {
 }
 
 class _CustomerPetFormState extends State<CustomerPetForm> {
+  late final int? _revision;
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController(),
       _age = TextEditingController(),
@@ -99,6 +100,7 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
   @override
   void initState() {
     super.initState();
+    _revision = widget.store.revision;
     _type = widget.allowedTypes.length == 1 ? widget.allowedTypes.single : null;
     final p = widget.pet;
     if (p != null) {
@@ -190,10 +192,10 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
         'breed': _breed.text.trim(),
         'notes': _notes.text.trim(),
         'photo': _photo,
-      });
+      }, expectedRevision: _revision);
       if (mounted) Navigator.pop(context, id);
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi. Qayta urinib ko‘ring.');
+    } catch (e) {
+      if (mounted) cNotice(context, e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -306,6 +308,13 @@ class CustomerProfileForm extends StatefulWidget {
 }
 
 class _CustomerProfileFormState extends State<CustomerProfileForm> {
+  late final int? _revision;
+  @override
+  void initState() {
+    super.initState();
+    _revision = widget.store.revision;
+  }
+
   final _form = GlobalKey<FormState>();
   late final _first = TextEditingController(
     text: widget.registration ? '' : widget.store.profile['first'],
@@ -381,6 +390,7 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
           'last': _last.text.trim(),
           'photo': _photo,
         },
+        expectedRevision: _revision,
       );
       if (!mounted) return;
       if (widget.registration) {
@@ -391,8 +401,8 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
       } else {
         Navigator.pop(context);
       }
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi.');
+    } catch (e) {
+      if (mounted) cNotice(context, e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -536,6 +546,7 @@ class CustomerAddressForm extends StatefulWidget {
 }
 
 class _CustomerAddressFormState extends State<CustomerAddressForm> {
+  late final int? _revision;
   late final _label = TextEditingController(
     text: widget.address?['label'] ?? 'Uyim',
   );
@@ -547,6 +558,7 @@ class _CustomerAddressFormState extends State<CustomerAddressForm> {
   @override
   void initState() {
     super.initState();
+    _revision = widget.store.revision;
     if (widget.address != null) {
       _location = CareLocation.fromJson(widget.address!);
     }
@@ -572,10 +584,10 @@ class _CustomerAddressFormState extends State<CustomerAddressForm> {
         ..._location!.toJson(),
         'label': _label.text.trim(),
         'apartment': _flat.text.trim(),
-      });
+      }, expectedRevision: _revision);
       if (mounted) Navigator.pop(context);
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi.');
+    } catch (e) {
+      if (mounted) cNotice(context, e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }

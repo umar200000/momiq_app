@@ -91,6 +91,7 @@ class CustomerStore extends ChangeNotifier {
   bool _syncing = false;
   String? syncError;
   bool get remote => api != null;
+  int? get revision => _data['_revision'] as int?;
   String get _cacheKey =>
       api == null ? storageKey : '$storageKey.${api!.userId}';
   Map<String, dynamic> _account(Map<String, dynamic> data) => {
@@ -105,6 +106,7 @@ class CustomerStore extends ChangeNotifier {
     ])
       key: data[key],
     'language': data['language'] ?? 'uz',
+    if (data.containsKey('_revision')) '_revision': data['_revision'],
   };
   Future<void> refreshRemote() async {
     if (api == null || busy || _syncing || _disposed) return;
@@ -218,11 +220,22 @@ class CustomerStore extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<void> update(void Function(CJson next) change) async {
+  Future<void> update(
+    void Function(CJson next) change, {
+    int? expectedRevision,
+  }) async {
     if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
       throw StateError('Sessiya tugagan');
     }
     if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
+    if (api != null &&
+        expectedRevision != null &&
+        expectedRevision != revision) {
+      throw CustomerApiException(
+        'Profil boshqa qurilmada o‘zgargan. Sahifani qayta ochib, o‘zgarishni takrorlang.',
+        409,
+      );
+    }
     busy = true;
     if (!_disposed) notifyListeners();
     try {
@@ -254,7 +267,11 @@ class CustomerStore extends ChangeNotifier {
     final items = d['favorites'] as List;
     items.contains(id) ? items.remove(id) : items.add(id);
   });
-  Future<void> saveItem(String key, CJson value) async {
+  Future<void> saveItem(
+    String key,
+    CJson value, {
+    int? expectedRevision,
+  }) async {
     if (['messages', 'support'].contains(key) && api == null) {
       throw StateError('Xabar yuborish uchun hisobingizga kiring.');
     }
@@ -281,7 +298,7 @@ class CustomerStore extends ChangeNotifier {
       } else {
         items[i] = value;
       }
-    });
+    }, expectedRevision: expectedRevision);
   }
 
   /// Availability is based on supplied data only.

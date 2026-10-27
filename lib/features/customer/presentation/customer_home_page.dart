@@ -281,7 +281,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
   void _search({int? service}) =>
       cPush(context, CustomerSearchPage(store: _store, service: service));
   bool _loggingOut = false;
-  Future<void> _logout() async {
+  Future<void> _logout({bool allDevices = false}) async {
     if (_loggingOut) return;
     final yes = await showDialog<bool>(
       context: context,
@@ -289,9 +289,11 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         title: cText('Chiqish'),
         content: cText(
           lt(
-            'Hisobdan chiqasizmi?',
-            'Log out of your account?',
-            'Выйти из аккаунта?',
+            allDevices
+                ? 'Barcha qurilmalardan chiqasizmi?'
+                : 'Hisobdan chiqasizmi?',
+            allDevices ? 'Log out on all devices?' : 'Log out of your account?',
+            allDevices ? 'Выйти на всех устройствах?' : 'Выйти из аккаунта?',
           ),
         ),
         actions: [
@@ -309,12 +311,14 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     if (yes == true && mounted) {
       setState(() => _loggingOut = true);
       try {
-        await CustomerApi.logout();
-      } catch (_) {
+        await CustomerApi.logout(allDevices: allDevices);
+      } catch (e) {
         if (mounted) {
           cNotice(
             context,
-            'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
+            e is CustomerApiException
+                ? e.message
+                : 'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
           );
         }
         return;
@@ -549,6 +553,17 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
           onTap: () => cPush(context, item.$3),
         ),
+      cButton(
+        lt(
+          'Barcha qurilmalardan chiqish',
+          'Log out on all devices',
+          'Выйти на всех устройствах',
+        ),
+        () => _logout(allDevices: true),
+        loading: _loggingOut,
+        secondary: true,
+        icon: Icons.devices,
+      ),
       cButton(
         'Chiqish',
         _logout,

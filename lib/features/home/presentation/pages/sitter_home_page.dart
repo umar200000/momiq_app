@@ -76,17 +76,19 @@ class _SitterHomePageState extends State<SitterHomePage> {
   }
 
   bool _loggingOut = false;
-  Future<void> _logout() async {
+  Future<void> _logout({bool allDevices = false}) async {
     if (_loggingOut) return;
     setState(() => _loggingOut = true);
     try {
-      await CustomerApi.logout();
-    } catch (_) {
+      await CustomerApi.logout(allDevices: allDevices);
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
+              e is CustomerApiException
+                  ? e.message
+                  : 'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
             ),
           ),
         );
@@ -279,6 +281,18 @@ class _SitterHomePageState extends State<SitterHomePage> {
     ),
   ];
   List<Widget> profile() => [
+    ListTile(
+      key: const ValueKey('sitterLogoutAll'),
+      leading: const Icon(Icons.devices),
+      title: Text(
+        t(
+          'Barcha qurilmalardan chiqish',
+          'Log out on all devices',
+          'Выйти на всех устройствах',
+        ),
+      ),
+      onTap: _loggingOut ? null : () => _logout(allDevices: true),
+    ),
     ListTile(
       key: const ValueKey('sitterLogout'),
       leading: ButtonProgress(
