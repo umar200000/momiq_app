@@ -2,6 +2,7 @@ import '../data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'customer_home_design.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/widgets/momiq_shimmer.dart';
 import '../data/customer_feed_repository.dart';
 import '../data/customer_location_service.dart';
@@ -37,6 +38,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
       _locating = false,
       _waitingSettings = false;
   bool _resumePending = false;
+  bool _locationOfferOpen = false;
   Future<void>? _refreshRequest;
   @override
   void initState() {
@@ -49,7 +51,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     await _load();
     if (!mounted || _error != null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _offerLocation();
+      if (mounted) _offerLocation(automatic: true);
     });
   }
 
@@ -98,7 +100,9 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     }
   }
 
-  Future<void> _offerLocation() async {
+  Future<void> _offerLocation({bool automatic = false}) async {
+    if (_locationOfferOpen) return;
+    _locationOfferOpen = true;
     try {
       final status = await _locationService.status();
       if (!mounted || status == CustomerLocationStatus.unsupported) return;
@@ -106,6 +110,12 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         await _requestLocation();
         return;
       }
+      final preferences = await SharedPreferences.getInstance();
+      const offerKey = 'momiq.locationOfferSeen.v1';
+      if (automatic && preferences.getBool(offerKey) == true) return;
+      // This is only prompt history, never a substitute for OS permission.
+      await preferences.setBool(offerKey, true);
+      if (!mounted) return;
       final enable = await showModalBottomSheet<bool>(
         context: context,
         backgroundColor: listingSurface,
@@ -173,6 +183,8 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         );
       }
+    } finally {
+      _locationOfferOpen = false;
     }
   }
 

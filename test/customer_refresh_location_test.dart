@@ -97,6 +97,30 @@ void main() {
     },
   );
   testWidgets(
+    'declined location offer stays dismissed after restart but manual enable remains',
+    (t) async {
+      final loc = FakeLocation();
+      await open(t, CustomerStore(feedRepository: FakeFeed()), loc);
+      await t.tap(find.byKey(const ValueKey('skipCustomerLocation')));
+      await t.pumpAndSettle();
+      await t.pumpWidget(const SizedBox());
+      await open(t, CustomerStore(feedRepository: FakeFeed()), loc);
+      expect(find.byKey(const ValueKey('skipCustomerLocation')), findsNothing);
+      expect(loc.requested, 0);
+      expect(loc.located, 0);
+      await t.tap(find.byKey(const ValueKey('customerLocation')));
+      await t.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('enableCustomerLocation')),
+        findsOneWidget,
+      );
+      await t.tap(find.byKey(const ValueKey('enableCustomerLocation')));
+      await t.pumpAndSettle();
+      expect(loc.requested, 1);
+      expect(loc.located, 1);
+    },
+  );
+  testWidgets(
     'permission grant fetches actual coordinates and sorts mock sitters',
     (t) async {
       final feed = FakeFeed();
