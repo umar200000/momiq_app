@@ -193,6 +193,39 @@ void main() {
     expect(find.text('Hoji Sherhojiyiv'), findsNothing);
     expect(t.takeException(), isNull);
   });
+  testWidgets('operator reply is visibly attributed to Momiq support', (
+    t,
+  ) async {
+    final s = await store();
+    addTearDown(s.dispose);
+    await s.update(
+      (data) => data['messages'] = [
+        {
+          'id': 'test-support-message',
+          'sitter': 'hoji',
+          'text': 'TEST operator reply',
+          'mine': false,
+          'senderRole': 'support',
+          'time': '2026-10-28T00:00:00Z',
+        },
+      ],
+    );
+    await open(
+      t,
+      Scaffold(
+        body: SingleChildScrollView(child: CustomerChatList(store: s)),
+      ),
+    );
+    expect(
+      find.text('Momiq yordam xizmati: TEST operator reply'),
+      findsOneWidget,
+    );
+    await t.tap(find.text('Hoji Sherhojiyiv'));
+    await t.pumpAndSettle();
+    expect(find.text('Momiq yordam xizmati'), findsOneWidget);
+    expect(find.text('TEST operator reply'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
   testWidgets('conversation with unavailable sitter does not crash', (t) async {
     final s = await store();
     await s.update(

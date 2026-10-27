@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
+import 'wallet_page.dart';
 
 class TopupHistoryPage extends StatefulWidget {
   const TopupHistoryPage({super.key, required this.api, required this.topupId});
@@ -15,7 +16,7 @@ class _TopupHistoryPageState extends State<TopupHistoryPage> {
   final List<Map<String, dynamic>> _items = [];
   final Set<int> _opening = {};
   String? _cursor, _error;
-  bool _busy = false;
+  bool _busy = false, _amending = false;
   @override
   void initState() {
     super.initState();
@@ -136,6 +137,21 @@ class _TopupHistoryPageState extends State<TopupHistoryPage> {
     }
   }
 
+  Future<void> _amend() async {
+    if (_busy || _amending) return;
+    setState(() => _amending = true);
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => WalletPage(api: widget.api, topupId: widget.topupId),
+        ),
+      );
+      if (mounted) await _load();
+    } finally {
+      if (mounted) setState(() => _amending = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -148,6 +164,16 @@ class _TopupHistoryPageState extends State<TopupHistoryPage> {
         padding: const EdgeInsets.all(16),
         children: [
           if (_busy) const LinearProgressIndicator(),
+          if (_items.isNotEmpty &&
+              const {'needs_info', 'rejected'}.contains(_items.first['status']))
+            OutlinedButton.icon(
+              key: const ValueKey('amendHistoryTopup'),
+              onPressed: _busy || _amending || _error != null ? null : _amend,
+              icon: const Icon(Icons.edit_note),
+              label: Text(
+                lt('Chekni to‘ldirish', 'Update receipt', 'Дополнить чек'),
+              ),
+            ),
           if (_error != null) ...[
             Text(_error!),
             TextButton(

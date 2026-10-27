@@ -7,6 +7,7 @@ class HistoryApi extends CustomerApi {
   HistoryApi() : super('test', 'owner');
   final calls = <String>[];
   bool receiptFails = true;
+  String currentStatus = 'needs_info';
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -27,6 +28,7 @@ class HistoryApi extends CustomerApi {
         {
           'revision': more ? 0 : 1,
           'event': more ? 'created' : 'request_info',
+          'status': more ? 'pending' : currentStatus,
           'amountMinor': 1500001,
           'qrVersion': 2,
           'reason': 'TEST',
@@ -52,10 +54,12 @@ void main() {
       await t.pumpAndSettle();
       expect(find.textContaining('15000.01 UZS'), findsOneWidget);
       expect(api.calls.where((p) => p.endsWith('/receipt')), isEmpty);
+      expect(find.byKey(const ValueKey('amendHistoryTopup')), findsOneWidget);
       await t.tap(find.text('Yana yuklash'));
       await t.pumpAndSettle();
       expect(api.calls, contains('/wallet/topups/test/history?before=1'));
       expect(find.textContaining('Yuborilgan'), findsOneWidget);
+      expect(find.byKey(const ValueKey('amendHistoryTopup')), findsOneWidget);
       await t.tap(find.text('Shu bosqichdagi chek').first);
       await t.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
@@ -66,4 +70,16 @@ void main() {
       expect(find.text('Chekning v1 nusxasi'), findsOneWidget);
     },
   );
+  testWidgets('approved history does not offer an amendment', (t) async {
+    await t.pumpWidget(
+      MaterialApp(
+        home: TopupHistoryPage(
+          api: HistoryApi()..currentStatus = 'approved',
+          topupId: 'test',
+        ),
+      ),
+    );
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('amendHistoryTopup')), findsNothing);
+  });
 }

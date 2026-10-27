@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../listings/presentation/listings_panel.dart';
-import '../../wallet/presentation/wallet_page.dart';
+import '../../wallet/presentation/topup_history_page.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key, this.api});
@@ -110,6 +110,16 @@ class _NotificationsPageState extends State<NotificationsPage>
     return '${labels.formatMediumDate(date)} ${labels.formatTimeOfDay(TimeOfDay.fromDateTime(date))}';
   }
 
+  bool _hasDestination(Map<String, dynamic> item) {
+    final target = item['targetId'];
+    if (target is! String) return false;
+    return switch (item['kind']) {
+      'wallet_topup' => RegExp(r'^[a-f0-9]{32}$').hasMatch(target),
+      'listing' => const {'boarding', 'homeVisit', 'personal'}.contains(target),
+      _ => false,
+    };
+  }
+
   Future<void> _open(Map<String, dynamic> item) async {
     final id = item['id'] as String;
     if (_busy || !_reading.add(id)) return;
@@ -140,7 +150,7 @@ class _NotificationsPageState extends State<NotificationsPage>
               onPressed: () => Navigator.pop(context, false),
               child: Text(lt('Yopish', 'Close', 'Закрыть')),
             ),
-            if (item['kind'] == 'wallet_topup' || item['kind'] == 'listing')
+            if (_hasDestination(item))
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
                 child: Text(
@@ -150,12 +160,15 @@ class _NotificationsPageState extends State<NotificationsPage>
           ],
         ),
       );
-      if (target != true || !mounted) return;
+      if (target != true || !mounted || !_hasDestination(item)) return;
       // Only local, known destinations are accepted; no server-provided URLs.
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => item['kind'] == 'wallet_topup'
-              ? WalletPage(api: _api)
+              ? TopupHistoryPage(
+                  api: _api!,
+                  topupId: item['targetId'] as String,
+                )
               : Scaffold(
                   appBar: AppBar(
                     title: Text(lt('E’lonlar', 'Listings', 'Объявления')),

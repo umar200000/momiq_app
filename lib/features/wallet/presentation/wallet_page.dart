@@ -59,6 +59,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   final _payerReference = TextEditingController();
   DateTime? _paidAt;
   Uint8List? _receipt;
+  bool _receiptPickPending = false;
   String? _requestId;
   WalletDraftStorage? _draftStorage;
   Timer? _draftTimer;
@@ -111,6 +112,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       'payerReference': _payerReference.text,
       'paidAt': _paidAt?.toUtc().toIso8601String(),
       'receipt': _receipt == null ? null : base64Encode(_receipt!),
+      'receiptPickPending': _receiptPickPending,
       'requestId': _requestId,
       'config': _paymentConfig,
     };
@@ -218,6 +220,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         _draftUnreadable = false;
         _draftError = null;
         _receipt = null;
+        _receiptPickPending = false;
         _requestId = null;
         _accepted = false;
         _amount.clear();
@@ -272,6 +275,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
             _receipt = draft['receipt'] == null
                 ? null
                 : base64Decode(draft['receipt'] as String);
+            _receiptPickPending = draft['receiptPickPending'] == true;
             _requestId = draft['requestId'] as String?;
             if (_editing) _editingRevision = draft['topupRevision'] as int;
             _paymentStarted = true;
@@ -386,6 +390,9 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   Future<void> _pick() async {
     if (_picking || _sending) return;
     setState(() => _picking = true);
+    var attempted = false;
+    var selected = false;
+    final wasInterrupted = _receiptPickPending;
     try {
       final source = await showModalBottomSheet<ImageSource>(
         context: context,
@@ -422,6 +429,14 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
       );
       if (source == null || !mounted) return;
+      // Preserve the previous receipt if Android destroys the activity while
+      // the external picker is open. Never silently attach another flow's
+      // globally cached lost-picker result to a financial request.
+      attempted = true;
+      _receiptPickPending = true;
+      _draftRevision++;
+      await _persistDraft();
+      if (!mounted) return;
       Uint8List? bytes;
       if (widget.pickReceipt != null) {
         bytes = await widget.pickReceipt!(source);
@@ -445,6 +460,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         if (mounted) {
           setState(() {
             _receipt = bytes;
+            selected = true;
             _requestId = null;
             _draftRevision++;
           });
@@ -476,12 +492,25 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
       );
     } finally {
-      if (mounted) setState(() => _picking = false);
+      if (mounted) {
+        if (attempted) {
+          _receiptPickPending = wasInterrupted && !selected;
+          _draftRevision++;
+          await _saveDraftSafely();
+        }
+        if (mounted) setState(() => _picking = false);
+      }
     }
   }
 
   Future<void> _submit() async {
-    if (_sending || _receipt == null || !_accepted || _api == null) return;
+    if (_sending ||
+        _receiptPickPending ||
+        _receipt == null ||
+        !_accepted ||
+        _api == null) {
+      return;
+    }
     setState(() => _sending = true);
     try {
       if (!_paymentSubmitted) {
@@ -836,6 +865,15 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           icon: const Icon(Icons.receipt_long),
           label: Text(lt('Chekni tanlash', 'Choose receipt', 'Выбрать чек')),
         ),
+        if (_receiptPickPending && !_picking)
+          Text(
+            lt(
+              'Chek tanlash yakunlanmagan. Oldingi qoralama saqlandi; yuborishdan oldin chekni qayta tanlang.',
+              'Receipt selection was interrupted. Your previous draft is retained; choose the receipt again before submitting.',
+              'Выбор чека прерван. Предыдущий черновик сохранён; перед отправкой выберите чек заново.',
+            ),
+            key: const ValueKey('receiptPickInterrupted'),
+          ),
         if (_receipt != null)
           Image.memory(
             _receipt!,
@@ -864,7 +902,12 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
         FilledButton(
           key: const ValueKey('submitTopup'),
-          onPressed: !_accepted || _receipt == null || _sending || _picking
+          onPressed:
+              !_accepted ||
+                  _receipt == null ||
+                  _receiptPickPending ||
+                  _sending ||
+                  _picking
               ? null
               : _submit,
           child: _sending

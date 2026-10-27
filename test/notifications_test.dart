@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/notifications/presentation/notifications_page.dart';
+import 'package:momiq_app/features/wallet/presentation/topup_history_page.dart';
 
 class NoticeApi extends CustomerApi {
   NoticeApi() : super('test', 'owner');
   bool offline = false, readFails = false, empty = false;
+  String targetId = '1234567890abcdef1234567890abcdef';
+  bool historyGone = false;
   final Set<String> read = {};
   final List<String> requests = [];
   Map<String, dynamic> item(String id) => {
     'id': id,
     'kind': 'wallet_topup',
-    'targetId': 'test-only',
+    'targetId': targetId,
     'status': 'rejected',
     'reason': 'TEST reason $id',
     'created': '2026-10-26T05:00:00Z',
@@ -30,6 +33,10 @@ class NoticeApi extends CustomerApi {
       read.add(path.split('/')[2]);
       return {'ok': true};
     }
+    if (path.startsWith('/wallet/topups/')) {
+      if (historyGone) throw CustomerApiException('Not found');
+      return {'items': [], 'nextCursor': null};
+    }
     return {
       'items': empty
           ? []
@@ -43,6 +50,43 @@ class NoticeApi extends CustomerApi {
 }
 
 void main() {
+  testWidgets(
+    'wallet notice opens only its receipt history and missing target can retry',
+    (t) async {
+      final api = NoticeApi()..historyGone = true;
+      await t.pumpWidget(MaterialApp(home: NotificationsPage(api: api)));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('notice-2')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Sahifani ochish'));
+      await t.pumpAndSettle();
+      expect(find.byType(TopupHistoryPage), findsOneWidget);
+      expect(
+        t.widget<TopupHistoryPage>(find.byType(TopupHistoryPage)).topupId,
+        api.targetId,
+      );
+      expect(
+        api.requests,
+        contains('GET /wallet/topups/${api.targetId}/history'),
+      );
+      expect(find.textContaining('Tarix yuklanmadi.'), findsOneWidget);
+      expect(find.text('Paynet Xolis'), findsNothing);
+      api.historyGone = false;
+      await t.tap(find.text('Qayta urinish'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Tarix yuklanmadi.'), findsNothing);
+    },
+  );
+  testWidgets('malformed notification target cannot become a route', (t) async {
+    final api = NoticeApi()..targetId = '../../admin/users';
+    await t.pumpWidget(MaterialApp(home: NotificationsPage(api: api)));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('notice-2')));
+    await t.pumpAndSettle();
+    expect(find.text('Sahifani ochish'), findsNothing);
+    expect(api.requests.any((p) => p.contains('/wallet/')), isFalse);
+    expect(find.text('TEST reason 2'), findsWidgets);
+  });
   testWidgets('history paginates and reading persists after reopening', (
     t,
   ) async {

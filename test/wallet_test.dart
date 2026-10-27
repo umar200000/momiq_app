@@ -305,6 +305,65 @@ void main() {
     },
   );
   testWidgets(
+    'interrupted external picker preserves evidence but cannot submit until reselected',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final api = WalletApi();
+      final config = (await api.request('GET', '/wallet'))['config'];
+      final draft = MemoryDraft()
+        ..data = {
+          'formatVersion': 1,
+          'config': config,
+          'amount': '15000',
+          'receipt': png,
+          'payerReference': 'TEST-before-interruption',
+          'requestId': 'stable-original',
+          'receiptPickPending': true,
+        };
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WalletPage(
+            api: api,
+            draftStorage: draft,
+            pickReceipt: (_) async => null,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('receiptPickInterrupted')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('nonRefundableConsent')),
+      );
+      await tester.tap(find.byKey(const ValueKey('nonRefundableConsent')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('submitTopup')))
+            .onPressed,
+        isNull,
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('pickTopupReceipt')),
+      );
+      await tester.tap(find.byKey(const ValueKey('pickTopupReceipt')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('receiptGallery')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('receiptPickInterrupted')),
+        findsOneWidget,
+      );
+      expect(draft.data!['receipt'], png);
+      expect(draft.data!['receiptPickPending'], isTrue);
+      expect(api.sent, isEmpty);
+    },
+  );
+  testWidgets(
     'requires consent and receipt, retries same request without adding pending funds',
     (tester) async {
       tester.view.physicalSize = const Size(800, 2400);

@@ -1,5 +1,6 @@
 import 'core/localization/app_language.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/foundation.dart';
 import 'core/config/app_environment.dart';
 
@@ -18,7 +19,11 @@ class Momiq extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    context.dependOnInheritedWidgetOfExactType<AppLanguage>();
     return MaterialApp(
+      locale: Locale(AppLanguage.current.value),
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      supportedLocales: const [Locale('uz'), Locale('en'), Locale('ru')],
       title: 'Momiq',
       debugShowCheckedModeBanner: false,
       builder: (context, child) => AppEnvironment.current.name == 'production'

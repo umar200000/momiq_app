@@ -14,6 +14,22 @@ String bookingStatus(String status) => ct(switch (status) {
   _ => 'Kutilmoqda',
 });
 
+String _messageAuthor(CJson message) => message['mine'] == true
+    ? lt('Siz', 'You', 'Вы')
+    : switch (message['senderRole']) {
+        'support' => lt(
+          'Momiq yordam xizmati',
+          'Momiq support',
+          'Поддержка Momiq',
+        ),
+        'sitter' => lt('Enaga', 'Sitter', 'Няня'),
+        _ => lt(
+          'Muallif ko‘rsatilmagan',
+          'Author not specified',
+          'Автор не указан',
+        ),
+      };
+
 class CustomerOrders extends StatefulWidget {
   const CustomerOrders({super.key, required this.store});
   final CustomerStore store;
@@ -646,7 +662,7 @@ class _CustomerChatListState extends State<CustomerChatList> {
                             Text(
                               last == null
                                   ? ct('Suhbatni boshlash')
-                                  : '${last['mine'] == true ? 'Siz: ' : ''}${last['image'] != null ? 'Rasm' : last['text']}',
+                                  : '${_messageAuthor(last)}: ${last['image'] != null ? ct('Rasm') : last['text']}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -891,6 +907,13 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            Text(
+                              _messageAuthor(m),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             if (m['image'] != null)
                               GestureDetector(
                                 onTap: () => showDialog<void>(
