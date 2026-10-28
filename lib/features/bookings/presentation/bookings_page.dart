@@ -2,6 +2,7 @@ import '../../customer/presentation/pet_safety.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../care/presentation/booking_care_page.dart';
+import '../../reviews/presentation/booking_review_page.dart';
 import '../../../core/localization/app_language.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../customer/data/customer_api.dart';
@@ -482,6 +483,24 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                 ),
               ),
               const SizedBox(height: 16),
+              if (b['status'] == 'completed')
+                TextButton.icon(
+                  key: const ValueKey('bookingReview'),
+                  onPressed: locked
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => BookingReviewPage(
+                              api: c.api,
+                              bookingId: widget.id,
+                            ),
+                          ),
+                        ),
+                  icon: const Icon(Icons.star_outline),
+                  label: Text(
+                    lt('Buyurtma sharhi', 'Booking review', 'Отзыв о заказе'),
+                  ),
+                ),
               if ([
                 'accepted',
                 'active',

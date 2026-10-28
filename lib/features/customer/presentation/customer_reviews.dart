@@ -1,40 +1,15 @@
 import 'package:flutter/material.dart';
+import '../data/customer_api.dart';
 import 'customer_widgets.dart';
 
-List<CJson> customerSitterReviews(CustomerStore store, CJson sitter) {
-  final own = store
-      .list('bookings')
-      .where(
-        (b) =>
-            b['sitter'] == sitter['id'] &&
-            b['status'] == 'completed' &&
-            b['review'] != null,
-      )
-      .map((b) {
-        final review = b['review'] as Map;
-        return <String, dynamic>{
-          'name': '${store.profile['first']} ${store.profile['last']}',
-          'stars': review['stars'],
-          'text': review['text'],
-          'date': review['date'] ?? b['to'],
-          'own': true,
-        };
-      })
-      .toList();
-  final reviews = [...own];
-  reviews.sort(
-    (a, b) => DateTime.parse(b['date']).compareTo(DateTime.parse(a['date'])),
-  );
-  return reviews;
-}
-
+/// Only the server's published, non-TEST aggregate counts toward reputation.
 String customerReviewSummary(CustomerStore store, CJson sitter) {
-  final reviews = customerSitterReviews(store, sitter);
-  if (reviews.isEmpty) return 'Hali sharh yo‘q';
-  final average =
-      reviews.fold<double>(0, (sum, r) => sum + (r['stars'] as num)) /
-      reviews.length;
-  return '${average.toStringAsFixed(1)} (${reviews.length})';
+  final count = sitter['reviews'];
+  final rating = sitter['rating'];
+  if (count is! int || count <= 0 || rating is! num) {
+    return lt('Hali sharh yo‘q', 'No reviews yet', 'Отзывов пока нет');
+  }
+  return '${rating.toStringAsFixed(1)} ($count)';
 }
 
 class CustomerReviewsSection extends StatelessWidget {
@@ -46,142 +21,166 @@ class CustomerReviewsSection extends StatelessWidget {
   final CustomerStore store;
   final CJson sitter;
   @override
-  Widget build(BuildContext context) {
-    final reviews = customerSitterReviews(store, sitter);
-    if (reviews.isEmpty) return cCard(cText('Hali sharh yo‘q'));
-    void open() =>
-        cPush(context, CustomerSitterReviewsPage(store: store, sitter: sitter));
-    return cCard(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          cText(
-            lt('Mijozlar fikri', 'Customer reviews', 'Отзывы клиентов'),
-            size: 19,
-            bold: true,
+  Widget build(BuildContext context) => cCard(
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        cText(
+          lt('Mijozlar fikri', 'Customer reviews', 'Отзывы клиентов'),
+          size: 19,
+          bold: true,
+        ),
+        cRating(customerReviewSummary(store, sitter)),
+        cButton(
+          lt('Sharhlarni ko‘rish', 'View reviews', 'Посмотреть отзывы'),
+          () => cPush(
+            context,
+            CustomerSitterReviewsPage(store: store, sitter: sitter),
           ),
-          const SizedBox(height: 8),
-          cRating(customerReviewSummary(store, sitter)),
-          const SizedBox(height: 12),
-          cText(reviews.first['name'], bold: true, size: 14),
-          const SizedBox(height: 6),
-          Text(
-            reviews.first['text'],
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 10),
-          cButton(
-            lt(
-              'Barcha sharhlar (${reviews.length})',
-              'All reviews (${reviews.length})',
-              'Все отзывы (${reviews.length})',
-            ),
-            open,
-            secondary: true,
-            id: 'viewSitterReviews',
-          ),
-        ],
-      ),
-      onTap: open,
-    );
-  }
+          secondary: true,
+          id: 'viewSitterReviews',
+        ),
+      ],
+    ),
+  );
 }
 
-class CustomerSitterReviewsPage extends StatelessWidget {
+class CustomerSitterReviewsPage extends StatefulWidget {
   const CustomerSitterReviewsPage({
     super.key,
     required this.store,
     required this.sitter,
+    this.api,
   });
   final CustomerStore store;
   final CJson sitter;
+  final CustomerApi? api;
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: store,
-    builder: (context, _) {
-      final reviews = customerSitterReviews(store, sitter);
-      return CustomerPage(
-        title: lt('Mijozlar fikri', 'Customer reviews', 'Отзывы клиентов'),
-        children: [
-          cCard(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                cText(sitter['name'], size: 22, bold: true),
-                const SizedBox(height: 8),
-                cRating(customerReviewSummary(store, sitter)),
-                const SizedBox(height: 8),
-                cText(
-                  lt(
-                    'Mijozlar qoldirgan sharhlar.',
-                    'Customer reviews.',
-                    'Отзывы клиентов.',
-                  ),
-                  size: 12,
-                ),
-              ],
+  State<CustomerSitterReviewsPage> createState() =>
+      _CustomerSitterReviewsPageState();
+}
+
+class _CustomerSitterReviewsPageState extends State<CustomerSitterReviewsPage> {
+  late final api = widget.api ?? CustomerApi.active ?? CustomerApi('', '');
+  final items = <CJson>[];
+  bool busy = false, loaded = false, failed = false;
+  String? cursor;
+  int count = 0;
+  num rating = 0;
+  final session = CustomerApi.sessionVersion;
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load({bool more = false}) async {
+    if (busy || (more && cursor == null)) return;
+    setState(() {
+      busy = true;
+      failed = false;
+    });
+    try {
+      final result = await api.request(
+        'GET',
+        '/sitters/${Uri.encodeComponent(widget.sitter['id'])}/reviews${more ? '?before=$cursor' : ''}',
+      );
+      if (!mounted || session != CustomerApi.sessionVersion) return;
+      setState(() {
+        if (!more) items.clear();
+        final ids = items.map((r) => r['id']).toSet();
+        items.addAll(
+          (result['items'] as List)
+              .map((r) => CJson.from(r))
+              .where((r) => ids.add(r['id'])),
+        );
+        cursor = result['nextCursor'];
+        count = result['count'];
+        rating = result['rating'];
+        loaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => failed = true);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(lt('Mijozlar fikri', 'Customer reviews', 'Отзывы клиентов')),
+      actions: [
+        IconButton(
+          onPressed: busy ? null : () => load(),
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
+    body: ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text(
+          widget.sitter['name'],
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        if (busy) const LinearProgressIndicator(),
+        if (failed)
+          Text(
+            lt(
+              'Sharhlar yuklanmadi. Qayta urinib ko‘ring.',
+              'Could not load reviews. Retry.',
+              'Не удалось загрузить отзывы. Повторите.',
             ),
+            key: const ValueKey('reviewLoadError'),
           ),
-          for (var i = 0; i < reviews.length; i++)
-            cCard(
-              Column(
-                key: ValueKey('sitterReview-$i'),
+        if (loaded)
+          Text(
+            count == 0
+                ? lt(
+                    'Haqiqiy sharhlar hali yo‘q.',
+                    'No genuine reviews yet.',
+                    'Настоящих отзывов пока нет.',
+                  )
+                : '${rating.toStringAsFixed(1)} ($count)',
+          ),
+        if (loaded && items.isEmpty && !failed)
+          Text(lt('Hali sharh yo‘q', 'No reviews yet', 'Отзывов пока нет')),
+        for (final review in items)
+          Card(
+            key: ValueKey('serverReview-${review['id']}'),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: listingBorder,
-                        child: Text(
-                          (reviews[i]['name'] as String).substring(0, 1),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            cText(reviews[i]['name'], bold: true),
-                            if (reviews[i]['own'] == true)
-                              cText(
-                                lt(
-                                  'Sizning sharhingiz',
-                                  'Your review',
-                                  'Ваш отзыв',
-                                ),
-                                size: 12,
-                              ),
-                            cText(shortDate(reviews[i]['date']), size: 12),
-                          ],
-                        ),
-                      ),
-                    ],
+                  Text(
+                    review['name'],
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
-                  const SizedBox(height: 10),
-                  Semantics(
-                    label: '${reviews[i]['stars']} / 5',
-                    child: Row(
-                      children: [
-                        for (var star = 1; star <= 5; star++)
-                          Icon(
-                            star <= reviews[i]['stars']
-                                ? Icons.star_rounded
-                                : Icons.star_outline_rounded,
-                            size: 20,
-                            color: listingGold,
-                          ),
-                      ],
+                  Text(
+                    '${review['stars']} / 5 · ${shortDate(review['created'])}',
+                  ),
+                  if (review['testOnly'] == true)
+                    Text(
+                      lt(
+                        'TEST — reytingga qo‘shilmaydi',
+                        'TEST — excluded from ratings',
+                        'TEST — не учитывается в рейтинге',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  if ((reviews[i]['text'] as String).isNotEmpty)
-                    cText(reviews[i]['text']),
+                  if ((review['text'] as String).isNotEmpty)
+                    Text(review['text']),
                 ],
               ),
             ),
-        ],
-      );
-    },
+          ),
+        if (cursor != null)
+          TextButton(
+            onPressed: busy ? null : () => load(more: true),
+            child: Text(lt('Yana', 'More', 'Ещё')),
+          ),
+      ],
+    ),
   );
 }
