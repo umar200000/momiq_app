@@ -992,7 +992,21 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         for (final row in wallet['entries'] as List)
           ListTile(
             title: Text(walletMoney(row['amountMinor'] as int)),
-            subtitle: Text(row['reason'] as String),
+            subtitle: Text(
+              row['kind'] == 'topup_correction'
+                  ? '${lt('Tushum tuzatishi', 'Top-up correction', 'Корректировка пополнения')}: ${row['reason']}'
+                  : row['reason'] as String,
+            ),
+            onTap: row['kind'] == 'topup_correction' && row['topupId'] is String
+                ? () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TopupHistoryPage(
+                        api: _api!,
+                        topupId: row['topupId'] as String,
+                      ),
+                    ),
+                  )
+                : null,
           ),
       ],
     ];

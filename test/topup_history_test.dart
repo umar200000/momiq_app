@@ -8,6 +8,7 @@ class HistoryApi extends CustomerApi {
   final calls = <String>[];
   bool receiptFails = true;
   String currentStatus = 'needs_info';
+  bool correctionsFail = false;
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -15,6 +16,21 @@ class HistoryApi extends CustomerApi {
     Map<String, dynamic>? body,
   ]) async {
     calls.add(path);
+    if (path.contains('/corrections')) {
+      if (correctionsFail) throw CustomerApiException('Offline');
+      final more = path.contains('?');
+      return {
+        'items': [
+          {
+            'amountMinor': more ? 50 : 100,
+            'reason': more ? 'TEST older correction' : 'TEST correction reason',
+            'created': '2026-10-29T05:00:00Z',
+          },
+        ],
+        'nextCursor': more ? null : 'test-next',
+        'correctedMinor': 150,
+      };
+    }
     if (path.endsWith('/receipt')) {
       if (receiptFails) throw CustomerApiException('Offline');
       return {
@@ -42,6 +58,37 @@ class HistoryApi extends CustomerApi {
 }
 
 void main() {
+  testWidgets('correction history is private, lazy, retryable and paginated', (
+    t,
+  ) async {
+    final api = HistoryApi()
+      ..currentStatus = 'approved'
+      ..correctionsFail = true;
+    await t.pumpWidget(
+      MaterialApp(
+        home: TopupHistoryPage(api: api, topupId: 'test'),
+      ),
+    );
+    await t.pumpAndSettle();
+    expect(api.calls.where((p) => p.contains('/corrections')), isEmpty);
+    await t.tap(find.byKey(const ValueKey('topupCorrections')));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Tuzatishlar yuklanmadi'), findsOneWidget);
+    api.correctionsFail = false;
+    await t.tap(find.byKey(const ValueKey('topupCorrections')));
+    await t.pumpAndSettle();
+    expect(find.textContaining('TEST correction reason'), findsOneWidget);
+    expect(find.textContaining('kartaga pul qaytarish emas'), findsOneWidget);
+    expect(find.textContaining('1.50 UZS'), findsOneWidget);
+    await t.tap(find.text('Oldingi tuzatishlar'));
+    await t.pumpAndSettle();
+    expect(
+      api.calls,
+      contains('/wallet/topups/test/corrections?before=test-next'),
+    );
+    expect(find.textContaining('TEST older correction'), findsOneWidget);
+    expect(find.text('Oldingi tuzatishlar'), findsNothing);
+  });
   testWidgets(
     'history paginates without bulk receipts and can retry a failed receipt',
     (t) async {

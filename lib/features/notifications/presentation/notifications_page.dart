@@ -168,6 +168,7 @@ class _NotificationsPageState extends State<NotificationsPage>
         ? lt('Balans to‘ldirish', 'Balance top-up', 'Пополнение баланса')
         : lt('E’lon moderatsiyasi', 'Listing review', 'Проверка объявления');
     final status = switch (item['status']) {
+      'corrected' => lt('Tuzatilgan', 'Corrected', 'Исправлено'),
       'approved' => lt('Tasdiqlangan', 'Approved', 'Одобрено'),
       'rejected' => lt('Rad etilgan', 'Rejected', 'Отклонено'),
       'suspended' => lt('To‘xtatilgan', 'Suspended', 'Приостановлено'),

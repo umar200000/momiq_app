@@ -17,6 +17,47 @@ class _TopupHistoryPageState extends State<TopupHistoryPage> {
   final Set<int> _opening = {};
   String? _cursor, _error;
   bool _busy = false, _amending = false;
+  final List<Map<String, dynamic>> _corrections = [];
+  bool _correctionsBusy = false, _correctionsLoaded = false;
+  String? _correctionsCursor, _correctionsError;
+  int _correctedMinor = 0;
+
+  Future<void> _loadCorrections({bool more = false}) async {
+    if (_correctionsBusy) return;
+    setState(() {
+      _correctionsBusy = true;
+      _correctionsError = null;
+    });
+    try {
+      final page = await widget.api.request(
+        'GET',
+        '/wallet/topups/${widget.topupId}/corrections${more ? '?before=$_correctionsCursor' : ''}',
+      );
+      if (!mounted) return;
+      setState(() {
+        if (!more) _corrections.clear();
+        _corrections.addAll(
+          (page['items'] as List).map((e) => Map<String, dynamic>.from(e)),
+        );
+        _correctionsCursor = page['nextCursor'] as String?;
+        _correctedMinor = page['correctedMinor'] as int;
+        _correctionsLoaded = true;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _correctionsError = lt(
+            'Tuzatishlar yuklanmadi. Qayta urining.',
+            'Could not load corrections. Retry.',
+            'Не удалось загрузить исправления. Повторите.',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _correctionsBusy = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -163,6 +204,51 @@ class _TopupHistoryPageState extends State<TopupHistoryPage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
+          TextButton(
+            key: const ValueKey('topupCorrections'),
+            onPressed: _correctionsBusy ? null : () => _loadCorrections(),
+            child: Text(
+              lt(
+                'Tushum tuzatishlari',
+                'Top-up corrections',
+                'Корректировки пополнения',
+              ),
+            ),
+          ),
+          if (_correctionsBusy) const LinearProgressIndicator(),
+          if (_correctionsError != null) Text(_correctionsError!),
+          if (_correctionsLoaded) ...[
+            Text(
+              '${lt('Balansdan tuzatish uchun yechilgan', 'Deducted to correct the top-up', 'Списано для исправления пополнения')}: ${_money(_correctedMinor)}',
+            ),
+            Text(
+              lt(
+                'Bu kartaga pul qaytarish emas. Savol bo‘lsa yordam xizmatiga murojaat qiling.',
+                'This is not a refund to a card. Contact support with questions.',
+                'Это не возврат на карту. Если есть вопросы, обратитесь в поддержку.',
+              ),
+            ),
+            for (final item in _corrections)
+              ListTile(
+                title: Text('−${_money(item['amountMinor'] as int)}'),
+                subtitle: Text(
+                  '${item['reason']}\n${_date(item['created'] as String)}',
+                ),
+              ),
+            if (_correctionsCursor != null)
+              TextButton(
+                onPressed: _correctionsBusy
+                    ? null
+                    : () => _loadCorrections(more: true),
+                child: Text(
+                  lt(
+                    'Oldingi tuzatishlar',
+                    'Earlier corrections',
+                    'Предыдущие исправления',
+                  ),
+                ),
+              ),
+          ],
           if (_busy) const LinearProgressIndicator(),
           if (_items.isNotEmpty &&
               const {'needs_info', 'rejected'}.contains(_items.first['status']))
