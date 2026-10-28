@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../bookings/presentation/bookings_page.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/widgets/momiq_scaffold.dart';
 import '../../customer/data/customer_api.dart';
@@ -327,6 +328,28 @@ class _ConversationPageState extends State<ConversationPage>
   Future<void> _menu(String action) async {
     final chat = _chat;
     if (chat == null || _actionBusy) return;
+    if (action == 'bookings') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => Scaffold(
+            appBar: AppBar(
+              title: Text(
+                lt(
+                  'Shu suhbatdagi buyurtmalar',
+                  'Bookings in this conversation',
+                  'Заказы в этой переписке',
+                ),
+              ),
+            ),
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: BookingInbox(api: chat.api, conversationId: chat.id),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     if (action == 'reports') {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -442,6 +465,10 @@ class _ConversationPageState extends State<ConversationPage>
                 chat?.ready == true && chat?.sending == false && !_actionBusy,
             onSelected: _menu,
             itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'bookings',
+                child: Text(lt('Buyurtmalar', 'Bookings', 'Заказы')),
+              ),
               PopupMenuItem(
                 value: 'block',
                 child: Text(

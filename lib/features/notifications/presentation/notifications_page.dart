@@ -3,10 +3,12 @@ import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../listings/presentation/listings_panel.dart';
 import '../../wallet/presentation/topup_history_page.dart';
+import '../../bookings/presentation/bookings_page.dart';
 
 class NotificationsPage extends StatefulWidget {
-  const NotificationsPage({super.key, this.api});
+  const NotificationsPage({super.key, this.api, this.bookingBuilder});
   final CustomerApi? api;
+  final Widget Function(CustomerApi api, String id)? bookingBuilder;
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
@@ -19,6 +21,8 @@ class _NotificationsPageState extends State<NotificationsPage>
   String? _error, _cursor;
   int _unread = 0;
   final Set<String> _reading = {};
+  final int _session = CustomerApi.sessionVersion;
+  bool get _live => mounted && _session == CustomerApi.sessionVersion;
 
   @override
   void initState() {
@@ -39,13 +43,16 @@ class _NotificationsPageState extends State<NotificationsPage>
   }
 
   Future<void> _load({bool more = false}) async {
-    if (_busy || _reading.isNotEmpty || (more && _cursor == null)) return;
+    if (!_live || _busy || _reading.isNotEmpty || (more && _cursor == null)) {
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       _api ??= widget.api ?? await CustomerApi.restore();
+      if (!mounted || !_live) return;
       if (_api == null) {
         throw CustomerApiException(
           lt(
@@ -59,7 +66,7 @@ class _NotificationsPageState extends State<NotificationsPage>
         'GET',
         '/notifications${more ? '?before=${Uri.encodeQueryComponent(_cursor!)}' : ''}',
       );
-      if (!mounted) return;
+      if (!mounted || !_live) return;
       setState(() {
         if (!more) _items.clear();
         final ids = _items.map((e) => e['id']).toSet();
@@ -87,6 +94,9 @@ class _NotificationsPageState extends State<NotificationsPage>
   }
 
   String _title(Map<String, dynamic> item) {
+    if (item['kind'] == 'booking') {
+      return '${lt('Buyurtma', 'Booking', 'Заказ')} · ${bookingStateLabel(item['status'])}';
+    }
     final topic = item['kind'] == 'wallet_topup'
         ? lt('Balans to‘ldirish', 'Balance top-up', 'Пополнение баланса')
         : lt('E’lon moderatsiyasi', 'Listing review', 'Проверка объявления');
@@ -114,7 +124,7 @@ class _NotificationsPageState extends State<NotificationsPage>
     final target = item['targetId'];
     if (target is! String) return false;
     return switch (item['kind']) {
-      'wallet_topup' => RegExp(r'^[a-f0-9]{32}$').hasMatch(target),
+      'wallet_topup' || 'booking' => RegExp(r'^[a-f0-9]{32}$').hasMatch(target),
       'listing' => const {'boarding', 'homeVisit', 'personal'}.contains(target),
       _ => false,
     };
@@ -122,7 +132,7 @@ class _NotificationsPageState extends State<NotificationsPage>
 
   Future<void> _open(Map<String, dynamic> item) async {
     final id = item['id'] as String;
-    if (_busy || !_reading.add(id)) return;
+    if (!_live || _busy || !_reading.add(id)) return;
     setState(() {});
     try {
       if (item['readAt'] == null) {
@@ -131,13 +141,13 @@ class _NotificationsPageState extends State<NotificationsPage>
           '/notifications/${Uri.encodeComponent(id)}/read',
           {},
         );
-        if (!mounted) return;
+        if (!mounted || !_live) return;
         setState(() {
           item['readAt'] = DateTime.now().toUtc().toIso8601String();
           if (_unread > 0) _unread--;
         });
       }
-      if (!mounted) return;
+      if (!mounted || !_live) return;
       final target = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -160,11 +170,22 @@ class _NotificationsPageState extends State<NotificationsPage>
           ],
         ),
       );
-      if (target != true || !mounted || !_hasDestination(item)) return;
+      if (target != true || !mounted || !_live || !_hasDestination(item)) {
+        return;
+      }
       // Only local, known destinations are accepted; no server-provided URLs.
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => item['kind'] == 'wallet_topup'
+          builder: (_) => item['kind'] == 'booking'
+              ? (widget.bookingBuilder?.call(
+                      _api!,
+                      item['targetId'] as String,
+                    ) ??
+                    BookingDetailPage(
+                      api: _api!,
+                      id: item['targetId'] as String,
+                    ))
+              : item['kind'] == 'wallet_topup'
               ? TopupHistoryPage(
                   api: _api!,
                   topupId: item['targetId'] as String,

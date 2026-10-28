@@ -9,11 +9,12 @@ class NoticeApi extends CustomerApi {
   bool offline = false, readFails = false, empty = false;
   String targetId = '1234567890abcdef1234567890abcdef';
   bool historyGone = false;
+  String kind = 'wallet_topup';
   final Set<String> read = {};
   final List<String> requests = [];
   Map<String, dynamic> item(String id) => {
     'id': id,
-    'kind': 'wallet_topup',
+    'kind': kind,
     'targetId': targetId,
     'status': 'rejected',
     'reason': 'TEST reason $id',
@@ -50,6 +51,32 @@ class NoticeApi extends CustomerApi {
 }
 
 void main() {
+  testWidgets(
+    'booking notice marks read then opens only its validated booking ID',
+    (t) async {
+      final api = NoticeApi()..kind = 'booking';
+      await t.pumpWidget(
+        MaterialApp(
+          home: NotificationsPage(
+            api: api,
+            bookingBuilder: (source, id) {
+              expect(identical(source, api), isTrue);
+              return Scaffold(body: Text('TEST booking $id'));
+            },
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('Buyurtma · Rad etilgan'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('notice-2')));
+      await t.pumpAndSettle();
+      expect(api.read, contains('2'));
+      await t.tap(find.text('Sahifani ochish'));
+      await t.pumpAndSettle();
+      expect(find.text('TEST booking ${api.targetId}'), findsOneWidget);
+      expect(api.requests.any((p) => p.contains('/wallet/')), isFalse);
+    },
+  );
   testWidgets(
     'wallet notice opens only its receipt history and missing target can retry',
     (t) async {

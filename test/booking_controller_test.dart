@@ -87,12 +87,14 @@ class BookingApiFake extends CustomerApi {
 class BookingListApi extends CustomerApi {
   BookingListApi() : super('token', 'owner');
   bool fail = false;
+  final paths = <String>[];
   @override
   Future<Map<String, dynamic>> request(
     String method,
     String path, [
     Map<String, dynamic>? body,
   ]) async {
+    paths.add(path);
     if (fail) throw TimeoutException('offline');
     return {
       'items': [
@@ -106,6 +108,20 @@ class BookingListApi extends CustomerApi {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'conversation inbox uses only its participant-scoped endpoint for every page',
+    () async {
+      final api = BookingListApi();
+      final c = BookingInboxController(api, conversationId: 'chat');
+      addTearDown(c.dispose);
+      await c.load();
+      await c.load(more: true);
+      expect(api.paths, [
+        '/conversations/chat/bookings',
+        '/conversations/chat/bookings?before=1',
+      ]);
+    },
+  );
   test(
     'inbox deduplicates pages and retains visible data on offline refresh',
     () async {

@@ -4,6 +4,7 @@ import '../../../core/localization/app_language.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../customer/data/customer_api.dart';
 import '../data/booking_controller.dart';
+import '../../chat/presentation/conversation_page.dart';
 
 String bookingStateLabel(String state) => switch (state) {
   'pending' => lt('Javob kutilmoqda', 'Awaiting reply', 'Ожидает ответа'),
@@ -25,8 +26,9 @@ String bookingTime(String value) {
 }
 
 class BookingInbox extends StatefulWidget {
-  const BookingInbox({super.key, this.api});
+  const BookingInbox({super.key, this.api, this.conversationId});
   final CustomerApi? api;
+  final String? conversationId;
   @override
   State<BookingInbox> createState() => _BookingInboxState();
 }
@@ -38,7 +40,10 @@ class _BookingInboxState extends State<BookingInbox> {
     super.initState();
     final api = widget.api ?? CustomerApi.active;
     if (api != null) {
-      controller = BookingInboxController(api)..load();
+      controller = BookingInboxController(
+        api,
+        conversationId: widget.conversationId,
+      )..load();
     }
   }
 
@@ -131,6 +136,35 @@ class BookingDetailPage extends StatefulWidget {
 }
 
 class _BookingDetailPageState extends State<BookingDetailPage> {
+  bool _openingChat = false;
+  Future<void> openChat() async {
+    if (_openingChat || !c.live) return;
+    setState(() => _openingChat = true);
+    try {
+      final chat = await c.api.request(
+        'POST',
+        '/bookings/${widget.id}/conversation',
+        {},
+      );
+      if (!mounted || !c.live) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              ConversationPage(api: c.api, conversationId: chat['id']),
+        ),
+      );
+    } catch (error) {
+      if (mounted && c.live) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _openingChat = false);
+    }
+  }
+
   final _dialogControllers = <TextEditingController>[];
   late final BookingController c =
       widget.controller ?? BookingController(widget.api, widget.id);
@@ -302,6 +336,18 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
               ),
               Text(
                 b['myRole'] == 'sitter' ? s['customerName'] : s['sitterName'],
+              ),
+              TextButton.icon(
+                key: const ValueKey('bookingConversation'),
+                onPressed: _openingChat || locked ? null : openChat,
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: Text(
+                  lt(
+                    'Buyurtma bo‘yicha yozishish',
+                    'Chat about this booking',
+                    'Переписка по заказу',
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               Text(

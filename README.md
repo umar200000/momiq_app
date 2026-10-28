@@ -71,3 +71,9 @@ Chat safety controls: each incoming message can be reported with a reason; the c
 
 
 Authenticated pet management now supports archive/restore with account revisions, an archive list and active-only booking selection. Failed requests do not hide a pet optimistically. Remote records survive account/store reload; unauthenticated preview pets intentionally remain session-only. Old booking metadata is retained by the backend snapshot layer. Local/test catalog records with `bookingEnabled=true` open the four-step server-quote booking flow. Both roles have real paginated booking lists/details; sitter accept/reject and prestart cancellation use revisioned, encrypted retry commands. Exact price and commission come from the immutable server quote. Started-24-hour pricing and fixed daily home-visit fees follow the approved policy. Full service start/end, no-show disputes, booking notices and public production rollout remain open.
+
+## Booking communication and notices
+
+Local/test booking details open the existing customer/sitter/service conversation for either participant. The chat menu lists only bookings shared in that service, with pagination and server-side access checks. Low sitter balance does not interrupt an existing agreement's chat. A closed request that was never accepted cannot create new contact.
+
+Committed booking status changes appear in the in-app notification list and open the exact booking after its server ID is validated. External push/SMS is not yet connected. The local/test server now expires unanswered requests in the background; the app does not have to remain open. See the backend checklist for lifecycle and release gates.

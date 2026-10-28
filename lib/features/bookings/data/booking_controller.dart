@@ -122,8 +122,9 @@ class BookingController extends ChangeNotifier {
 }
 
 class BookingInboxController extends ChangeNotifier {
-  BookingInboxController(this.api);
+  BookingInboxController(this.api, {this.conversationId});
   final CustomerApi api;
+  final String? conversationId;
   final int _session = CustomerApi.sessionVersion;
   bool _disposed = false, loading = false;
   String? cursor;
@@ -138,7 +139,7 @@ class BookingInboxController extends ChangeNotifier {
     try {
       final result = await api.request(
         'GET',
-        '/bookings${more ? '?before=$cursor' : ''}',
+        '${conversationId == null ? '/bookings' : '/conversations/$conversationId/bookings'}${more ? '?before=$cursor' : ''}',
       );
       if (!live) return;
       final merged = <String, BookingJson>{
