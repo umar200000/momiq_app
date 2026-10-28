@@ -16,13 +16,14 @@ class NoticeApi extends CustomerApi {
   String targetId = '1234567890abcdef1234567890abcdef';
   bool historyGone = false;
   String kind = 'wallet_topup';
+  String status = 'rejected';
   final Set<String> read = {};
   final List<String> requests = [];
   Map<String, dynamic> item(String id) => {
     'id': id,
     'kind': kind,
     'targetId': targetId,
-    'status': 'rejected',
+    'status': status,
     'reason': 'TEST reason $id',
     'created': '2026-10-26T05:00:00Z',
     'readAt': read.contains(id) ? '2026-10-26T06:00:00Z' : null,
@@ -65,6 +66,36 @@ class NoticeApi extends CustomerApi {
 }
 
 void main() {
+  for (final entry in {
+    'contact_reminder': 'Boshlanishni tekshiring',
+    'complaint_available': 'Kelmaslik bo‘yicha murojaat qilish mumkin',
+  }.entries) {
+    testWidgets('${entry.key} opens booking without a status mutation', (
+      t,
+    ) async {
+      final api = NoticeApi()
+        ..kind = 'booking'
+        ..status = entry.key;
+      await t.pumpWidget(
+        MaterialApp(
+          home: NotificationsPage(
+            api: api,
+            bookingBuilder: (_, id) => Scaffold(body: Text('Booking $id')),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text(entry.value), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('notice-2')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Sahifani ochish'));
+      await t.pumpAndSettle();
+      expect(find.text('Booking ${api.targetId}'), findsOneWidget);
+      expect(api.requests.where((r) => r.startsWith('POST')), [
+        'POST /notifications/2/read',
+      ]);
+    });
+  }
   for (final kind in ['care', 'conversation']) {
     testWidgets('$kind notice opens authenticated internal target only', (
       t,

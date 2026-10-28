@@ -127,6 +127,20 @@ class _NotificationsPageState extends State<NotificationsPage>
             );
     }
     if (item['kind'] == 'booking') {
+      if (item['status'] == 'contact_reminder') {
+        return lt(
+          'Boshlanishni tekshiring',
+          'Check the service start',
+          'Проверьте начало ухода',
+        );
+      }
+      if (item['status'] == 'complaint_available') {
+        return lt(
+          'Kelmaslik bo‘yicha murojaat qilish mumkin',
+          'No-show report available',
+          'Можно сообщить о неявке',
+        );
+      }
       return '${lt('Buyurtma', 'Booking', 'Заказ')} · ${bookingStateLabel(item['status'])}';
     }
     final topic = item['kind'] == 'wallet_topup'
