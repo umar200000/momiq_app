@@ -1,3 +1,4 @@
+import 'sitter_dashboard.dart';
 import '../../../chat/presentation/conversation_page.dart';
 import '../../../bookings/presentation/bookings_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
@@ -281,14 +282,14 @@ class _SitterHomePageState extends State<SitterHomePage> {
         'Новые запросы — в разделе заказов',
       ),
     ),
-    card(
-      text(
-        t(
-          'Buyurtmani qabul qilishdan oldin narx, vaqt va komissiyani tekshiring.',
-          'Check the price, dates and commission before accepting a booking.',
-          'Перед принятием заказа проверьте цену, даты и комиссию.',
-        ),
-      ),
+    SitterDashboard(
+      api: CustomerApi.active,
+      onOrders: () => setState(() => _tab = 1),
+      onListings: () => setState(() => _tab = 2),
+      onProfile: () => _openProfileSection(0),
+      onWallet: () => Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute(builder: (_) => const WalletPage())),
     ),
   ];
   List<Widget> orders() => [
