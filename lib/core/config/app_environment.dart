@@ -13,9 +13,18 @@ class AppEnvironment {
   final String name, apiUrl;
   String get sessionScope => '$name|$apiUrl';
 
-  void validate({bool release = false}) {
+  void validate({
+    bool release = false,
+    bool apiEnabled = const bool.fromEnvironment(
+      'MOMIQ_API_ENABLED',
+      defaultValue: true,
+    ),
+  }) {
     if (!{'local', 'staging', 'production'}.contains(name)) {
       throw StateError('Unknown MOMIQ_ENV');
+    }
+    if (name != 'local' && !apiEnabled) {
+      throw StateError('Hosted builds cannot disable the server API');
     }
     final url = Uri.tryParse(apiUrl);
     if (url == null ||

@@ -55,6 +55,23 @@ void main() {
     });
   });
 
+  test('hosted builds cannot fall back to API-disabled preview behavior', () {
+    for (final config in [
+      const AppEnvironment('production', 'https://api.momiq.net/api'),
+      const AppEnvironment('staging', 'https://staging.example/api'),
+    ]) {
+      expect(() => config.validate(apiEnabled: false), throwsStateError);
+      expect(
+        () => config.validate(release: true, apiEnabled: false),
+        throwsStateError,
+      );
+    }
+    const AppEnvironment(
+      'local',
+      'http://127.0.0.1:8081/api',
+    ).validate(apiEnabled: false);
+  });
+
   for (final scope in [null, 'staging|https://another.example/api']) {
     test(
       'legacy is cleared but different-environment data is preserved ($scope)',
