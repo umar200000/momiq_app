@@ -43,6 +43,7 @@ void main() {
       await store.refreshSitters();
       final sitter = Map<String, dynamic>.from(store.sitters.single)
         ..remove('availabilityKnown');
+      sitter['years'] = null;
       sitter['bookingEnabled'] = true;
       await t.pumpWidget(
         MaterialApp(
@@ -62,6 +63,8 @@ void main() {
       );
       expect(find.textContaining('ta joy mavjud'), findsNothing);
       expect(find.textContaining('Oybek'), findsNothing);
+      expect(find.text('Tajriba ko‘rsatilmagan'), findsOneWidget);
+      expect(find.textContaining('null yillik'), findsNothing);
     },
   );
   testWidgets(

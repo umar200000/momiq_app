@@ -175,6 +175,7 @@ Widget cField(
   int lines = 1,
   bool required = false,
   bool number = false,
+  int? limit,
 }) => Padding(
   padding: const EdgeInsets.only(bottom: 16),
   child: TextFormField(
@@ -194,6 +195,12 @@ Widget cField(
     ),
     validator: (value) => required && (value == null || value.trim().isEmpty)
         ? lt('To‘ldiring', 'Required', 'Обязательное поле')
+        : limit != null && (value?.runes.length ?? 0) > limit
+        ? lt(
+            'Eng ko‘pi $limit belgi',
+            'At most $limit characters',
+            'Не более $limit символов',
+          )
         : null,
   ),
 );

@@ -351,7 +351,16 @@ class SitterDetailPage extends StatelessWidget {
                   children: [
                     cText(sitter['name'], size: 20, bold: true),
                     cRating(customerReviewSummary(store, sitter)),
-                    cText('${sitter['years']} yillik tajriba', size: 13),
+                    cText(
+                      sitter['years'] == null
+                          ? lt(
+                              'Tajriba ko‘rsatilmagan',
+                              'Experience not specified',
+                              'Стаж не указан',
+                            )
+                          : '${sitter['years']} yillik tajriba',
+                      size: 13,
+                    ),
                     if (sitter['testOnly'] == true)
                       cText('Test e’lon · MyID tekshiruvi yo‘q', size: 12),
                   ],

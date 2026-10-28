@@ -306,6 +306,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     String key, {
     int lines = 1,
     bool number = false,
+    bool required = true,
+    int limit = 100,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: TextFormField(
@@ -321,7 +323,16 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       ),
       validator: (value) {
         if (value == null || value.trim().isEmpty) {
-          return tr('To‘ldiring', 'Required', 'Обязательное поле');
+          return required
+              ? tr('To‘ldiring', 'Required', 'Обязательное поле')
+              : null;
+        }
+        if (value.runes.length > limit) {
+          return tr(
+            'Eng ko‘pi $limit belgi',
+            'At most $limit characters',
+            'Не более $limit символов',
+          );
         }
         if (number &&
             (int.tryParse(value) == null ||
@@ -438,6 +449,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                         ),
                         'profileYears',
                         number: true,
+                        required: false,
                       ),
                       field(
                         _about,
@@ -448,6 +460,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                         ),
                         'profileAbout',
                         lines: 4,
+                        required: false,
+                        limit: 4000,
                       ),
                     ],
                     if (widget.section == 1) ...[

@@ -96,6 +96,52 @@ void main() {
       'It va mushuklarni parvarish qilaman.',
     );
   });
+  testWidgets(
+    'server optional profile values open and save without inventing experience',
+    (tester) async {
+      final api = ProfileApi();
+      api.account['profile'] = {
+        'first': 'O‘zbek 😀',
+        'last': 'Яна',
+        'photo': null,
+      };
+      api.account['sitterProfile'] = {
+        'years': null,
+        'about': '',
+        'homePhotos': [],
+        'housing': 'apartment',
+      };
+      CustomerApi.active = api;
+      await open(tester, 0);
+      expect(
+        tester
+            .widget<TextFormField>(find.byKey(const ValueKey('profileYears')))
+            .controller!
+            .text,
+        isEmpty,
+      );
+      await save(tester);
+      expect(api.saved!['profile']['first'], 'O‘zbek 😀');
+      expect(api.saved!['sitterProfile']['years'], isNull);
+      expect(api.saved!['sitterProfile']['about'], '');
+      expect(api.saved!['_revision'], 7);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('overlong profile name is rejected before a server write', (
+    tester,
+  ) async {
+    final api = ProfileApi();
+    CustomerApi.active = api;
+    await open(tester, 0);
+    await tester.enterText(
+      find.byKey(const ValueKey('profileFirst')),
+      'a' * 101,
+    );
+    await save(tester);
+    expect(api.saved, isNull);
+    expect(find.text('Eng ko‘pi 100 belgi'), findsOneWidget);
+  });
   testWidgets('language changes immediately and persists', (tester) async {
     await open(tester, 5);
     await tester.tap(find.byKey(const ValueKey('language-ru')));
