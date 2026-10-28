@@ -6,29 +6,61 @@ import 'package:momiq_app/features/customer/data/customer_store.dart';
 import 'package:momiq_app/features/customer/presentation/customer_discovery.dart';
 
 class ReviewedCatalog implements CustomerFeedRepository {
+  bool visible = true;
   @override
-  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) async => [
-    {
-      'id': 'abc:boarding',
-      'name': 'Test E.',
-      'service': 0,
-      'pets': ['Mushuk'],
-      'price': 100000,
-      'capacity': 3,
-      'photo': null,
-      'homePhotos': [],
-      'years': 1,
-      'rating': 0,
-      'reviews': 0,
-      'about': 'TEST',
-      'testOnly': true,
-      'identityVerified': false,
-      'availabilityKnown': false,
-    },
-  ];
+  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) async =>
+      visible
+      ? [
+          {
+            'id': 'abc:boarding',
+            'name': 'Test E.',
+            'service': 0,
+            'pets': ['Mushuk'],
+            'price': 100000,
+            'capacity': 3,
+            'photo': null,
+            'homePhotos': [],
+            'years': 1,
+            'rating': 0,
+            'reviews': 0,
+            'about': 'TEST',
+            'testOnly': true,
+            'identityVerified': false,
+            'availabilityKnown': false,
+          },
+        ]
+      : [];
 }
 
 void main() {
+  testWidgets(
+    'favorites cannot reintroduce a listing removed by server eligibility',
+    (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final feed = ReviewedCatalog();
+      final store = CustomerStore(feedRepository: feed);
+      addTearDown(store.dispose);
+      await store.load();
+      await store.refreshSitters();
+      await store.favorite('abc:boarding');
+      await t.pumpWidget(
+        MaterialApp(
+          home: CustomerSearchPage(store: store, favoritesOnly: true),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('Test E.'), findsOneWidget);
+      feed.visible = false;
+      await store.refreshSitters();
+      await t.pumpAndSettle();
+      expect(store.favorites, contains('abc:boarding'));
+      expect(find.text('Test E.'), findsNothing);
+      feed.visible = true;
+      await store.refreshSitters();
+      await t.pumpAndSettle();
+      expect(find.text('Test E.'), findsOneWidget);
+    },
+  );
   testWidgets(
     'reviewed catalog without GPS does not crash or invent availability',
     (tester) async {
