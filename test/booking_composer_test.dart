@@ -16,6 +16,7 @@ class ComposerApi extends CustomerApi {
   final List<Map<String, dynamic>> submissions = [];
   final Set<String> created = {};
   bool loseResponse = false, failQuote = false;
+  bool includeOther = false;
   int quoteCount = 0;
   Map<String, dynamic>? quotedBody;
   @override
@@ -57,6 +58,13 @@ class ComposerApi extends CustomerApi {
           'favorites': [],
           'addresses': [],
           'pets': [
+            if (includeOther)
+              {
+                'id': 'other-pet',
+                'type': 'Boshqa',
+                'otherType': 'TEST rabbit',
+                'photo': null,
+              },
             {
               'id': 'owned',
               'type': 'Mushuk',
@@ -85,6 +93,49 @@ Map<String, dynamic> formFields() => {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets(
+    'other animal remains in account but cannot be selected or restored into a new booking draft',
+    (t) async {
+      final api = ComposerApi()..includeOther = true;
+      final store = CustomerStore()..api = api;
+      final memory = BookingMemory()
+        ..value = {
+          'draft': {
+            ...formFields(),
+            'petIds': ['other-pet'],
+          },
+          'quote': null,
+          'pending': null,
+        };
+      final c = BookingComposer(api, 'sitter:homeVisit', storage: memory);
+      addTearDown(store.dispose);
+      await store.load();
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingRequestPage(
+            store: store,
+            sitter: {
+              'id': 'sitter:homeVisit',
+              'name': 'TEST',
+              'service': 1,
+              'pets': ['It', 'Mushuk', 'Boshqa'],
+            },
+            composer: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(
+        store.list('pets').where((p) => p['type'] == 'Boshqa'),
+        hasLength(1),
+      );
+      expect(find.byKey(const ValueKey('bookingPet-other-pet')), findsNothing);
+      expect(find.byKey(const ValueKey('bookingPet-owned')), findsOneWidget);
+      expect(c.draft['petIds'], isEmpty);
+      expect(api.quoteCount, 0);
+      expect(api.submissions, isEmpty);
+    },
+  );
   testWidgets(
     'current server booking flow requires a selected pet before advancing',
     (t) async {

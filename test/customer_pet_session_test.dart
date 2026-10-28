@@ -56,7 +56,7 @@ void main() {
           'service': 1,
           'pets': ['It'],
         }),
-        ['It', 'Mushuk', 'Boshqa'],
+        ['It'],
       );
       expect(
         allowedCustomerPetTypes({
@@ -72,6 +72,15 @@ void main() {
         }),
         ['Mushuk'],
       );
+      for (final service in [0, 1, 2]) {
+        expect(
+          allowedCustomerPetTypes({
+            'service': service,
+            'pets': ['Boshqa', 'It', 'Mushuk', 'It'],
+          }),
+          ['It', 'Mushuk'],
+        );
+      }
     },
   );
   testWidgets(

@@ -23,7 +23,8 @@ class CareLocation {
       longitude.isFinite &&
       latitude.abs() <= 90 &&
       longitude.abs() <= 180 &&
-      address.trim().isNotEmpty;
+      address.trim().isNotEmpty &&
+      address.runes.length <= 1000;
   Map<String, dynamic> toJson() => {
     'lat': latitude,
     'lon': longitude,
@@ -223,8 +224,8 @@ class ListingStore extends ChangeNotifier {
             value.capacity! > (housing == HousingType.apartment ? 1 : 3))) {
       return ListingProblem.capacity;
     }
-    if (value.type != ServiceType.homeVisit &&
-        value.location?.isValid != true) {
+    if ((value.location != null && !value.location!.isValid) ||
+        (value.type != ServiceType.homeVisit && value.location == null)) {
       return ListingProblem.location;
     }
     return null;

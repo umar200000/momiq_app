@@ -344,7 +344,7 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       Wrap(
         spacing: 10,
         children: [
-          for (final p in ['', 'It', 'Mushuk', 'Boshqa'])
+          for (final p in ['', 'It', 'Mushuk'])
             ChoiceChip(
               label: Text(p.isEmpty ? lt('Barchasi', 'All', 'Все') : ct(p)),
               selected: _pet == p,

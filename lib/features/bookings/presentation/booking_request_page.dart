@@ -39,6 +39,10 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
   String? addressId;
   int step = 0;
   bool picking = false;
+  List<CJson> get choices => widget.store
+      .list('pets')
+      .where((p) => allowedCustomerPetTypes(widget.sitter).contains(p['type']))
+      .toList();
   @override
   void initState() {
     super.initState();
@@ -55,6 +59,13 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
     addressId = d['addressId'];
     instructions.text = d['instructions'] ?? '';
     passports.addAll(Map<String, String>.from(d['petPassports'] ?? {}));
+    if (c.pending == null) {
+      final eligibleIds = choices.map((p) => p['id']).toSet();
+      final removed = pets.any((id) => !eligibleIds.contains(id));
+      pets.retainAll(eligibleIds);
+      if (removed) await c.saveDraft(fields());
+      if (!mounted) return;
+    }
     if (c.quote != null || c.pending != null) step = 3;
     setState(() {});
   }
@@ -253,10 +264,6 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
     builder: (context, _) {
       context.dependOnInheritedWidgetOfExactType<AppLanguage>();
       final frozen = c.busy || picking || c.pending != null;
-      final choices = widget.store
-          .list('pets')
-          .where((p) => (widget.sitter['pets'] as List).contains(p['type']))
-          .toList();
       final quote = c.quote?['snapshot'];
       return Scaffold(
         appBar: AppBar(
@@ -301,8 +308,9 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                                 builder: (_) => CustomerPetForm(
                                   store: widget.store,
                                   pet: pet,
-                                  allowedTypes: (widget.sitter['pets'] as List)
-                                      .cast<String>(),
+                                  allowedTypes: allowedCustomerPetTypes(
+                                    widget.sitter,
+                                  ),
                                 ),
                               ),
                             );
@@ -327,8 +335,9 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                           MaterialPageRoute(
                             builder: (_) => CustomerPetForm(
                               store: widget.store,
-                              allowedTypes: (widget.sitter['pets'] as List)
-                                  .cast<String>(),
+                              allowedTypes: allowedCustomerPetTypes(
+                                widget.sitter,
+                              ),
                             ),
                           ),
                         );

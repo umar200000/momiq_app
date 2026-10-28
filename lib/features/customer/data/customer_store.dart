@@ -30,13 +30,11 @@ String shortDate(String value) {
   return '${d.day}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 }
 
-List<String> allowedCustomerPetTypes(CJson sitter) => sitter['service'] == 1
-    ? ['It', 'Mushuk', 'Boshqa']
-    : (sitter['pets'] as List)
-          .where((type) => type == 'It' || type == 'Mushuk')
-          .cast<String>()
-          .toSet()
-          .toList();
+List<String> allowedCustomerPetTypes(CJson sitter) => (sitter['pets'] as List)
+    .where((type) => type == 'It' || type == 'Mushuk')
+    .cast<String>()
+    .toSet()
+    .toList();
 String customerPetType(CJson pet) =>
     pet['type'] == 'Boshqa' && '${pet['otherType'] ?? ''}'.trim().isNotEmpty
     ? pet['otherType']
