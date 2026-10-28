@@ -18,6 +18,12 @@ class CustomerApiException implements Exception {
   String toString() => message;
 }
 
+class SessionEnvironmentMismatch implements Exception {
+  const SessionEnvironmentMismatch();
+  @override
+  String toString() => 'Saved session belongs to another app environment';
+}
+
 /// Override MOMIQ_API_URL to use a local development server.
 class CustomerApi {
   CustomerApi(this.token, this.userId, {String? baseUrl})
@@ -91,6 +97,8 @@ class CustomerApi {
     String code, {
     bool customer = true,
   }) async {
+    // A replacement build must not overwrite another environment's local data.
+    await restore();
     final anonymous = CustomerApi('', '');
     AppEnvironment.current.validate();
     AppEnvironment.current.validateHealth(
@@ -137,6 +145,15 @@ class CustomerApi {
     if (active != null) return active;
     final prefs = await SharedPreferences.getInstance();
     final credential = await SessionVault.read();
+    final savedScope = prefs.getString('momiq.api.scope');
+    if ((credential != null &&
+            credential['scope'] != AppEnvironment.current.sessionScope) ||
+        (savedScope != null &&
+            savedScope != AppEnvironment.current.sessionScope)) {
+      // Keep encrypted keys, outboxes and credentials intact for the matching build.
+      // No API request or cached account screen is allowed across this boundary.
+      throw const SessionEnvironmentMismatch();
+    }
     if (credential == null &&
         prefs.getString('momiq.api.token') == null &&
         prefs.getString('momiq.api.user') == null &&
@@ -148,7 +165,7 @@ class CustomerApi {
         prefs.getString('momiq.api.scope') !=
             AppEnvironment.current.sessionScope ||
         prefs.getString('momiq.api.user') != credential['userId']) {
-      // Unknown legacy or other-environment credentials must never be transmitted.
+      // Unknown legacy or inconsistent credentials must never be transmitted.
       await clearLocal();
       return null;
     }

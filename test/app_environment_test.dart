@@ -57,7 +57,7 @@ void main() {
 
   for (final scope in [null, 'staging|https://another.example/api']) {
     test(
-      'old or different-environment token is cleared before reuse ($scope)',
+      'legacy is cleared but different-environment data is preserved ($scope)',
       () async {
         CustomerApi.active = null;
         SharedPreferences.setMockInitialValues({
@@ -66,8 +66,19 @@ void main() {
           'momiq.api.account': '{}',
           'momiq.api.scope': ?scope,
         });
-        expect(await CustomerApi.restore(), isNull);
-        expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
+        if (scope == null) {
+          expect(await CustomerApi.restore(), isNull);
+          expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
+        } else {
+          await expectLater(
+            CustomerApi.restore(),
+            throwsA(isA<SessionEnvironmentMismatch>()),
+          );
+          final prefs = await SharedPreferences.getInstance();
+          expect(prefs.getString('momiq.api.scope'), scope);
+          expect(prefs.getString('momiq.api.user'), 'old-user');
+          expect(CustomerApi.active, isNull);
+        }
       },
     );
   }

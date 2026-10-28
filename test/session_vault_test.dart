@@ -48,8 +48,16 @@ void main() {
         AppEnvironment.current.sessionScope,
       ]) {
         await SessionVault.save(token: 'private', userId: 'user', scope: scope);
-        expect(await CustomerApi.restore(), isNull);
-        expect(await SessionVault.read(), isNull);
+        if (scope != AppEnvironment.current.sessionScope) {
+          await expectLater(
+            CustomerApi.restore(),
+            throwsA(isA<SessionEnvironmentMismatch>()),
+          );
+          expect((await SessionVault.read())!['scope'], scope);
+        } else {
+          expect(await CustomerApi.restore(), isNull);
+          expect(await SessionVault.read(), isNull);
+        }
       }
     },
   );
