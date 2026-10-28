@@ -1,6 +1,7 @@
 import '../../customer/presentation/pet_safety.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../care/presentation/booking_care_page.dart';
 import '../../../core/localization/app_language.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../customer/data/customer_api.dart';
@@ -481,6 +482,34 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                 ),
               ),
               const SizedBox(height: 16),
+              if ([
+                'accepted',
+                'active',
+                'completed',
+                'disputed',
+                'cancelled',
+              ].contains(b['status']))
+                TextButton.icon(
+                  key: const ValueKey('bookingCare'),
+                  onPressed: locked
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => BookingCarePage(
+                              api: c.api,
+                              bookingId: widget.id,
+                            ),
+                          ),
+                        ),
+                  icon: const Icon(Icons.pets),
+                  label: Text(
+                    lt(
+                      'Kundalik parvarish va ko‘rsatmalar',
+                      'Daily care and instructions',
+                      'Ежедневный уход и инструкции',
+                    ),
+                  ),
+                ),
               Text(
                 '${bookingTime(s['startsAt'])} — ${bookingTime(s['endsAt'])}',
               ),
