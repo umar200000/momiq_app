@@ -85,3 +85,10 @@ Local/test booking details open the existing customer/sitter/service conversatio
 Committed booking status changes appear in the in-app notification list and open the exact booking after its server ID is validated. External push/SMS is not yet connected. The local/test server now expires unanswered requests in the background; the app does not have to remain open. See the backend checklist for lifecycle and release gates.
 
 Local/test booking details also support separate start and completion confirmations from each participant. One confirmation waits for the other party; only both confirmations activate or complete care. Start is limited to the agreed interval, early completion keeps the agreed price, and these actions never debit another commission. Pending commands survive restart in the encrypted booking outbox. Native two-party acceptance remains a checklist verification item; isolated HTTP and widget tests cover the transitions.
+
+
+## Daily video reports
+
+Booking care opens the server-backed daily video list. Server windows are 07:00–11:00 and 18:00–22:00 Asia/Tashkent; a video must be 10–60 seconds, at most 32 MiB, H.264/HEVC MP4/MOV at 1080p or below. The assigned active sitter selects/captures, saves an encrypted account/API/booking-scoped outbox and sends with progress, cancellation and exact-ID retry. Upload completion is shown only after server confirmation. Participants reopen dates, view authenticated posters and play authenticated byte-range H.264/AAC derivatives using video_player 2.14.1. Backgrounding pauses playback; changing sessions invalidates the controller and outbox actions.
+
+Video files are normalized by the server, not FFmpeg in the APK. A cancelled transfer may already have committed: refresh/retry checks server state; clearing a local draft does not remove a server report. Picker recovery after Android process death, actual device codec/playback, iOS camera permissions and retention cleanup remain explicit checklist gates. Original encrypted video drafts can use up to 46 MiB of encoded storage; peak memory/performance needs device profiling (M131). The existing receipt-draft limit remains 10 MiB.

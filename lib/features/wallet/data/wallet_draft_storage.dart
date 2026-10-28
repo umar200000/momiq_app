@@ -17,6 +17,7 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
   EncryptedWalletDraftStorage({
     required String owner,
     required String scope,
+    this.byteLimit = maxBytes,
     Future<Directory> Function()? directory,
   }) : _binding = jsonEncode(['momiq.wallet-draft.v1', scope, owner]),
        _directory = directory ?? getApplicationSupportDirectory,
@@ -27,6 +28,7 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
   static int _generation = 0;
   static Future<void> _pending = Future.value();
   final String _binding;
+  final int byteLimit;
   final Future<Directory> Function() _directory;
   final int _epoch;
 
@@ -74,7 +76,7 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
     _checkSession();
     final file = await _file();
     if (!await file.exists()) return null;
-    if (await file.length() > maxBytes + 64) {
+    if (await file.length() > byteLimit + 64) {
       throw const FormatException('Qoralama juda katta');
     }
     final cipher = _cipher();
@@ -98,7 +100,7 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
     final bytes = utf8.encode(jsonEncode(data));
     return _serial(() async {
       _checkSession();
-      if (bytes.length > maxBytes) {
+      if (bytes.length > byteLimit) {
         throw const FormatException('Qoralama juda katta');
       }
       final box = await _cipher().encrypt(

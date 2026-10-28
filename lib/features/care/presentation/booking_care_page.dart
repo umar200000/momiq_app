@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../data/booking_care_controller.dart';
+import 'booking_videos_page.dart';
 
 const careCategories = ['food', 'water', 'walk', 'medicine', 'other'];
 String careCategory(String value) => switch (value) {
@@ -227,6 +228,23 @@ class _BookingCarePageState extends State<BookingCarePage>
               ),
             ],
             if (data != null) ...[
+              OutlinedButton.icon(
+                icon: const Icon(Icons.video_library_outlined),
+                label: Text(
+                  lt('Video hisobotlar', 'Video reports', 'Видеоотчёты'),
+                ),
+                onPressed: !c.live
+                    ? null
+                    : () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => BookingVideosPage(
+                            api: widget.api,
+                            bookingId: widget.bookingId,
+                          ),
+                        ),
+                      ),
+              ),
               Text('${data['day']} · Asia/Tashkent'),
               TextButton(
                 onPressed: locked ? null : changeDay,
