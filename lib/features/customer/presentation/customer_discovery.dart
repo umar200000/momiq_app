@@ -11,9 +11,15 @@ import 'customer_widgets.dart';
 import '../../listings/presentation/external_map_picker.dart';
 
 class SitterCard extends StatelessWidget {
-  const SitterCard({super.key, required this.store, required this.sitter});
+  const SitterCard({
+    super.key,
+    required this.store,
+    required this.sitter,
+    this.onReturn,
+  });
   final CustomerStore store;
   final CJson sitter;
+  final VoidCallback? onReturn;
   @override
   Widget build(BuildContext context) => cCard(
     Column(
@@ -73,7 +79,10 @@ class SitterCard extends StatelessWidget {
         ),
       ],
     ),
-    onTap: () => cPush(context, SitterDetailPage(store: store, sitter: sitter)),
+    onTap: () async {
+      await cPush(context, SitterDetailPage(store: store, sitter: sitter));
+      if (context.mounted) onReturn?.call();
+    },
   );
 }
 
@@ -91,18 +100,59 @@ class CustomerSearchPage extends StatefulWidget {
   State<CustomerSearchPage> createState() => _CustomerSearchPageState();
 }
 
-class _CustomerSearchPageState extends State<CustomerSearchPage> {
+class _CustomerSearchPageState extends State<CustomerSearchPage>
+    with WidgetsBindingObserver {
   final _search = TextEditingController();
   late int? _service = widget.service;
   CJson _filter = {
     'pet': '',
     'min': 0,
-    'max': 500000,
-    'distance': 50.0,
+    'max': null,
+    'distance': null,
     'rating': false,
   };
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _refresh();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        mounted &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    if (widget.store.feedLoading) return;
+    try {
+      await widget.store.refreshSitters(location: widget.store.feedLocation);
+    } catch (_) {
+      // Store owns the retryable error state; no unhandled async failure.
+    }
+  }
+
+  void _clear() => setState(() {
+    _search.clear();
+    _service = null;
+    _filter = {
+      'pet': '',
+      'min': 0,
+      'max': null,
+      'distance': null,
+      'rating': false,
+    };
+  });
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
     super.dispose();
   }
@@ -131,8 +181,9 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
                 (_filter['pet'] == '' ||
                     (s['pets'] as List).contains(_filter['pet'])) &&
                 s['price'] >= _filter['min'] &&
-                s['price'] <= _filter['max'] &&
-                (s['distance'] is! num ||
+                (_filter['max'] == null || s['price'] <= _filter['max']) &&
+                (_filter['distance'] == null ||
+                    s['distance'] is! num ||
                     s['distance'] <= _filter['distance']) &&
                 (_filter['rating'] != true || s['rating'] >= 4.8),
           )
@@ -140,6 +191,12 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
       return CustomerPage(
         title: widget.favoritesOnly ? 'Saqlangan enagalar' : 'Enagalar',
         actions: [
+          IconButton(
+            key: const ValueKey('refreshSearch'),
+            onPressed: widget.store.feedLoading ? null : _refresh,
+            icon: const Icon(Icons.refresh),
+            tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
+          ),
           IconButton(
             onPressed: _filters,
             icon: const Icon(Icons.tune_rounded),
@@ -180,9 +237,58 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
             ],
           ),
           const SizedBox(height: 14),
-          if (results.isEmpty) cCard(cText('Hech narsa topilmadi')),
-          for (final sitter in results)
-            SitterCard(store: widget.store, sitter: sitter),
+          TextButton(
+            key: const ValueKey('clearSearchFilters'),
+            onPressed: _clear,
+            child: Text(
+              lt(
+                'Qidiruv va filtrlarni tozalash',
+                'Clear search and filters',
+                'Сбросить поиск и фильтры',
+              ),
+            ),
+          ),
+          if (widget.store.feedLoading)
+            const Center(child: CircularProgressIndicator())
+          else if (widget.store.feedError != null)
+            cCard(
+              Column(
+                children: [
+                  cText(
+                    lt(
+                      'Enagalar yuklanmadi. Qayta urinib ko‘ring.',
+                      'Could not load sitters. Please retry.',
+                      'Не удалось загрузить ситтеров. Повторите.',
+                    ),
+                  ),
+                  TextButton(
+                    key: const ValueKey('retrySearch'),
+                    onPressed: _refresh,
+                    child: Text(lt('Qayta urinish', 'Retry', 'Повторить')),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            if (results.isEmpty)
+              cCard(
+                cText(
+                  widget.favoritesOnly
+                      ? lt(
+                          'Hozir mos va xizmatga tayyor saqlangan enaga yo‘q.',
+                          'No saved sitter is currently eligible and matches your filters.',
+                          'Сейчас нет доступных сохранённых ситтеров по вашим фильтрам.',
+                        )
+                      : 'Hech narsa topilmadi',
+                ),
+              ),
+            for (final sitter in results)
+              SitterCard(
+                store: widget.store,
+                sitter: sitter,
+                onReturn: _refresh,
+              ),
+          ],
         ],
       );
     },
@@ -198,9 +304,11 @@ class CustomerFilterPage extends StatefulWidget {
 
 class _CustomerFilterPageState extends State<CustomerFilterPage> {
   late final _min = TextEditingController(text: '${widget.initial['min']}');
-  late final _max = TextEditingController(text: '${widget.initial['max']}');
+  late final _max = TextEditingController(
+    text: '${widget.initial['max'] ?? ''}',
+  );
   late String _pet = widget.initial['pet'];
-  late double _distance = (widget.initial['distance'] as num).toDouble();
+  late double? _distance = (widget.initial['distance'] as num?)?.toDouble();
   late bool _rating = widget.initial['rating'];
   @override
   void dispose() {
@@ -211,7 +319,10 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
 
   void _apply() {
     final min = int.tryParse(_min.text), max = int.tryParse(_max.text);
-    if (min == null || max == null || min < 0 || max < min) {
+    if (min == null ||
+        (_max.text.trim().isNotEmpty && max == null) ||
+        min < 0 ||
+        (max != null && max < min)) {
       cNotice(context, 'Narx oralig‘ini to‘g‘ri kiriting.');
       return;
     }
@@ -244,13 +355,26 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       const SizedBox(height: 24),
       cField(_min, 'Minimal narx (so‘m)', number: true),
       cField(_max, 'Maksimal narx (so‘m)', number: true),
-      cText('Masofa: ${_distance.round()} km', bold: true),
+      cText(
+        lt(
+          'Maksimal narx bo‘sh bo‘lsa cheklanmaydi.',
+          'Leave maximum price blank for no limit.',
+          'Пустой максимум — без ограничения.',
+        ),
+        size: 12,
+      ),
+      cText(
+        _distance == null
+            ? lt('Masofa cheklanmagan', 'Any distance', 'Любое расстояние')
+            : 'Masofa: ${_distance!.round()} km',
+        bold: true,
+      ),
       cText(
         'Masofa aniqlanmagan e’lonlar bu filtr bilan yashirilmaydi.',
         size: 12,
       ),
       Slider(
-        value: _distance,
+        value: _distance ?? 50,
         min: 1,
         max: 50,
         divisions: 49,
@@ -269,8 +393,8 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
         () => setState(() {
           _pet = '';
           _min.text = '0';
-          _max.text = '500000';
-          _distance = 50;
+          _max.text = '';
+          _distance = null;
           _rating = false;
         }),
         secondary: true,

@@ -85,6 +85,9 @@ class CustomerStore extends ChangeNotifier {
       .toList();
   List<CJson> get sitters => List.unmodifiable(_sitters);
   int _feedVersion = 0;
+  bool feedLoading = false;
+  String? feedError;
+  CustomerCoordinates? feedLocation;
   bool _disposed = false;
   CustomerApi? api;
   bool _syncing = false;
@@ -133,14 +136,38 @@ class CustomerStore extends ChangeNotifier {
   }
 
   Future<void> refreshSitters({CustomerCoordinates? location}) async {
+    if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
     final version = ++_feedVersion;
-    final result = await feedRepository.fetchSitters(location: location);
-    if (_disposed || version != _feedVersion) return;
-    _sitters = result;
-    customerSitters
-      ..clear()
-      ..addAll(result);
-    if (!_disposed) notifyListeners();
+    feedLoading = true;
+    feedError = null;
+    feedLocation = location;
+    notifyListeners();
+    try {
+      final result = await feedRepository.fetchSitters(location: location);
+      if (_disposed ||
+          version != _feedVersion ||
+          _sessionVersion != CustomerApi.sessionVersion) {
+        return;
+      }
+      _sitters = result;
+      customerSitters
+        ..clear()
+        ..addAll(result);
+    } catch (_) {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedError = 'catalog_unavailable';
+      }
+      rethrow;
+    } finally {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedLoading = false;
+        notifyListeners();
+      }
+    }
   }
 
   @override
