@@ -18,6 +18,7 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
     required String owner,
     required String scope,
     this.byteLimit = maxBytes,
+    this.videoDraft = false,
     Future<Directory> Function()? directory,
   }) : _binding = jsonEncode(['momiq.wallet-draft.v1', scope, owner]),
        _directory = directory ?? getApplicationSupportDirectory,
@@ -29,6 +30,8 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
   static Future<void> _pending = Future.value();
   final String _binding;
   final int byteLimit;
+  final bool videoDraft;
+  DateTime? serverTime;
   final Future<Directory> Function() _directory;
   final int _epoch;
 
@@ -52,7 +55,9 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
     final name = digest.bytes
         .map((v) => v.toRadixString(16).padLeft(2, '0'))
         .join();
-    return File('${root.path}/wallet_drafts/$name.bin');
+    return File(
+      '${root.path}/${videoDraft ? 'video_drafts' : 'wallet_drafts'}/$name.bin',
+    );
   }
 
   Future<SecretKey> _key({required bool create}) async {
@@ -103,6 +108,9 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
       if (bytes.length > byteLimit) {
         throw const FormatException('Qoralama juda katta');
       }
+      if (videoDraft && serverTime == null) {
+        throw StateError('Video qoralamasi uchun server vaqti kerak');
+      }
       final box = await _cipher().encrypt(
         bytes,
         secretKey: await _key(create: true),
@@ -113,6 +121,14 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
       await file.parent.create(recursive: true);
       final temporary = File('${file.path}.tmp');
       await temporary.writeAsBytes(box.concatenation(), flush: true);
+      if (videoDraft) {
+        try {
+          await temporary.setLastModified(serverTime!.toUtc());
+        } catch (_) {
+          await temporary.delete();
+          rethrow;
+        }
+      }
       _checkSession();
       // On Android/iOS rename replaces the prior complete snapshot atomically.
       await temporary.rename(file.path);
@@ -137,12 +153,36 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
       await SessionVault.storage.delete(key: keyName);
       if (!removeFiles) return;
       final root = await (directory ?? getApplicationSupportDirectory)();
-      final folder = Directory('${root.path}/wallet_drafts');
-      if (await FileSystemEntity.isLink(folder.path)) {
-        await Link(folder.path).delete();
-      } else if (await folder.exists()) {
-        await folder.delete(recursive: true);
+      for (final name in ['wallet_drafts', 'video_drafts']) {
+        final folder = Directory('${root.path}/$name');
+        if (await FileSystemEntity.isLink(folder.path)) {
+          await Link(folder.path).delete();
+        } else if (await folder.exists()) {
+          await folder.delete(recursive: true);
+        }
       }
     });
   }
+
+  static Future<void> clearExpiredVideoDrafts(
+    DateTime serverNow, {
+    Future<Directory> Function()? directory,
+  }) => _serial(() async {
+    final root = await (directory ?? getApplicationSupportDirectory)();
+    final folder = Directory('${root.path}/video_drafts');
+    if (await FileSystemEntity.isLink(folder.path) || !await folder.exists()) {
+      return;
+    }
+    final cutoff = serverNow.toUtc().subtract(const Duration(days: 30));
+    await for (final item in folder.list(followLinks: false)) {
+      if (item is! File ||
+          !RegExp(
+            r'[a-f0-9]{64}\.bin(?:\.tmp)?$',
+          ).hasMatch(item.path.split(Platform.pathSeparator).last)) {
+        continue;
+      }
+      final modified = (await item.stat()).modified.toUtc();
+      if (!modified.isAfter(cutoff)) await item.delete();
+    }
+  });
 }

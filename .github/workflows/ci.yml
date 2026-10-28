@@ -28,7 +28,9 @@ jobs:
       - name: Build Android debug for ARM64
         run: flutter build apk --debug --no-pub --target-platform android-arm64 --dart-define-from-file=config/local.json
   ios-simulator:
-    runs-on: macos-15
+    # ARM64 hosted capacity failed before checkout on 2026-10-28.
+    # Keep an explicit supported macOS host; real-device ARM64 QA remains required.
+    runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

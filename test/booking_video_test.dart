@@ -12,6 +12,7 @@ class VideoApi extends CustomerApi {
   bool allowed = true, open = true;
   String today = '2026-10-28';
   Completer<void>? gate;
+  List<VideoJson> items = [];
   @override
   Future<VideoJson> request(
     String method,
@@ -23,7 +24,7 @@ class VideoApi extends CustomerApi {
       'day': today,
       'canUpload': allowed,
       'serviceAvailable': true,
-      'items': [],
+      'items': items,
       'policy': {
         'today': today,
         'slots': [
@@ -72,6 +73,37 @@ class FakeUpload extends VideoUpload {
 }
 
 void main() {
+  testWidgets(
+    'expired video keeps history without loading thumbnail or enabling playback',
+    (t) async {
+      final api = VideoApi()..allowed = false;
+      api.items = [
+        {
+          'id': 'expired',
+          'petId': 'cat',
+          'slot': 'morning',
+          'durationMs': 10000,
+          'available': false,
+        },
+      ];
+      final c = BookingVideoController(api, 'booking', storage: ChatDraft());
+      addTearDown(c.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingVideosPage(
+            api: api,
+            bookingId: 'booking',
+            controller: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('Saqlash muddati tugagan'), findsOneWidget);
+      expect(find.byIcon(Icons.play_circle_outline), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      await t.pumpWidget(const SizedBox());
+    },
+  );
   test(
     'restart retries exact encrypted draft bytes and request after window closes',
     () async {

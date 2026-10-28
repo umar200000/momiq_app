@@ -5,6 +5,7 @@ import 'package:video_player/video_player.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../data/booking_video_controller.dart';
+import '../data/video_picker_cache.dart';
 
 class BookingVideosPage extends StatefulWidget {
   const BookingVideosPage({
@@ -106,6 +107,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
         );
       }
       await c.select(pet, slot, await file.readAsBytes());
+      if (c.pending != null) await discardVideoPickerCopy(file.path);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -184,6 +186,13 @@ class _BookingVideosPageState extends State<BookingVideosPage>
               ),
             ),
             const SizedBox(height: 12),
+            Text(
+              lt(
+                'Videolar buyurtma tugagach 30 kun saqlanadi. Nizo bo‘lsa, u yopilguncha va yopilgandan keyin yana 30 kun saqlanadi.',
+                'Videos remain for 30 days after the booking ends. An open dispute holds them until resolution and for 30 more days.',
+                'Видео хранятся 30 дней после завершения заказа. При споре — до решения и ещё 30 дней после него.',
+              ),
+            ),
             if (c.busy)
               LinearProgressIndicator(
                 value: c.uploading && c.progress < 1 ? c.progress : null,
@@ -323,6 +332,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
                                 );
                               }
                               final item = entries.first;
+                              final available = item['available'] != false;
                               final url =
                                   '${widget.api.baseUrl}${c.path}/${item['id']}';
                               return ListTile(
@@ -331,26 +341,36 @@ class _BookingVideosPageState extends State<BookingVideosPage>
                                   '$label · ${(item['durationMs'] / 1000).round()} s',
                                 ),
                                 subtitle: Text(
-                                  lt(
-                                    'Serverda saqlangan',
-                                    'Saved on server',
-                                    'Сохранено на сервере',
-                                  ),
+                                  available
+                                      ? lt(
+                                          'Serverda saqlangan',
+                                          'Saved on server',
+                                          'Сохранено на сервере',
+                                        )
+                                      : lt(
+                                          'Saqlash muddati tugagan',
+                                          'Retention period ended',
+                                          'Срок хранения истёк',
+                                        ),
                                 ),
-                                leading: Image.network(
-                                  '$url/poster',
-                                  headers: {
-                                    'Authorization':
-                                        'Bearer ${widget.api.token}',
-                                  },
-                                  width: 64,
-                                  height: 48,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, _, _) =>
-                                      const Icon(Icons.movie_outlined),
-                                ),
-                                trailing: const Icon(Icons.play_circle_outline),
-                                onTap: !c.live
+                                leading: !available
+                                    ? const Icon(Icons.history)
+                                    : Image.network(
+                                        '$url/poster',
+                                        headers: {
+                                          'Authorization':
+                                              'Bearer ${widget.api.token}',
+                                        },
+                                        width: 64,
+                                        height: 48,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, _, _) =>
+                                            const Icon(Icons.movie_outlined),
+                                      ),
+                                trailing: available
+                                    ? const Icon(Icons.play_circle_outline)
+                                    : null,
+                                onTap: !c.live || !available
                                     ? null
                                     : () => Navigator.push(
                                         context,

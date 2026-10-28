@@ -84,6 +84,7 @@ class BookingVideoController extends ChangeNotifier {
              owner: api.userId,
              scope: '${api.baseUrl}:video:$bookingId',
              byteLimit: 46 * 1024 * 1024,
+             videoDraft: true,
            ),
        transport = transport ?? VideoUpload.new;
   final CustomerApi api;
@@ -144,6 +145,17 @@ class BookingVideoController extends ChangeNotifier {
       );
       check();
       data = result;
+      final serverNow = DateTime.tryParse('${result['policy']?['serverTime']}');
+      if (storage is EncryptedWalletDraftStorage && serverNow != null) {
+        (storage as EncryptedWalletDraftStorage).serverTime = serverNow;
+        await EncryptedWalletDraftStorage.clearExpiredVideoDrafts(serverNow);
+        check();
+        final created = DateTime.tryParse('${pending?['createdAt']}');
+        if (created != null &&
+            !created.isAfter(serverNow.subtract(const Duration(days: 30)))) {
+          pending = null;
+        }
+      }
     } catch (e) {
       if (live) error = e;
     } finally {
@@ -167,6 +179,7 @@ class BookingVideoController extends ChangeNotifier {
         'day': data!['day'],
         'requestId': chatRequestId(),
         'bytes': base64Encode(bytes),
+        'createdAt': data!['policy']['serverTime'],
       };
       await storage.write(draft);
       check();

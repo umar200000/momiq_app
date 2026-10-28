@@ -48,6 +48,34 @@ void main() {
     },
   );
   test(
+    'video draft expiry uses server timestamp and leaves wallet evidence intact',
+    () async {
+      final now = DateTime.utc(2026, 10, 28, 10);
+      final video = EncryptedWalletDraftStorage(
+        owner: 'a',
+        scope: 'video:booking',
+        videoDraft: true,
+        directory: () async => root,
+      )..serverTime = now;
+      await store().write({'receipt': 'KEEP TEST'});
+      await video.write({
+        'bytes': 'PRIVATE TEST VIDEO',
+        'createdAt': now.toIso8601String(),
+      });
+      await EncryptedWalletDraftStorage.clearExpiredVideoDrafts(
+        now.add(const Duration(days: 30)).subtract(const Duration(seconds: 1)),
+        directory: () async => root,
+      );
+      expect(await video.read(), isNotNull);
+      await EncryptedWalletDraftStorage.clearExpiredVideoDrafts(
+        now.add(const Duration(days: 30)),
+        directory: () async => root,
+      );
+      expect(await video.read(), isNull);
+      expect((await store().read())!['receipt'], 'KEEP TEST');
+    },
+  );
+  test(
     'another account/environment cannot read a draft and tampering fails closed',
     () async {
       await store().write({'receipt': 'private'});
