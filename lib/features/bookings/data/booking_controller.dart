@@ -44,7 +44,13 @@ class BookingController extends ChangeNotifier {
         pending = await storage.read();
         check();
         if (pending != null &&
-            (!['accept', 'reject', 'cancel'].contains(pending!['action']) ||
+            (![
+                  'accept',
+                  'reject',
+                  'cancel',
+                  'start',
+                  'complete',
+                ].contains(pending!['action']) ||
                 pending!['body'] is! Map ||
                 pending!['body']['requestId'] is! String ||
                 pending!['body']['revision'] is! int)) {
@@ -65,7 +71,7 @@ class BookingController extends ChangeNotifier {
 
   Future<bool> act(String action, {String reason = ''}) async {
     if (!live || !ready || sending || loading) return false;
-    if (!['accept', 'reject', 'cancel'].contains(action)) {
+    if (!['accept', 'reject', 'cancel', 'start', 'complete'].contains(action)) {
       throw ArgumentError('action');
     }
     sending = true;
@@ -73,7 +79,9 @@ class BookingController extends ChangeNotifier {
     changed();
     try {
       if (pending == null) {
-        if (action != 'accept' && reason.trim().isEmpty) return false;
+        if (['reject', 'cancel'].contains(action) && reason.trim().isEmpty) {
+          return false;
+        }
         pending = {
           'action': action,
           'body': {

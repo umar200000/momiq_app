@@ -106,8 +106,104 @@ class BookingListApi extends CustomerApi {
   }
 }
 
+class HandoverApi extends BookingApiFake {
+  HandoverApi() {
+    booking['status'] = 'accepted';
+    booking['revision'] = 1;
+    booking['confirmations'] = {
+      'start': {'mine': false, 'peer': false},
+      'complete': {'mine': false, 'peer': false},
+    };
+  }
+  @override
+  Future<Map<String, dynamic>> request(
+    String method,
+    String path, [
+    Map<String, dynamic>? body,
+  ]) async {
+    if (method == 'GET') return copy(booking);
+    posts.add({'path': path, 'body': copy(body!)});
+    if (keys.add(body['requestId'])) {
+      booking['revision']++;
+      booking['confirmations'][path.split('/').last]['mine'] = true;
+    }
+    if (loseResponse) {
+      loseResponse = false;
+      throw TimeoutException('lost confirmation response');
+    }
+    return copy(booking);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'start confirmation survives restart and retries without a new command',
+    () async {
+      final api = HandoverApi()..loseResponse = true;
+      final memory = BookingMemory();
+      final first = BookingController(api, fixture()['id'], storage: memory);
+      await first.load();
+      expect(await first.act('start'), isFalse);
+      first.dispose();
+      final next = BookingController(api, fixture()['id'], storage: memory);
+      addTearDown(next.dispose);
+      await next.load();
+      expect(await next.act('start'), isTrue);
+      expect(api.posts[0], api.posts[1]);
+      expect(api.booking['revision'], 2);
+      expect(api.charges, 0);
+    },
+  );
+  testWidgets(
+    'handover waits for the peer and completion explains unchanged price',
+    (t) async {
+      final api = HandoverApi();
+      final c = BookingController(
+        api,
+        fixture()['id'],
+        storage: BookingMemory(),
+      );
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingDetailPage(api: api, id: fixture()['id'], controller: c),
+        ),
+      );
+      await t.pumpAndSettle();
+      final start = find.byKey(const ValueKey('confirmBooking-start'));
+      await t.ensureVisible(start);
+      await t.tap(start);
+      await t.pumpAndSettle();
+      expect(find.textContaining('Ikkala tomon tasdiqlagach'), findsOneWidget);
+      await t.tap(find.widgetWithText(FilledButton, 'Tasdiqlash'));
+      await t.pumpAndSettle();
+      expect(start, findsNothing);
+      expect(
+        find.textContaining('Ikkinchi tomon tasdig‘i kutilmoqda.'),
+        findsOneWidget,
+      );
+      api.booking['status'] = 'active';
+      api.booking['confirmations']['start']['peer'] = true;
+      await c.load();
+      await t.pumpAndSettle();
+      final finish = find.byKey(const ValueKey('confirmBooking-complete'));
+      await t.ensureVisible(finish);
+      await t.tap(finish);
+      await t.pumpAndSettle();
+      expect(
+        find.textContaining(
+          'Oldinroq tugatish kelishilgan narxni o‘zgartirmaydi',
+        ),
+        findsOneWidget,
+      );
+      await t.tap(find.widgetWithText(FilledButton, 'Tasdiqlash'));
+      await t.pumpAndSettle();
+      expect(finish, findsNothing);
+      expect(c.booking!['status'], 'active');
+      expect(api.posts.map((p) => (p['body'] as Map)['reason']), ['', '']);
+      expect(api.charges, 0);
+    },
+  );
   test(
     'conversation inbox uses only its participant-scoped endpoint for every page',
     () async {

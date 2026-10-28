@@ -193,6 +193,18 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
         title: Text(
           action == 'accept'
               ? lt('Buyurtmani qabul qilish', 'Accept booking', 'Принять заказ')
+              : action == 'start'
+              ? lt(
+                  'Xizmat boshlanishini tasdiqlash',
+                  'Confirm service start',
+                  'Подтвердить начало услуги',
+                )
+              : action == 'complete'
+              ? lt(
+                  'Xizmat yakunini tasdiqlash',
+                  'Confirm service completion',
+                  'Подтвердить завершение услуги',
+                )
               : action == 'reject'
               ? lt('So‘rovni rad etish', 'Reject request', 'Отклонить запрос')
               : lt(
@@ -210,6 +222,20 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                   'Balansingizdan ${bookingMoney(price['commission_minor'])} komissiya yechiladi. Xizmat pulini mijoz sizga bevosita to‘laydi.',
                   '${bookingMoney(price['commission_minor'])} commission will be debited from your balance. The customer pays you directly for the service.',
                   'С баланса будет списана комиссия ${bookingMoney(price['commission_minor'])}. Клиент оплачивает услугу вам напрямую.',
+                ),
+              )
+            else if (action == 'start' || action == 'complete')
+              Text(
+                lt(
+                  action == 'start'
+                      ? 'Xizmat amalda boshlanganini tasdiqlang. Ikkala tomon tasdiqlagach parvarish faol bo‘ladi. Rejadagi boshlanish vaqtidan oldin tasdiqlab bo‘lmaydi.'
+                      : 'Xizmat amalda tugaganini tasdiqlang. Ikkinchi tomon ham tasdiqlashi kerak. Oldinroq tugatish kelishilgan narxni o‘zgartirmaydi va avtomatik qaytim yaratmaydi.',
+                  action == 'start'
+                      ? 'Confirm the service has actually started. Both parties must confirm. Confirmation is allowed only from the scheduled start.'
+                      : 'Confirm the service has actually finished. Both parties must confirm. Finishing early does not change the agreed price or create an automatic refund.',
+                  action == 'start'
+                      ? 'Подтвердите фактическое начало услуги. Требуется подтверждение обеих сторон, не ранее запланированного начала.'
+                      : 'Подтвердите фактическое завершение услуги. Требуется подтверждение обеих сторон. Досрочное завершение не меняет цену и не создаёт автоматический возврат.',
                 ),
               )
             else
@@ -246,7 +272,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
     final text = reason.text;
     // Keep the controller alive through the dialog's reverse transition.
     if (confirmed == true && mounted) {
-      if (action != 'accept' && text.trim().isEmpty) {
+      if (['reject', 'cancel'].contains(action) && text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -401,6 +427,37 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                   ),
                 ],
               ],
+              if (['accepted', 'active'].contains(b['status'])) ...[
+                for (final action in [
+                  b['status'] == 'accepted' ? 'start' : 'complete',
+                ])
+                  if ((b['confirmations']?[action]?['mine'] ?? false) == true)
+                    Text(
+                      lt(
+                        'Siz tasdiqladingiz. Ikkinchi tomon tasdig‘i kutilmoqda.',
+                        'You confirmed. Waiting for the other party.',
+                        'Вы подтвердили. Ожидается подтверждение второй стороны.',
+                      ),
+                    )
+                  else
+                    FilledButton(
+                      key: ValueKey('confirmBooking-$action'),
+                      onPressed: locked ? null : () => act(action),
+                      child: Text(
+                        action == 'start'
+                            ? lt(
+                                'Xizmat boshlandi',
+                                'Service has started',
+                                'Услуга началась',
+                              )
+                            : lt(
+                                'Xizmat yakunlandi',
+                                'Service has finished',
+                                'Услуга завершена',
+                              ),
+                      ),
+                    ),
+              ],
               if (['pending', 'accepted'].contains(b['status']))
                 OutlinedButton(
                   key: const ValueKey('cancelBooking'),
@@ -443,7 +500,21 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
               Text(lt('Holat tarixi', 'Status history', 'История статусов')),
               for (final event in b['history'] as List)
                 ListTile(
-                  title: Text(bookingStateLabel(event['status'])),
+                  title: Text(
+                    event['action'] == 'start'
+                        ? lt(
+                            'Boshlash tasdig‘i',
+                            'Start confirmation',
+                            'Подтверждение начала',
+                          )
+                        : event['action'] == 'complete'
+                        ? lt(
+                            'Yakunlash tasdig‘i',
+                            'Completion confirmation',
+                            'Подтверждение завершения',
+                          )
+                        : bookingStateLabel(event['status']),
+                  ),
                   subtitle: Text(
                     '${bookingTime(event['created'])}\n${event['reason']}',
                   ),
