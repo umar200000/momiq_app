@@ -3,6 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/notifications/presentation/notifications_page.dart';
 import 'package:momiq_app/features/wallet/presentation/topup_history_page.dart';
+import 'package:momiq_app/features/care/presentation/booking_care_page.dart';
+import 'package:momiq_app/features/chat/presentation/conversation_page.dart';
+import 'booking_care_test.dart' show CareApi;
+import 'conversation_test.dart' show ChatApi, ChatDraft;
+import 'package:momiq_app/features/care/data/booking_care_controller.dart';
+import 'package:momiq_app/features/chat/data/conversation_controller.dart';
 
 class NoticeApi extends CustomerApi {
   NoticeApi() : super('test', 'owner');
@@ -21,6 +27,8 @@ class NoticeApi extends CustomerApi {
     'created': '2026-10-26T05:00:00Z',
     'readAt': read.contains(id) ? '2026-10-26T06:00:00Z' : null,
   };
+  final careApi = CareApi();
+  final chatApi = ChatApi();
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -29,6 +37,12 @@ class NoticeApi extends CustomerApi {
   ]) async {
     requests.add('$method $path');
     if (offline) throw CustomerApiException('Offline');
+    if (path.startsWith('/bookings/')) {
+      return careApi.request(method, path, body);
+    }
+    if (path.startsWith('/conversations/')) {
+      return chatApi.request(method, path, body);
+    }
     if (method == 'POST') {
       if (readFails) throw CustomerApiException('Offline');
       read.add(path.split('/')[2]);
@@ -51,6 +65,76 @@ class NoticeApi extends CustomerApi {
 }
 
 void main() {
+  for (final kind in ['care', 'conversation']) {
+    testWidgets('$kind notice opens authenticated internal target only', (
+      t,
+    ) async {
+      final api = NoticeApi()..kind = kind;
+      final care = BookingCareController(
+        api,
+        api.targetId,
+        storage: ChatDraft(),
+      );
+      final chat = ConversationController(
+        api,
+        api.targetId,
+        storage: ChatDraft(),
+      );
+      addTearDown(care.dispose);
+      addTearDown(chat.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          home: NotificationsPage(
+            api: api,
+            careBuilder: (source, id) =>
+                BookingCarePage(api: source, bookingId: id, controller: care),
+            conversationBuilder: (source, id) => ConversationPage(
+              api: source,
+              conversationId: id,
+              controller: chat,
+            ),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('notice-2')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Sahifani ochish'));
+      await t.pumpAndSettle();
+      if (kind == 'care') {
+        expect(
+          t.widget<BookingCarePage>(find.byType(BookingCarePage)).bookingId,
+          api.targetId,
+        );
+        expect(api.requests, contains('GET /bookings/${api.targetId}/care'));
+      } else {
+        expect(
+          t
+              .widget<ConversationPage>(find.byType(ConversationPage))
+              .conversationId,
+          api.targetId,
+        );
+        expect(
+          api.requests,
+          contains('GET /conversations/${api.targetId}/messages'),
+        );
+      }
+      expect(api.read, contains('2'));
+      await t.pumpWidget(const SizedBox());
+    });
+    testWidgets('$kind notice rejects external URL destinations', (t) async {
+      final api = NoticeApi()
+        ..kind = kind
+        ..targetId = 'https://untrusted.invalid/private';
+      await t.pumpWidget(MaterialApp(home: NotificationsPage(api: api)));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('notice-2')));
+      await t.pumpAndSettle();
+      expect(find.text('Sahifani ochish'), findsNothing);
+      expect(api.requests.any((p) => p.contains('untrusted')), false);
+      await t.pumpWidget(const SizedBox());
+    });
+  }
   testWidgets(
     'booking notice marks read then opens only its validated booking ID',
     (t) async {

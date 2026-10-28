@@ -4,11 +4,21 @@ import '../../listings/presentation/listing_style.dart' show lt;
 import '../../listings/presentation/listings_panel.dart';
 import '../../wallet/presentation/topup_history_page.dart';
 import '../../bookings/presentation/bookings_page.dart';
+import '../../chat/presentation/conversation_page.dart';
+import '../../care/presentation/booking_care_page.dart';
 
 class NotificationsPage extends StatefulWidget {
-  const NotificationsPage({super.key, this.api, this.bookingBuilder});
+  const NotificationsPage({
+    super.key,
+    this.api,
+    this.bookingBuilder,
+    this.careBuilder,
+    this.conversationBuilder,
+  });
   final CustomerApi? api;
   final Widget Function(CustomerApi api, String id)? bookingBuilder;
+  final Widget Function(CustomerApi api, String id)? careBuilder,
+      conversationBuilder;
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
@@ -94,6 +104,22 @@ class _NotificationsPageState extends State<NotificationsPage>
   }
 
   String _title(Map<String, dynamic> item) {
+    if (item['kind'] == 'conversation') {
+      return lt('Yangi chat xabari', 'New chat message', 'Новое сообщение');
+    }
+    if (item['kind'] == 'care') {
+      return item['status'] == 'instructions'
+          ? lt(
+              'Parvarish ko‘rsatmasi yangilandi',
+              'Care instructions updated',
+              'Инструкции по уходу обновлены',
+            )
+          : lt(
+              'Parvarish hisoboti yangilandi',
+              'Care report updated',
+              'Отчёт по уходу обновлён',
+            );
+    }
     if (item['kind'] == 'booking') {
       return '${lt('Buyurtma', 'Booking', 'Заказ')} · ${bookingStateLabel(item['status'])}';
     }
@@ -124,7 +150,10 @@ class _NotificationsPageState extends State<NotificationsPage>
     final target = item['targetId'];
     if (target is! String) return false;
     return switch (item['kind']) {
-      'wallet_topup' || 'booking' => RegExp(r'^[a-f0-9]{32}$').hasMatch(target),
+      'wallet_topup' ||
+      'booking' ||
+      'conversation' ||
+      'care' => RegExp(r'^[a-f0-9]{32}$').hasMatch(target),
       'listing' => const {'boarding', 'homeVisit', 'personal'}.contains(target),
       _ => false,
     };
@@ -176,7 +205,22 @@ class _NotificationsPageState extends State<NotificationsPage>
       // Only local, known destinations are accepted; no server-provided URLs.
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => item['kind'] == 'booking'
+          builder: (_) => item['kind'] == 'conversation'
+              ? (widget.conversationBuilder?.call(
+                      _api!,
+                      item['targetId'] as String,
+                    ) ??
+                    ConversationPage(
+                      api: _api!,
+                      conversationId: item['targetId'] as String,
+                    ))
+              : item['kind'] == 'care'
+              ? (widget.careBuilder?.call(_api!, item['targetId'] as String) ??
+                    BookingCarePage(
+                      api: _api!,
+                      bookingId: item['targetId'] as String,
+                    ))
+              : item['kind'] == 'booking'
               ? (widget.bookingBuilder?.call(
                       _api!,
                       item['targetId'] as String,
