@@ -85,6 +85,10 @@ class CustomerStore extends ChangeNotifier {
   int _feedVersion = 0;
   bool feedLoading = false;
   String? feedError;
+  String? feedNextCursor, feedMoreError;
+  bool feedLoadingMore = false;
+  Map<String, String> _feedFilters = {};
+  DateTime? _feedStart, _feedEnd;
   CustomerCoordinates? feedLocation;
   bool _disposed = false;
   CustomerApi? api;
@@ -137,28 +141,37 @@ class CustomerStore extends ChangeNotifier {
     CustomerCoordinates? location,
     DateTime? startsAt,
     DateTime? endsAt,
+    Map<String, String> filters = const {},
   }) async {
     if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
     final version = ++_feedVersion;
     feedLoading = true;
     feedError = null;
+    feedMoreError = null;
+    feedLoadingMore = false;
+    feedNextCursor = null;
+    _feedFilters = Map.of(filters);
+    _feedStart = startsAt;
+    _feedEnd = endsAt;
     feedLocation = location;
     notifyListeners();
     try {
-      final result = await feedRepository.fetchSitters(
+      final result = await feedRepository.fetchPage(
         location: location,
         startsAt: startsAt,
         endsAt: endsAt,
+        filters: filters,
       );
       if (_disposed ||
           version != _feedVersion ||
           _sessionVersion != CustomerApi.sessionVersion) {
         return;
       }
-      _sitters = result;
+      _sitters = result.sitters;
+      feedNextCursor = result.nextCursor;
       customerSitters
         ..clear()
-        ..addAll(result);
+        ..addAll(result.sitters);
     } catch (_) {
       if (!_disposed &&
           version == _feedVersion &&
@@ -171,6 +184,60 @@ class CustomerStore extends ChangeNotifier {
           version == _feedVersion &&
           _sessionVersion == CustomerApi.sessionVersion) {
         feedLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> loadMoreSitters() async {
+    final cursor = feedNextCursor;
+    if (_disposed ||
+        feedLoading ||
+        feedLoadingMore ||
+        cursor == null ||
+        _sessionVersion != CustomerApi.sessionVersion) {
+      return;
+    }
+    final version = _feedVersion;
+    feedLoadingMore = true;
+    feedMoreError = null;
+    notifyListeners();
+    try {
+      final result = await feedRepository.fetchPage(
+        location: feedLocation,
+        startsAt: _feedStart,
+        endsAt: _feedEnd,
+        filters: _feedFilters,
+        after: cursor,
+      );
+      if (_disposed ||
+          version != _feedVersion ||
+          _sessionVersion != CustomerApi.sessionVersion) {
+        return;
+      }
+      if (result.nextCursor == cursor) {
+        throw StateError('Repeated catalog cursor');
+      }
+      final merged = {for (final sitter in _sitters) sitter['id']: sitter};
+      for (final sitter in result.sitters) {
+        merged[sitter['id']] = sitter;
+      }
+      _sitters = merged.values.toList();
+      customerSitters
+        ..clear()
+        ..addAll(_sitters);
+      feedNextCursor = result.nextCursor;
+    } catch (_) {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedMoreError = 'catalog_page_unavailable';
+      }
+    } finally {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedLoadingMore = false;
         notifyListeners();
       }
     }

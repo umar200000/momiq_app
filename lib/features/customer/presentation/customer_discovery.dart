@@ -1,4 +1,5 @@
 import '../../bookings/presentation/booking_request_page.dart';
+import 'dart:async';
 import '../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'customer_availability.dart';
@@ -105,6 +106,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   final _search = TextEditingController();
   late int? _service = widget.service;
   DateTime? _startsAt, _endsAt;
+  Timer? _searchTimer;
   CJson _filter = {
     'pet': '',
     'min': 0,
@@ -131,12 +133,24 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   }
 
   Future<void> _refresh() async {
-    if (widget.store.feedLoading) return;
     try {
       await widget.store.refreshSitters(
         location: widget.store.feedLocation,
         startsAt: _startsAt,
         endsAt: _endsAt,
+        filters: {
+          if (_service != null)
+            'service': ['boarding', 'homeVisit', 'personal'][_service!],
+          if (_filter['pet'] != '')
+            'pet': _filter['pet'] == 'It' ? 'dog' : 'cat',
+          'minPrice': '${_filter['min']}',
+          if (_filter['max'] != null) 'maxPrice': '${_filter['max']}',
+          'animals': '${_filter['animals'] ?? 1}',
+          if (_filter['verified'] == true) 'verified': '1',
+          if (_filter['rating'] == true) 'minRating': '4.8',
+          if (_search.text.trim().isNotEmpty) 'q': _search.text.trim(),
+          if (widget.favoritesOnly) 'favorites': '1',
+        },
       );
     } catch (_) {
       // Store owns the retryable error state; no unhandled async failure.
@@ -144,7 +158,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   }
 
   void _clear() {
-    final hadDates = _startsAt != null;
+    _searchTimer?.cancel();
     setState(() {
       _startsAt = _endsAt = null;
       _search.clear();
@@ -157,7 +171,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
         'rating': false,
       };
     });
-    if (hadDates) _refresh();
+    _refresh();
   }
 
   Future<void> _dates() async {
@@ -176,6 +190,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
     super.dispose();
@@ -186,7 +201,10 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
       context,
       CustomerFilterPage(initial: _filter),
     );
-    if (next != null && mounted) setState(() => _filter = next);
+    if (next != null && mounted) {
+      setState(() => _filter = next);
+      _refresh();
+    }
   }
 
   @override
@@ -231,7 +249,14 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
           TextField(
             key: const ValueKey('customerSearch'),
             controller: _search,
-            onChanged: (_) => setState(() {}),
+            maxLength: 100,
+            onChanged: (_) {
+              setState(() {});
+              _searchTimer?.cancel();
+              _searchTimer = Timer(const Duration(milliseconds: 300), () {
+                if (mounted) _refresh();
+              });
+            },
             decoration: InputDecoration(
               hintText: ct('Enaga qidirish'),
               prefixIcon: const Icon(Icons.search),
@@ -250,13 +275,19 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
               ChoiceChip(
                 label: Text(lt('Barchasi', 'All', 'Все')),
                 selected: _service == null,
-                onSelected: (_) => setState(() => _service = null),
+                onSelected: (_) {
+                  setState(() => _service = null);
+                  _refresh();
+                },
               ),
               for (var i = 0; i < 3; i++)
                 ChoiceChip(
                   label: Text(ct(customerServices[i])),
                   selected: _service == i,
-                  onSelected: (_) => setState(() => _service = i),
+                  onSelected: (_) {
+                    setState(() => _service = i);
+                    _refresh();
+                  },
                 ),
             ],
           ),
@@ -327,11 +358,38 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
                 sitter: sitter,
                 onReturn: _refresh,
               ),
+            CatalogMoreButton(store: widget.store),
           ],
         ],
       );
     },
   );
+}
+
+class CatalogMoreButton extends StatelessWidget {
+  const CatalogMoreButton({super.key, required this.store});
+  final CustomerStore store;
+  @override
+  Widget build(BuildContext context) {
+    if (store.feedNextCursor == null ||
+        store.feedLoading ||
+        store.feedError != null) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      children: [
+        if (store.feedMoreError != null)
+          cText('Keyingi sahifa yuklanmadi. Qayta urinib ko‘ring.', size: 13),
+        TextButton(
+          key: const ValueKey('moreSitters'),
+          onPressed: store.feedLoadingMore ? null : store.loadMoreSitters,
+          child: store.feedLoadingMore
+              ? const CircularProgressIndicator()
+              : const Text('Yana enagalarni ko‘rsatish'),
+        ),
+      ],
+    );
+  }
 }
 
 String discoveryTime(DateTime value) {
@@ -446,6 +504,8 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
   late String _pet = widget.initial['pet'];
   late double? _distance = (widget.initial['distance'] as num?)?.toDouble();
   late bool _rating = widget.initial['rating'];
+  late int _animals = widget.initial['animals'] ?? 1;
+  late bool _verified = widget.initial['verified'] == true;
   @override
   void dispose() {
     _min.dispose();
@@ -458,7 +518,8 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
     if (min == null ||
         (_max.text.trim().isNotEmpty && max == null) ||
         min < 0 ||
-        (max != null && max < min)) {
+        min > 999999999 ||
+        (max != null && (max < min || max > 999999999))) {
       cNotice(context, 'Narx oralig‘ini to‘g‘ri kiriting.');
       return;
     }
@@ -468,6 +529,8 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       'max': max,
       'distance': _distance,
       'rating': _rating,
+      'animals': _animals,
+      'verified': _verified,
     });
   }
 
@@ -489,6 +552,23 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
         ],
       ),
       const SizedBox(height: 24),
+      DropdownButtonFormField<int>(
+        key: const ValueKey('filterAnimals'),
+        initialValue: _animals,
+        decoration: const InputDecoration(labelText: 'Hayvonlar soni'),
+        items: [
+          for (var i = 1; i <= 30; i++)
+            DropdownMenuItem(value: i, child: Text('$i')),
+        ],
+        onChanged: (value) => setState(() => _animals = value ?? 1),
+      ),
+      SwitchListTile(
+        key: const ValueKey('filterVerified'),
+        title: const Text('Faqat MyID orqali tekshirilgan enagalar'),
+        subtitle: const Text('TEST tasdiq shaxs tekshiruvi hisoblanmaydi.'),
+        value: _verified,
+        onChanged: (value) => setState(() => _verified = value),
+      ),
       cField(_min, 'Minimal narx (so‘m)', number: true),
       cField(_max, 'Maksimal narx (so‘m)', number: true),
       cText(
@@ -532,6 +612,8 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
           _max.text = '';
           _distance = null;
           _rating = false;
+          _animals = 1;
+          _verified = false;
         }),
         secondary: true,
       ),

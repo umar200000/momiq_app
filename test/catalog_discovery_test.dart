@@ -6,7 +6,7 @@ import 'package:momiq_app/features/customer/data/customer_feed_repository.dart';
 import 'package:momiq_app/features/customer/data/customer_store.dart';
 import 'package:momiq_app/features/customer/presentation/customer_discovery.dart';
 
-class ReviewedCatalog implements CustomerFeedRepository {
+class ReviewedCatalog extends CustomerFeedRepository {
   bool visible = true;
   bool fail = false;
   int price = 100000;
@@ -322,7 +322,7 @@ void main() {
   );
 }
 
-class QueuedCatalog implements CustomerFeedRepository {
+class QueuedCatalog extends CustomerFeedRepository {
   QueuedCatalog(this.results);
   final List<Future<List<CJson>>> results;
   @override

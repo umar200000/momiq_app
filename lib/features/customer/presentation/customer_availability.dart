@@ -18,6 +18,45 @@ class CustomerAvailability extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: store,
     builder: (context, _) {
+      if (sitter['availabilityKnown'] == true &&
+          sitter['freeCapacity'] is int) {
+        final free = sitter['freeCapacity'] as int;
+        final interval = sitter['availabilityInterval'] as Map?;
+        String local(Object? value) {
+          final time = DateTime.tryParse(
+            '$value',
+          )?.toUtc().add(const Duration(hours: 5));
+          if (time == null) return '';
+          String two(int n) => n.toString().padLeft(2, '0');
+          return '${two(time.day)}.${two(time.month)} ${two(time.hour)}:${two(time.minute)}';
+        }
+
+        return Padding(
+          key: ValueKey('availability-${sitter['id']}'),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              cText(
+                sitter['service'] == 1
+                    ? 'Tanlangan vaqtda boshqa tashrif bilan band emas'
+                    : 'Tanlangan vaqtda $free ta bo‘sh joy',
+                bold: true,
+                size: 13,
+              ),
+              if (interval != null)
+                cText(
+                  '${local(interval['startsAt'])} — ${local(interval['endsAt'])} (Toshkent)',
+                  size: 12,
+                ),
+              cText(
+                'Qabul qilishda qayta tekshiriladi; bu joyni band qilmaydi.',
+                size: 12,
+              ),
+            ],
+          ),
+        );
+      }
       if (sitter['availabilityKnown'] != true) {
         final availability = sitter['availability'] as Map?;
         final schedule = availability?['schedule'] as Map?;

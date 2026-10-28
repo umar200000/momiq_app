@@ -439,6 +439,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     ),
     for (final sitter in _store.sitters)
       SitterCard(store: _store, sitter: sitter),
+    CatalogMoreButton(store: _store),
   ];
   List<Widget> _profile() {
     final p = _store.profile;
