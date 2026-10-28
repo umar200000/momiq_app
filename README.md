@@ -68,3 +68,6 @@ Local API/widget tests cover ownership, retry/restart, concurrent send, paginati
 
 
 Chat safety controls: each incoming message can be reported with a reason; the chat menu offers pair-wide block/unblock and own report history. Reporting does not automatically block. Moderator redactions arrive on a separate change cursor, including changes to already-loaded messages; a stale response cannot restore hidden content. A pending outbox can be explicitly cleared after a warning that this is not a recall. Admin decisions and evidence access are audited. Native chat/media verification and dedicated moderator permissions remain release gates.
+
+
+Authenticated pet management now supports archive/restore with account revisions, an archive list and active-only booking selection. Failed requests do not hide a pet optimistically. Remote records survive account/store reload; unauthenticated preview pets intentionally remain session-only. Old booking metadata is retained by the backend snapshot layer. The new local/test booking API exists, but this app version still keeps booking creation disabled until the form/quote/action integration is complete.

@@ -166,10 +166,57 @@ class CustomerStore extends ChangeNotifier {
     this.petSession.addListener(_petsChanged);
   }
   CJson get profile => Map<String, dynamic>.from(_data['profile'] as Map);
+  List<CJson> get allPets =>
+      (api == null ? petSession.pets : _data['pets'] as List)
+          .map((v) => Map<String, dynamic>.from(v as Map))
+          .toList();
+  List<CJson> get archivedPets =>
+      allPets.where((p) => p['archived'] == true).toList();
   List<CJson> list(String key) =>
       (key == 'pets' && api == null ? petSession.pets : _data[key] as List)
           .map((v) => Map<String, dynamic>.from(v as Map))
+          .where((v) => key != 'pets' || v['archived'] != true)
           .toList();
+
+  Future<void> archivePet(
+    String id,
+    bool archived, {
+    int? expectedRevision,
+  }) async {
+    if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
+      throw StateError('Sessiya tugagan');
+    }
+    if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
+    final pet = allPets.where((p) => p['id'] == id).firstOrNull;
+    if (pet == null) throw StateError('Hayvon topilmadi');
+    if (api == null) {
+      petSession.save({...pet, 'archived': archived});
+      return;
+    }
+    if (expectedRevision != revision) {
+      throw CustomerApiException('Profil o‘zgargan. Qayta yuklang.', 409);
+    }
+    busy = true;
+    notifyListeners();
+    try {
+      final result = await api!.request('POST', '/me/pets/archive', {
+        'petId': id,
+        'archived': archived,
+        '_revision': expectedRevision,
+      });
+      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
+        throw StateError('Sessiya tugagan');
+      }
+      _data.addAll(Map<String, dynamic>.from(result['account']));
+      await CustomerApi.rememberAccount(_account(_data));
+      // Server remains authoritative if local cache is unavailable.
+      await (await preferences()).setString(_cacheKey, jsonEncode(_data));
+    } finally {
+      busy = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
   List<String> get favorites => List<String>.from(_data['favorites'] as List);
   CJson get notifications =>
       Map<String, dynamic>.from(_data['notifications'] as Map);

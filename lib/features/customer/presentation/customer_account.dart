@@ -13,6 +13,53 @@ class CustomerPetsPage extends StatelessWidget {
   const CustomerPetsPage({super.key, required this.store, this.select = false});
   final CustomerStore store;
   final bool select;
+  Future<void> _archive(BuildContext context, CJson pet, bool archived) async {
+    final revision = store.revision;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          archived
+              ? lt('Hayvonni arxivlash', 'Archive pet', 'Архивировать питомца')
+              : lt('Hayvonni tiklash', 'Restore pet', 'Восстановить питомца'),
+        ),
+        content: Text(
+          archived
+              ? lt(
+                  'Hayvon yangi buyurtma tanlovidan yashiriladi. Eski buyurtmalar va tarix saqlanadi.',
+                  'The pet will be hidden from new bookings. Existing bookings and history are kept.',
+                  'Питомец будет скрыт при создании новых заказов. Текущие заказы и история сохранятся.',
+                )
+              : lt(
+                  'Hayvon yana yangi buyurtmalarda tanlanadi.',
+                  'The pet will be available for new bookings again.',
+                  'Питомца снова можно будет выбрать для нового заказа.',
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Ortga', 'Back', 'Назад')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              archived
+                  ? lt('Arxivlash', 'Archive', 'В архив')
+                  : lt('Tiklash', 'Restore', 'Восстановить'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await store.archivePet(pet['id'], archived, expectedRevision: revision);
+    } catch (error) {
+      if (context.mounted) cNotice(context, error.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: store,
@@ -54,6 +101,15 @@ class CustomerPetsPage extends StatelessWidget {
                 ),
                 if ('${pet['notes'] ?? ''}'.trim().isNotEmpty)
                   cRow(Icons.notes_outlined, '${pet['notes']}'),
+                if (!select)
+                  TextButton.icon(
+                    key: ValueKey('archivePet-${pet['id']}'),
+                    onPressed: store.busy
+                        ? null
+                        : () => _archive(context, pet, true),
+                    icon: const Icon(Icons.archive_outlined),
+                    label: Text(lt('Arxivlash', 'Archive', 'В архив')),
+                  ),
               ],
             ),
             onTap: select
@@ -61,6 +117,26 @@ class CustomerPetsPage extends StatelessWidget {
                 : () => cPush(context, CustomerPetForm(store: store, pet: pet)),
           ),
         if (store.list('pets').isEmpty) cText('Hozircha bo‘sh'),
+        if (!select && store.archivedPets.isNotEmpty)
+          ExpansionTile(
+            key: const ValueKey('archivedPets'),
+            title: Text(
+              lt('Arxivdagi hayvonlar', 'Archived pets', 'Питомцы в архиве'),
+            ),
+            children: [
+              for (final pet in store.archivedPets)
+                ListTile(
+                  title: Text(customerPetName(pet)),
+                  trailing: TextButton(
+                    key: ValueKey('restorePet-${pet['id']}'),
+                    onPressed: store.busy
+                        ? null
+                        : () => _archive(context, pet, false),
+                    child: Text(lt('Tiklash', 'Restore', 'Восстановить')),
+                  ),
+                ),
+            ],
+          ),
       ],
     ),
   );
