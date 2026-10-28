@@ -50,6 +50,7 @@ class ChatApi extends CustomerApi {
   bool failDelivery = false;
   String peerDelivered = '0', peerRead = '0';
   bool loseResponse = false;
+  bool paginated = false;
   bool blocked = false;
   int blockRevision = 0;
   final redactions = <String>[];
@@ -119,9 +120,14 @@ class ChatApi extends CustomerApi {
               : true,
         )
         .toList();
+    final page = !paginated || selected.length <= 30
+        ? selected
+        : query.containsKey('after')
+        ? selected.take(30).toList()
+        : selected.skip(selected.length - 30).toList();
     return {
-      'items': selected,
-      'hasMore': false,
+      'items': page,
+      'hasMore': paginated && selected.length > 30,
       'conversation': summary,
       'redactedIds': query.containsKey('changesAfter')
           ? redactions
@@ -143,6 +149,42 @@ class ReportApi extends CustomerApi {
 }
 
 void main() {
+  test(
+    'older pages and a burst of new messages retain every ID in order',
+    () async {
+      final api = ChatApi()
+        ..paginated = true
+        ..items.addAll(List.generate(65, (i) => msg(i + 1)));
+      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      addTearDown(chat.dispose);
+      await chat.initialize();
+      expect(
+        chat.messages.map((m) => m['id']),
+        List.generate(30, (i) => '${i + 36}'),
+      );
+      expect(chat.readCursor, '65');
+      await chat.refresh(older: true);
+      expect(chat.more, true);
+      expect(chat.readCursor, '65');
+      api.items.addAll(List.generate(35, (i) => msg(i + 66)));
+      await chat.refresh();
+      expect(chat.readCursor, '95');
+      // A local outgoing message must not skip the remaining incoming delta.
+      expect(await chat.send('reply after burst', null), true);
+      expect(chat.readCursor, '95');
+      await chat.refresh(older: true);
+      expect(chat.more, false);
+      expect(chat.readCursor, '95');
+      await chat.refresh();
+      expect(
+        chat.messages.map((m) => m['id']),
+        List.generate(101, (i) => '${i + 1}'),
+      );
+      expect(chat.readCursor, '101');
+      expect(api.reads, isEmpty);
+    },
+  );
+
   test(
     'delivery acknowledges only fetched incoming messages, retries without reading, ignores local sends',
     () async {
