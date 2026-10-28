@@ -1,4 +1,5 @@
 import '../../support/support_page.dart';
+import 'booking_dispute_page.dart';
 import '../../customer/presentation/pet_safety.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -505,6 +506,34 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                   ),
                 ),
               ),
+              if ([
+                'accepted',
+                'active',
+                'disputed',
+                'cancelled',
+              ].contains(b['status']))
+                TextButton.icon(
+                  key: const ValueKey('bookingDispute'),
+                  onPressed: locked
+                      ? null
+                      : () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  BookingDisputePage(api: c.api, id: widget.id),
+                            ),
+                          );
+                          await c.load();
+                        },
+                  icon: const Icon(Icons.report_outlined),
+                  label: Text(
+                    lt(
+                      'Nizo / kelmaslik',
+                      'Dispute / no-show',
+                      'Спор / неявка',
+                    ),
+                  ),
+                ),
               if (b['status'] == 'completed')
                 TextButton.icon(
                   key: const ValueKey('bookingReview'),
