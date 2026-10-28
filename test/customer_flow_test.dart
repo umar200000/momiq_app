@@ -138,15 +138,17 @@ void main() {
     await t.pumpAndSettle();
     expect(s.list('pets').last['name'], 'Luna');
   });
-  testWidgets('booking prevents skipping pet selection', (t) async {
+  testWidgets('legacy booking route cannot open an offline sample form', (
+    t,
+  ) async {
     final s = await store();
     await open(t, CustomerBookingForm(store: s, sitter: customerSitters.first));
-    await t.tap(find.byKey(const ValueKey('bookingNext')));
-    await t.pump();
-    await t.pump(const Duration(seconds: 1));
-    await t.pumpAndSettle();
-    expect(find.text('Hayvonni tanlang.'), findsOneWidget);
-    expect(find.text('Boni'), findsNothing);
+    expect(
+      find.textContaining('Hisobingizga kiring va katalogni yangilang'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('bookingNext')), findsNothing);
+    expect(find.textContaining('Oybek'), findsNothing);
   });
   testWidgets(
     'customer OTP opens manual registration then saves names before home',

@@ -18,7 +18,7 @@ class CustomerAvailability extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: store,
     builder: (context, _) {
-      if (sitter['availabilityKnown'] == false) {
+      if (sitter['availabilityKnown'] != true) {
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: cText('Mavjud sanalar hali tasdiqlanmagan', size: 13),

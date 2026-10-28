@@ -288,6 +288,27 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                 CheckboxListTile(
                   key: ValueKey('bookingPet-${pet['id']}'),
                   title: Text(customerPetName(pet)),
+                  secondary: IconButton(
+                    key: ValueKey('editBookingPet-${pet['id']}'),
+                    tooltip: lt('Tahrirlash', 'Edit', 'Изменить'),
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: frozen
+                        ? null
+                        : () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => CustomerPetForm(
+                                  store: widget.store,
+                                  pet: pet,
+                                  allowedTypes: (widget.sitter['pets'] as List)
+                                      .cast<String>(),
+                                ),
+                              ),
+                            );
+                            if (mounted) setState(() {});
+                          },
+                  ),
                   value: pets.contains(pet['id']),
                   onChanged: frozen
                       ? null
@@ -304,8 +325,11 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                         await Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                CustomerPetForm(store: widget.store),
+                            builder: (_) => CustomerPetForm(
+                              store: widget.store,
+                              allowedTypes: (widget.sitter['pets'] as List)
+                                  .cast<String>(),
+                            ),
                           ),
                         );
                         if (mounted) setState(() {});

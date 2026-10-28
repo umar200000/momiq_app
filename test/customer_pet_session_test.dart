@@ -6,7 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:momiq_app/features/customer/data/customer_store.dart';
 import 'package:momiq_app/features/customer/presentation/customer_account.dart';
-import 'package:momiq_app/features/customer/presentation/customer_booking_form.dart';
+import 'package:momiq_app/features/bookings/presentation/booking_request_page.dart';
+import 'package:momiq_app/features/bookings/data/booking_composer.dart';
+import 'booking_composer_test.dart' show ComposerApi;
+import 'booking_controller_test.dart' show BookingMemory;
 import 'support/pet_fixtures.dart';
 
 void main() {
@@ -179,7 +182,15 @@ void main() {
       await seedTestPets(s);
       await t.pumpWidget(
         MaterialApp(
-          home: CustomerBookingForm(store: s, sitter: customerSitters.first),
+          home: BookingRequestPage(
+            store: s,
+            sitter: customerSitters.first,
+            composer: BookingComposer(
+              ComposerApi(),
+              customerSitters.first['id'],
+              storage: BookingMemory(),
+            ),
+          ),
         ),
       );
       await t.pumpAndSettle();

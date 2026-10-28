@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import '../../listings/data/listing_store.dart' show CareLocation;
 import '../../listings/presentation/care_location_preview.dart';
 import 'customer_widgets.dart';
-import 'customer_booking_form.dart';
 import '../../listings/presentation/external_map_picker.dart';
 
 class SitterCard extends StatelessWidget {
@@ -320,22 +319,13 @@ class SitterDetailPage extends StatelessWidget {
           cButton(
             sitter['bookingEnabled'] == true && store.api != null
                 ? 'So‘rov yuborish'
-                : sitter['availabilityKnown'] == false
-                ? 'Buyurtma berish hali ochilmagan'
-                : store.availablePlaces(sitter) == 0
-                ? 'Hozircha band'
-                : 'Band qilish',
+                : 'Buyurtma berish hali ochilmagan',
             sitter['bookingEnabled'] == true && store.api != null
                 ? () => cPush(
                     context,
                     BookingRequestPage(store: store, sitter: sitter),
                   )
-                : sitter['availabilityKnown'] == false
-                ? null
-                : () => cPush(
-                    context,
-                    CustomerBookingForm(store: store, sitter: sitter),
-                  ),
+                : null,
             id: 'bookSitter',
           ),
           TextButton.icon(

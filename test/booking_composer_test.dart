@@ -85,6 +85,42 @@ Map<String, dynamic> formFields() => {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets(
+    'current server booking flow requires a selected pet before advancing',
+    (t) async {
+      final api = ComposerApi();
+      final store = CustomerStore()..api = api;
+      final c = BookingComposer(
+        api,
+        'sitter:boarding',
+        storage: BookingMemory(),
+      );
+      addTearDown(store.dispose);
+      await store.load();
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingRequestPage(
+            store: store,
+            sitter: {
+              'id': 'sitter:boarding',
+              'name': 'TEST',
+              'service': 0,
+              'pets': ['Mushuk'],
+            },
+            composer: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      final next = find.byKey(const ValueKey('submitBookingStep'));
+      await t.scrollUntilVisible(next, 200);
+      await t.tap(next);
+      await t.pumpAndSettle();
+      expect(find.text('Hayvonni tanlang'), findsOneWidget);
+      expect(api.quoteCount, 0);
+      expect(api.submissions, isEmpty);
+    },
+  );
   test(
     'only server quote used; exact pending request survives restart',
     () async {

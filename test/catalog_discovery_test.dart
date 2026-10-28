@@ -34,6 +34,37 @@ class ReviewedCatalog implements CustomerFeedRepository {
 
 void main() {
   testWidgets(
+    'missing availability never invents vacancies or enables a legacy booking path',
+    (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final store = CustomerStore(feedRepository: ReviewedCatalog());
+      addTearDown(store.dispose);
+      await store.load();
+      await store.refreshSitters();
+      final sitter = Map<String, dynamic>.from(store.sitters.single)
+        ..remove('availabilityKnown');
+      sitter['bookingEnabled'] = true;
+      await t.pumpWidget(
+        MaterialApp(
+          home: SitterDetailPage(store: store, sitter: sitter),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(
+        t
+            .widget<FilledButton>(find.byKey(const ValueKey('bookSitter')))
+            .onPressed,
+        isNull,
+      );
+      expect(
+        find.textContaining('Mavjud sanalar hali tasdiqlanmagan'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('ta joy mavjud'), findsNothing);
+      expect(find.textContaining('Oybek'), findsNothing);
+    },
+  );
+  testWidgets(
     'favorites cannot reintroduce a listing removed by server eligibility',
     (t) async {
       SharedPreferences.setMockInitialValues({});
