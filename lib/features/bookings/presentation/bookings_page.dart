@@ -1,0 +1,470 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import '../../../core/localization/app_language.dart';
+import '../../listings/presentation/listing_style.dart' show lt;
+import '../../customer/data/customer_api.dart';
+import '../data/booking_controller.dart';
+
+String bookingStateLabel(String state) => switch (state) {
+  'pending' => lt('Javob kutilmoqda', 'Awaiting reply', 'Ожидает ответа'),
+  'accepted' => lt('Qabul qilingan', 'Accepted', 'Принят'),
+  'rejected' => lt('Rad etilgan', 'Rejected', 'Отклонён'),
+  'expired' => lt('Muddati tugagan', 'Expired', 'Истёк срок'),
+  'cancelled' => lt('Bekor qilingan', 'Cancelled', 'Отменён'),
+  'active' => lt('Parvarishda', 'In progress', 'В процессе'),
+  'completed' => lt('Yakunlangan', 'Completed', 'Завершён'),
+  'disputed' => lt('Nizo ko‘rilmoqda', 'Under review', 'Рассматривается спор'),
+  _ => state,
+};
+String bookingMoney(int value) =>
+    '${value ~/ 100}${value % 100 == 0 ? '' : '.${(value % 100).toString().padLeft(2, '0')}'} UZS';
+String bookingTime(String value) {
+  final d = DateTime.parse(value).toUtc().add(const Duration(hours: 5));
+  String pad(int n) => n.toString().padLeft(2, '0');
+  return '${pad(d.day)}.${pad(d.month)}.${d.year} ${pad(d.hour)}:${pad(d.minute)} (UTC+5)';
+}
+
+class BookingInbox extends StatefulWidget {
+  const BookingInbox({super.key, this.api});
+  final CustomerApi? api;
+  @override
+  State<BookingInbox> createState() => _BookingInboxState();
+}
+
+class _BookingInboxState extends State<BookingInbox> {
+  BookingInboxController? controller;
+  @override
+  void initState() {
+    super.initState();
+    final api = widget.api ?? CustomerApi.active;
+    if (api != null) {
+      controller = BookingInboxController(api)..load();
+    }
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    context.dependOnInheritedWidgetOfExactType<AppLanguage>();
+    final c = controller;
+    if (c == null) {
+      return Text(
+        lt(
+          'Buyurtmalar uchun hisobingizga kiring.',
+          'Sign in to see bookings.',
+          'Войдите для просмотра заказов.',
+        ),
+      );
+    }
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: c.loading ? null : () => c.load(),
+              icon: const Icon(Icons.refresh),
+              label: Text(lt('Yangilash', 'Refresh', 'Обновить')),
+            ),
+          ),
+          if (c.loading) const LinearProgressIndicator(),
+          if (c.error != null)
+            Text(c.error.toString(), key: const ValueKey('bookingInboxError')),
+          if (!c.loading && c.error == null && c.items.isEmpty)
+            Text(
+              lt(
+                'Hozircha buyurtmalar yo‘q',
+                'No bookings yet',
+                'Заказов пока нет',
+              ),
+            ),
+          for (final item in c.items)
+            Card(
+              child: ListTile(
+                key: ValueKey('booking-${item['id']}'),
+                leading: const Icon(Icons.pets),
+                title: Text(bookingStateLabel(item['status'])),
+                subtitle: Text('#${(item['id'] as String).substring(0, 8)}'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          BookingDetailPage(api: c.api, id: item['id']),
+                    ),
+                  );
+                  if (mounted) await c.load();
+                },
+              ),
+            ),
+          if (c.cursor != null)
+            TextButton(
+              onPressed: c.loading ? null : () => c.load(more: true),
+              child: Text(lt('Yana yuklash', 'Load more', 'Загрузить ещё')),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class BookingDetailPage extends StatefulWidget {
+  const BookingDetailPage({
+    super.key,
+    required this.api,
+    required this.id,
+    this.controller,
+  });
+  final CustomerApi api;
+  final String id;
+  final BookingController? controller;
+  @override
+  State<BookingDetailPage> createState() => _BookingDetailPageState();
+}
+
+class _BookingDetailPageState extends State<BookingDetailPage> {
+  final _dialogControllers = <TextEditingController>[];
+  late final BookingController c =
+      widget.controller ?? BookingController(widget.api, widget.id);
+  @override
+  void initState() {
+    super.initState();
+    c.load();
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _dialogControllers) {
+      controller.dispose();
+    }
+    c.dispose();
+    super.dispose();
+  }
+
+  Future<void> act(String action) async {
+    final reason = TextEditingController();
+    _dialogControllers.add(reason);
+    final price = c.booking!['snapshot']['price'];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          action == 'accept'
+              ? lt('Buyurtmani qabul qilish', 'Accept booking', 'Принять заказ')
+              : action == 'reject'
+              ? lt('So‘rovni rad etish', 'Reject request', 'Отклонить запрос')
+              : lt(
+                  'Buyurtmani bekor qilish',
+                  'Cancel booking',
+                  'Отменить заказ',
+                ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (action == 'accept')
+              Text(
+                lt(
+                  'Balansingizdan ${bookingMoney(price['commission_minor'])} komissiya yechiladi. Xizmat pulini mijoz sizga bevosita to‘laydi.',
+                  '${bookingMoney(price['commission_minor'])} commission will be debited from your balance. The customer pays you directly for the service.',
+                  'С баланса будет списана комиссия ${bookingMoney(price['commission_minor'])}. Клиент оплачивает услугу вам напрямую.',
+                ),
+              )
+            else
+              TextField(
+                controller: reason,
+                maxLength: 1000,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: lt('Sabab', 'Reason', 'Причина'),
+                ),
+              ),
+            if (action == 'cancel')
+              Text(
+                lt(
+                  'Xizmat boshlanishidan oldin komissiya enaga balansiga qaytadi. Momiq mijozning xizmat pulini qaytarmaydi.',
+                  'Before service starts, commission returns to the sitter balance. Momiq does not refund the customer service payment.',
+                  'До начала услуги комиссия вернётся на баланс няни. Momiq не возвращает оплату услуги клиентом.',
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Ortga', 'Back', 'Назад')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(lt('Tasdiqlash', 'Confirm', 'Подтвердить')),
+          ),
+        ],
+      ),
+    );
+    final text = reason.text;
+    // Keep the controller alive through the dialog's reverse transition.
+    if (confirmed == true && mounted) {
+      if (action != 'accept' && text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              lt('Sababni kiriting', 'Enter a reason', 'Укажите причину'),
+            ),
+          ),
+        );
+        return;
+      }
+      await c.act(action, reason: text);
+    }
+  }
+
+  Future<void> discard() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          lt(
+            'Saqlangan urinishni tozalash',
+            'Clear saved attempt',
+            'Очистить сохранённую попытку',
+          ),
+        ),
+        content: Text(
+          lt(
+            'Server bu amalni bajargan bo‘lishi mumkin. Bu buyurtmani bekor qilmaydi; holat qayta yuklanadi.',
+            'The server may already have completed the action. This does not cancel the booking; its state will be reloaded.',
+            'Сервер мог уже выполнить действие. Это не отменяет заказ; состояние будет загружено снова.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Ortga', 'Back', 'Назад')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(lt('Tozalash', 'Clear', 'Очистить')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      try {
+        await c.discardUncertainAction();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(e.toString())));
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: c,
+    builder: (context, _) {
+      context.dependOnInheritedWidgetOfExactType<AppLanguage>();
+      final b = c.booking, s = b?['snapshot'], p = s?['price'];
+      final locked = c.loading || c.sending || c.pending != null;
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(lt('Buyurtma', 'Booking', 'Заказ')),
+          actions: [
+            IconButton(
+              onPressed: locked ? null : c.load,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            if (c.loading || c.sending) const LinearProgressIndicator(),
+            if (c.error != null)
+              Text(
+                c.error.toString(),
+                key: const ValueKey('bookingActionError'),
+              ),
+            if (b != null) ...[
+              Text(
+                bookingStateLabel(b['status']),
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              Text(
+                b['myRole'] == 'sitter' ? s['customerName'] : s['sitterName'],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '${bookingTime(s['startsAt'])} — ${bookingTime(s['endsAt'])}',
+              ),
+              Text(
+                '${lt('Hisoblangan kun', 'Billable days', 'Оплачиваемые дни')}: ${p['billable_days']}',
+              ),
+              for (final pet in s['pets'] as List) ...[
+                ListTile(
+                  leading: const Icon(Icons.pets),
+                  title: Text('${pet['name'] ?? pet['type']}'),
+                  subtitle: Text('${pet['notes'] ?? ''}'),
+                ),
+                for (final kind in ['photo', 'passport'])
+                  if (pet[kind == 'photo' ? 'hasPhoto' : 'hasPassport'] == true)
+                    BookingAnimalImage(
+                      api: c.api,
+                      bookingId: widget.id,
+                      petId: pet['id'],
+                      kind: kind,
+                    ),
+              ],
+              Text('${s['address']['address']}'),
+              if ('${s['instructions']}'.isNotEmpty) Text(s['instructions']),
+              const Divider(),
+              Text(
+                '${lt('Xizmat jami', 'Service total', 'Стоимость услуги')}: ${bookingMoney(p['service_total_minor'])}',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              Text(
+                lt(
+                  'Xizmat uchun mijoz enagaga bevosita to‘laydi.',
+                  'Customer pays the sitter directly.',
+                  'Клиент платит няне напрямую.',
+                ),
+              ),
+              if (b['myRole'] == 'sitter') ...[
+                Text(
+                  '${lt('Komissiya', 'Commission', 'Комиссия')}: ${p['commission_bps'] / 100}% — ${bookingMoney(p['commission_minor'])}',
+                ),
+                if (b['status'] == 'pending') ...[
+                  FilledButton(
+                    key: const ValueKey('acceptBooking'),
+                    onPressed: locked ? null : () => act('accept'),
+                    child: Text(lt('Qabul qilish', 'Accept', 'Принять')),
+                  ),
+                  OutlinedButton(
+                    onPressed: locked ? null : () => act('reject'),
+                    child: Text(lt('Rad etish', 'Reject', 'Отклонить')),
+                  ),
+                ],
+              ],
+              if (['pending', 'accepted'].contains(b['status']))
+                OutlinedButton(
+                  key: const ValueKey('cancelBooking'),
+                  onPressed: locked ? null : () => act('cancel'),
+                  child: Text(lt('Bekor qilish', 'Cancel', 'Отменить')),
+                ),
+              if (c.pending != null) ...[
+                Text(
+                  lt(
+                    'Oldingi urinish natijasi aniqlashtirilmoqda.',
+                    'The previous attempt needs confirmation.',
+                    'Результат предыдущей попытки требует проверки.',
+                  ),
+                ),
+                FilledButton(
+                  key: const ValueKey('retryBookingAction'),
+                  onPressed: c.sending
+                      ? null
+                      : () => c.act(c.pending!['action']),
+                  child: Text(
+                    lt(
+                      'O‘sha amalni qayta tekshirish',
+                      'Retry the same action',
+                      'Повторить то же действие',
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: c.sending ? null : discard,
+                  child: Text(
+                    lt(
+                      'Urinishni tozalash',
+                      'Clear attempt',
+                      'Очистить попытку',
+                    ),
+                  ),
+                ),
+              ],
+              const Divider(),
+              Text(lt('Holat tarixi', 'Status history', 'История статусов')),
+              for (final event in b['history'] as List)
+                ListTile(
+                  title: Text(bookingStateLabel(event['status'])),
+                  subtitle: Text(
+                    '${bookingTime(event['created'])}\n${event['reason']}',
+                  ),
+                ),
+            ],
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class BookingAnimalImage extends StatefulWidget {
+  const BookingAnimalImage({
+    super.key,
+    required this.api,
+    required this.bookingId,
+    required this.petId,
+    required this.kind,
+  });
+  final CustomerApi api;
+  final String bookingId, petId, kind;
+  @override
+  State<BookingAnimalImage> createState() => _BookingAnimalImageState();
+}
+
+class _BookingAnimalImageState extends State<BookingAnimalImage> {
+  final int session = CustomerApi.sessionVersion;
+  String? image, error;
+  bool busy = false;
+  Future<void> load() async {
+    if (busy || session != CustomerApi.sessionVersion) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final result = await widget.api.request(
+        'GET',
+        '/bookings/${widget.bookingId}/pets/${Uri.encodeComponent(widget.petId)}/${widget.kind}',
+      );
+      if (mounted && session == CustomerApi.sessionVersion) {
+        setState(() => image = result['image']);
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      if (image != null)
+        Image.memory(base64Decode(image!), height: 180, fit: BoxFit.contain),
+      if (error != null) Text(error!),
+      if (image == null)
+        TextButton(
+          onPressed: busy ? null : load,
+          child: Text(
+            widget.kind == 'photo'
+                ? lt('Hayvon rasmini ko‘rish', 'View pet photo', 'Фото питомца')
+                : lt('Pasportni ko‘rish', 'View passport', 'Паспорт питомца'),
+          ),
+        ),
+      if (busy) const LinearProgressIndicator(),
+    ],
+  );
+}

@@ -18,6 +18,7 @@ import 'customer_discovery.dart';
 import 'customer_bookings.dart';
 import 'customer_account.dart';
 import '../../notifications/presentation/notifications_page.dart';
+import '../../bookings/presentation/bookings_page.dart';
 
 class CustomerHomePage extends StatefulWidget {
   const CustomerHomePage({super.key, this.store, this.locationService});
@@ -503,7 +504,10 @@ class _CustomerHomePageState extends State<CustomerHomePage>
               children: [
                 for (final stat in [
                   ('${_store.list('pets').length}', 'Hayvonlar'),
-                  ('${_store.list('bookings').length}', 'Buyurtmalar'),
+                  (
+                    _store.remote ? '—' : '${_store.list('bookings').length}',
+                    'Buyurtmalar',
+                  ),
                   ('${_store.favorites.length}', 'Saqlangan'),
                 ])
                   Expanded(
@@ -662,7 +666,11 @@ class _CustomerHomePageState extends State<CustomerHomePage>
                                   ),
                                 ]
                               : _home(),
-                        1 => [CustomerOrders(store: _store)],
+                        1 => [
+                          _store.api == null
+                              ? CustomerOrders(store: _store)
+                              : BookingInbox(api: _store.api),
+                        ],
                         2 => [
                           ConversationInbox(api: _store.api),
                           if (_store.list('messages').isNotEmpty)

@@ -1,4 +1,5 @@
 import '../../../chat/presentation/conversation_page.dart';
+import '../../../bookings/presentation/bookings_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../../../customer/data/customer_api.dart';
 import '../../../wallet/presentation/wallet_page.dart';
@@ -274,24 +275,31 @@ class _SitterHomePageState extends State<SitterHomePage> {
   List<Widget> overview() => [
     banner(
       t('Xush kelibsiz', 'Welcome', 'Добро пожаловать'),
-      t('Hozircha buyurtmalar yo‘q', 'No bookings yet', 'Заказов пока нет'),
+      t(
+        'Yangi so‘rovlarni Buyurtmalar bo‘limida ko‘ring',
+        'View new requests in Bookings',
+        'Новые запросы — в разделе заказов',
+      ),
     ),
     card(
       text(
         t(
-          'Haqiqiy buyurtmalar paydo bo‘lganda shu yerda ko‘rinadi.',
-          'Your bookings will appear here.',
-          'Здесь появятся ваши заказы.',
+          'Buyurtmani qabul qilishdan oldin narx, vaqt va komissiyani tekshiring.',
+          'Check the price, dates and commission before accepting a booking.',
+          'Перед принятием заказа проверьте цену, даты и комиссию.',
         ),
       ),
     ),
   ];
   List<Widget> orders() => [
-    card(
-      text(
-        t('Hozircha buyurtmalar yo‘q', 'No bookings yet', 'Заказов пока нет'),
+    if (CustomerApi.active != null)
+      BookingInbox(api: CustomerApi.active)
+    else
+      card(
+        text(
+          t('Hozircha buyurtmalar yo‘q', 'No bookings yet', 'Заказов пока нет'),
+        ),
       ),
-    ),
   ];
   List<Widget> chats() => [const ConversationInbox()];
   List<Widget> profile() => [

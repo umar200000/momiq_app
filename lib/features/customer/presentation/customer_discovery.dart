@@ -1,3 +1,4 @@
+import '../../bookings/presentation/booking_request_page.dart';
 import '../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'customer_availability.dart';
@@ -317,12 +318,19 @@ class SitterDetailPage extends StatelessWidget {
             size: 18,
           ),
           cButton(
-            sitter['availabilityKnown'] == false
+            sitter['bookingEnabled'] == true && store.api != null
+                ? 'So‘rov yuborish'
+                : sitter['availabilityKnown'] == false
                 ? 'Buyurtma berish hali ochilmagan'
                 : store.availablePlaces(sitter) == 0
                 ? 'Hozircha band'
                 : 'Band qilish',
-            sitter['availabilityKnown'] == false
+            sitter['bookingEnabled'] == true && store.api != null
+                ? () => cPush(
+                    context,
+                    BookingRequestPage(store: store, sitter: sitter),
+                  )
+                : sitter['availabilityKnown'] == false
                 ? null
                 : () => cPush(
                     context,
