@@ -39,7 +39,7 @@ class SitterCard extends StatelessWidget {
                   cRating(customerReviewSummary(store, sitter)),
                   cText(
                     sitter['distance'] is num
-                        ? '${(sitter['distance'] as num).toStringAsFixed(1)} km'
+                        ? '≈ ${(sitter['distance'] as num).toStringAsFixed(1)} km'
                         : 'Masofa aniqlanmagan',
                     size: 12,
                   ),
@@ -148,6 +148,8 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
           'animals': '${_filter['animals'] ?? 1}',
           if (_filter['verified'] == true) 'verified': '1',
           if (_filter['rating'] == true) 'minRating': '4.8',
+          if (_filter['distance'] != null && widget.store.feedLocation != null)
+            'maxDistance': '${_filter['distance']}',
           if (_search.text.trim().isNotEmpty) 'q': _search.text.trim(),
           if (widget.favoritesOnly) 'favorites': '1',
         },
@@ -199,7 +201,10 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   Future<void> _filters() async {
     final next = await cPush<CJson>(
       context,
-      CustomerFilterPage(initial: _filter),
+      CustomerFilterPage(
+        initial: _filter,
+        hasLocation: widget.store.feedLocation != null,
+      ),
     );
     if (next != null && mounted) {
       setState(() => _filter = next);
@@ -246,6 +251,23 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
           ),
         ],
         children: [
+          cText('Hudud: Toshkent', bold: true),
+          cText(
+            widget.store.feedLocation == null
+                ? 'Joylashuvsiz Toshkent bo‘yicha qidiruv. Masofa hisoblanmaydi.'
+                : 'Yaqin enagalar avval. Masofa taxminiy, to‘g‘ri chiziq bo‘yicha; yo‘l uzunligi emas.',
+            size: 12,
+          ),
+          if (widget.store.feedLocation != null)
+            TextButton(
+              key: const ValueKey('searchWithoutLocation'),
+              onPressed: () {
+                widget.store.feedLocation = null;
+                setState(() => _filter['distance'] = null);
+                _refresh();
+              },
+              child: const Text('Joylashuvsiz Toshkent bo‘yicha qidirish'),
+            ),
           TextField(
             key: const ValueKey('customerSearch'),
             controller: _search,
@@ -490,8 +512,13 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
 }
 
 class CustomerFilterPage extends StatefulWidget {
-  const CustomerFilterPage({super.key, required this.initial});
+  const CustomerFilterPage({
+    super.key,
+    required this.initial,
+    this.hasLocation = false,
+  });
   final CJson initial;
+  final bool hasLocation;
   @override
   State<CustomerFilterPage> createState() => _CustomerFilterPageState();
 }
@@ -527,7 +554,7 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       'pet': _pet,
       'min': min,
       'max': max,
-      'distance': _distance,
+      'distance': widget.hasLocation ? _distance : null,
       'rating': _rating,
       'animals': _animals,
       'verified': _verified,
@@ -586,16 +613,21 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
         bold: true,
       ),
       cText(
-        'Masofa aniqlanmagan e’lonlar bu filtr bilan yashirilmaydi.',
+        widget.hasLocation
+            ? 'Bu faqat qidiruv filtri. Toshkent ichida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.'
+            : 'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Toshkent bo‘yicha qidiruv ochiq.',
         size: 12,
       ),
       Slider(
+        key: const ValueKey('filterDistance'),
         value: _distance ?? 50,
         min: 1,
         max: 50,
         divisions: 49,
         activeColor: listingGold,
-        onChanged: (v) => setState(() => _distance = v),
+        onChanged: widget.hasLocation
+            ? (v) => setState(() => _distance = v)
+            : null,
       ),
       cCard(
         SwitchListTile(

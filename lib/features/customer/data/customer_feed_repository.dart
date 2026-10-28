@@ -56,8 +56,19 @@ class ApiCustomerFeedRepository extends CustomerFeedRepository {
     if ((startsAt == null) != (endsAt == null)) {
       throw ArgumentError('Both dates required');
     }
+    if (location != null &&
+        (!location.latitude.isFinite ||
+            !location.longitude.isFinite ||
+            location.latitude.abs() > 90 ||
+            location.longitude.abs() > 180)) {
+      throw ArgumentError('Invalid location');
+    }
     final parameters = {
       ...filters,
+      'region': 'tashkent',
+      // Discovery uses approximate points; do not send precise GPS coordinates.
+      if (location != null) 'lat': location.latitude.toStringAsFixed(2),
+      if (location != null) 'lon': location.longitude.toStringAsFixed(2),
       if (startsAt != null) 'startsAt': startsAt.toUtc().toIso8601String(),
       if (endsAt != null) 'endsAt': endsAt.toUtc().toIso8601String(),
       'after': ?after,

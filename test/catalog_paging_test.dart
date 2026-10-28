@@ -129,6 +129,7 @@ void main() {
       CustomerApi.active = api;
       final start = DateTime.utc(2027, 1, 4, 5);
       final page = await const ApiCustomerFeedRepository().fetchPage(
+        location: const CustomerCoordinates(41.311123, 69.279712),
         startsAt: start,
         endsAt: start.add(const Duration(days: 1)),
         filters: {'favorites': '1', 'animals': '2'},
@@ -136,6 +137,9 @@ void main() {
       );
       final query = Uri.parse(api.path!).queryParameters;
       expect(query['favorites'], '1');
+      expect(query['lat'], '41.31');
+      expect(query['lon'], '69.28');
+      expect(query['region'], 'tashkent');
       expect(query['animals'], '2');
       expect(query['after'], 'cursor-123');
       expect(query['startsAt'], '2027-01-04T05:00:00.000Z');
@@ -170,6 +174,43 @@ void main() {
       expect(find.text('Tanlangan vaqtda 1 ta bo‘sh joy'), findsOneWidget);
       expect(find.textContaining('04.01 10:00'), findsOneWidget);
       expect(find.textContaining('bu joyni band qilmaydi'), findsOneWidget);
+    },
+  );
+  test(
+    'manual region omits GPS and rejects invalid position before network',
+    () async {
+      final api = DiscoveryApi();
+      CustomerApi.active = api;
+      await const ApiCustomerFeedRepository().fetchPage();
+      expect(Uri.parse(api.path!).queryParameters, {'region': 'tashkent'});
+      api.path = null;
+      await expectLater(
+        const ApiCustomerFeedRepository().fetchPage(
+          location: const CustomerCoordinates(double.nan, 69),
+        ),
+        throwsArgumentError,
+      );
+      expect(api.path, isNull);
+    },
+  );
+  testWidgets(
+    'distance filter is unavailable without GPS but manual browsing remains',
+    (t) async {
+      await t.pumpWidget(
+        const MaterialApp(
+          home: CustomerFilterPage(
+            initial: {'min': 0, 'pet': '', 'rating': false},
+          ),
+        ),
+      );
+      final slider = t.widget<Slider>(
+        find.byKey(const ValueKey('filterDistance')),
+      );
+      expect(slider.onChanged, isNull);
+      expect(
+        find.textContaining('Toshkent bo‘yicha qidiruv ochiq'),
+        findsOneWidget,
+      );
     },
   );
 }
