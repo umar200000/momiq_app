@@ -135,8 +135,148 @@ class HandoverApi extends BookingApiFake {
   }
 }
 
+class DelayedInboxApi extends CustomerApi {
+  DelayedInboxApi() : super('test', 'owner');
+  final requests = <String>[];
+  final replies = <Completer<Map<String, dynamic>>>[];
+  @override
+  Future<Map<String, dynamic>> request(
+    String method,
+    String path, [
+    Map<String, dynamic>? body,
+  ]) {
+    requests.add(path);
+    final reply = Completer<Map<String, dynamic>>();
+    replies.add(reply);
+    return reply.future;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('amendment notice never sends a hidden change or cancellation', (
+    t,
+  ) async {
+    final api = BookingApiFake();
+    final c = BookingController(api, fixture()['id'], storage: BookingMemory());
+    await t.pumpWidget(
+      MaterialApp(
+        home: BookingDetailPage(api: api, id: fixture()['id'], controller: c),
+      ),
+    );
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('bookingAmendmentPolicy')));
+    await t.pumpAndSettle();
+    expect(
+      find.textContaining('Yangi so‘rov eskisini avtomatik bekor qilmaydi.'),
+      findsOneWidget,
+    );
+    await t.tap(find.text('Yopish'));
+    await t.pumpAndSettle();
+    expect(api.posts, isEmpty);
+    expect(c.booking!['revision'], 0);
+  });
+  test(
+    'filter change invalidates pending pagination and cannot lose new loading state',
+    () async {
+      final api = DelayedInboxApi();
+      final c = BookingInboxController(api);
+      addTearDown(c.dispose);
+      final initial = c.load();
+      api.replies[0].complete({
+        'items': [
+          {'id': 'old', 'status': 'pending'},
+        ],
+        'nextCursor': '10',
+      });
+      await initial;
+      final oldPage = c.load(more: true);
+      final newest = c.filters(bucket: 'history', query: '  МомиҚ &_%  ');
+      expect(c.items, isEmpty);
+      expect(c.cursor, isNull);
+      api.replies[1].complete({
+        'items': [
+          {'id': 'stale'},
+        ],
+        'nextCursor': '8',
+      });
+      await oldPage;
+      expect(c.loading, isTrue);
+      expect(c.items, isEmpty);
+      final request = Uri.parse(api.requests[2]);
+      expect(request.queryParameters, {'bucket': 'history', 'q': 'МомиҚ &_%'});
+      api.replies[2].complete({
+        'items': [
+          {'id': 'new', 'status': 'completed'},
+        ],
+        'nextCursor': '5',
+      });
+      await newest;
+      final more = c.load(more: true);
+      expect(Uri.parse(api.requests.last).queryParameters, {
+        'bucket': 'history',
+        'q': 'МомиҚ &_%',
+        'before': '5',
+      });
+      api.replies[3].complete({'items': [], 'nextCursor': null});
+      await more;
+      expect(c.items.single['id'], 'new');
+      expect(c.loading, isFalse);
+    },
+  );
+  testWidgets(
+    'inbox search, bucket and reset use server filtering and show booking context',
+    (t) async {
+      final api = DelayedInboxApi();
+      await t.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(child: BookingInbox(api: api)),
+          ),
+        ),
+      );
+      api.replies[0].complete({'items': [], 'nextCursor': null});
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('bookingSearch')), 'Momi');
+      await t.tap(find.byKey(const ValueKey('bookingBucket-history')));
+      await t.pump();
+      expect(Uri.parse(api.requests.last).queryParameters, {
+        'bucket': 'history',
+        'q': 'Momi',
+      });
+      api.replies.last.complete({
+        'items': [
+          {
+            'id': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            'status': 'completed',
+            'peerName': 'TEST sitter',
+            'service': 'boarding',
+            'startsAt': '2026-11-01T13:00:00Z',
+            'serviceTotalMinor': 10000000,
+            'pets': [
+              {'name': 'Momi', 'type': 'Mushuk'},
+            ],
+          },
+        ],
+        'nextCursor': null,
+      });
+      await t.pumpAndSettle();
+      expect(find.textContaining('TEST sitter · Uyda qarash'), findsOneWidget);
+      expect(find.textContaining('100000 UZS'), findsOneWidget);
+      await t.tap(find.text('Tozalash'));
+      await t.pump();
+      expect(api.requests.last, '/bookings');
+      expect(
+        t
+            .widget<TextField>(find.byKey(const ValueKey('bookingSearch')))
+            .controller!
+            .text,
+        '',
+      );
+      api.replies.last.complete({'items': [], 'nextCursor': null});
+      await t.pumpAndSettle();
+    },
+  );
   test(
     'start confirmation survives restart and retries without a new command',
     () async {

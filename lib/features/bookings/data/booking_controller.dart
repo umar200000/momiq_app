@@ -135,21 +135,55 @@ class BookingInboxController extends ChangeNotifier {
   final String? conversationId;
   final int _session = CustomerApi.sessionVersion;
   bool _disposed = false, loading = false;
+  int _generation = 0;
+  String bucket = 'all', query = '';
   String? cursor;
   Object? error;
   final List<BookingJson> items = [];
   bool get live => !_disposed && _session == CustomerApi.sessionVersion;
+
+  Future<void> filters({String? bucket, String? query}) async {
+    if (!live) return;
+    final nextBucket = bucket ?? this.bucket;
+    final nextQuery = (query ?? this.query).trim();
+    if (!['all', 'pending', 'ongoing', 'history'].contains(nextBucket) ||
+        nextQuery.length > 80) {
+      throw ArgumentError('Invalid booking filters');
+    }
+    if (nextBucket == this.bucket && nextQuery == this.query) return;
+    this.bucket = nextBucket;
+    this.query = nextQuery;
+    _generation++;
+    items.clear();
+    cursor = null;
+    loading = false;
+    await load();
+  }
+
   Future<void> load({bool more = false}) async {
     if (!live || loading || (more && cursor == null)) return;
+    final generation = _generation;
+    bool current() => live && generation == _generation;
     loading = true;
     error = null;
     notifyListeners();
     try {
+      final parameters = <String, String>{
+        if (bucket != 'all') 'bucket': bucket,
+        if (query.isNotEmpty) 'q': query,
+        if (more) 'before': cursor!,
+      };
+      final path = conversationId == null
+          ? '/bookings'
+          : '/conversations/$conversationId/bookings';
       final result = await api.request(
         'GET',
-        '${conversationId == null ? '/bookings' : '/conversations/$conversationId/bookings'}${more ? '?before=$cursor' : ''}',
+        Uri(
+          path: path,
+          queryParameters: parameters.isEmpty ? null : parameters,
+        ).toString(),
       );
-      if (!live) return;
+      if (!current()) return;
       final merged = <String, BookingJson>{
         if (more)
           for (final item in items) item['id'] as String: item,
@@ -161,10 +195,12 @@ class BookingInboxController extends ChangeNotifier {
         ..addAll(merged.values);
       cursor = result['nextCursor'];
     } catch (e) {
-      if (live) error = e;
+      if (current()) error = e;
     } finally {
-      loading = false;
-      if (live) notifyListeners();
+      if (current()) {
+        loading = false;
+        notifyListeners();
+      }
     }
   }
 

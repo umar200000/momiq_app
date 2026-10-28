@@ -19,6 +19,12 @@ String bookingStateLabel(String state) => switch (state) {
 };
 String bookingMoney(int value) =>
     '${value ~/ 100}${value % 100 == 0 ? '' : '.${(value % 100).toString().padLeft(2, '0')}'} UZS';
+String bookingServiceLabel(String? service) => switch (service) {
+  'boarding' => lt('Uyda qarash', 'Boarding', 'Передержка'),
+  'homeVisit' => lt('Uyga borib qarash', 'Home visits', 'Визиты на дом'),
+  'personal' => lt('Shaxsiy enaga', 'Personal sitter', 'Личная няня'),
+  _ => lt('Xizmat', 'Service', 'Услуга'),
+};
 String bookingTime(String value) {
   final d = DateTime.parse(value).toUtc().add(const Duration(hours: 5));
   String pad(int n) => n.toString().padLeft(2, '0');
@@ -35,6 +41,7 @@ class BookingInbox extends StatefulWidget {
 
 class _BookingInboxState extends State<BookingInbox> {
   BookingInboxController? controller;
+  final _search = TextEditingController();
   @override
   void initState() {
     super.initState();
@@ -50,6 +57,7 @@ class _BookingInboxState extends State<BookingInbox> {
   @override
   void dispose() {
     controller?.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -71,6 +79,52 @@ class _BookingInboxState extends State<BookingInbox> {
       builder: (context, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          TextField(
+            key: const ValueKey('bookingSearch'),
+            controller: _search,
+            maxLength: 80,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (value) => c.filters(query: value),
+            decoration: InputDecoration(
+              counterText: '',
+              labelText: lt(
+                'Ism, hayvon yoki buyurtma raqami',
+                'Name, pet or booking ID',
+                'Имя, питомец или номер заказа',
+              ),
+              suffixIcon: IconButton(
+                tooltip: lt('Qidirish', 'Search', 'Поиск'),
+                onPressed: () => c.filters(query: _search.text),
+                icon: const Icon(Icons.search),
+              ),
+            ),
+          ),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final bucket in ['all', 'pending', 'ongoing', 'history'])
+                ChoiceChip(
+                  key: ValueKey('bookingBucket-$bucket'),
+                  label: Text(switch (bucket) {
+                    'pending' => lt('Kutilayotgan', 'Pending', 'Ожидающие'),
+                    'ongoing' => lt('Davom etayotgan', 'Ongoing', 'Текущие'),
+                    'history' => lt('Tarix', 'History', 'История'),
+                    _ => lt('Barchasi', 'All', 'Все'),
+                  }),
+                  selected: c.bucket == bucket,
+                  onSelected: (_) =>
+                      c.filters(bucket: bucket, query: _search.text),
+                ),
+              if (c.query.isNotEmpty || c.bucket != 'all')
+                TextButton(
+                  onPressed: () {
+                    _search.clear();
+                    c.filters(bucket: 'all', query: '');
+                  },
+                  child: Text(lt('Tozalash', 'Clear', 'Сбросить')),
+                ),
+            ],
+          ),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
@@ -96,7 +150,21 @@ class _BookingInboxState extends State<BookingInbox> {
                 key: ValueKey('booking-${item['id']}'),
                 leading: const Icon(Icons.pets),
                 title: Text(bookingStateLabel(item['status'])),
-                subtitle: Text('#${(item['id'] as String).substring(0, 8)}'),
+                subtitle: Text(
+                  [
+                    '#${(item['id'] as String).substring(0, 8)}',
+                    if (item['peerName'] != null)
+                      '${item['peerName']} · ${bookingServiceLabel(item['service'])}',
+                    if (item['startsAt'] != null) bookingTime(item['startsAt']),
+                    if (item['pets'] is List)
+                      (item['pets'] as List)
+                          .map((p) => p['name'])
+                          .where((name) => name != null && name != '')
+                          .join(', '),
+                    if (item['serviceTotalMinor'] is int)
+                      bookingMoney(item['serviceTotalMinor']),
+                  ].where((s) => s.isNotEmpty).join('\n'),
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () async {
                   await Navigator.push(
@@ -362,6 +430,42 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
               ),
               Text(
                 b['myRole'] == 'sitter' ? s['customerName'] : s['sitterName'],
+              ),
+              Text(bookingServiceLabel(p['service'])),
+              TextButton(
+                key: const ValueKey('bookingAmendmentPolicy'),
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: Text(
+                      lt(
+                        'O‘zgartirish va uzaytirish',
+                        'Changes and extensions',
+                        'Изменения и продление',
+                      ),
+                    ),
+                    content: Text(
+                      lt(
+                        'Bu buyurtmaning sanasi, hayvonlari, xizmati va narxi saqlangan. O‘zgartirish yoki uzaytirish uchun yangi narx taklifi va alohida so‘rov kerak. Yangi so‘rov eskisini avtomatik bekor qilmaydi. Boshlanishidan oldin mavjud bekor qilish qoidasi amal qiladi; xizmat boshlangan bo‘lsa yordamga murojaat qiling.',
+                        'This booking keeps its agreed dates, pets, service and price. Changes or extensions require a new quote and a separate request. A new request does not automatically cancel the old booking. The existing cancellation policy applies before the service starts; contact support after it starts.',
+                        'Даты, питомцы, услуга и цена этого заказа зафиксированы. Для изменений или продления нужны новый расчёт и отдельный запрос. Новый запрос не отменяет старый заказ автоматически. До начала услуги действует правило отмены; после начала обратитесь в поддержку.',
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(lt('Yopish', 'Close', 'Закрыть')),
+                      ),
+                    ],
+                  ),
+                ),
+                child: Text(
+                  lt(
+                    'O‘zgartirish va uzaytirish qoidasi',
+                    'Change and extension policy',
+                    'Правила изменения и продления',
+                  ),
+                ),
               ),
               TextButton.icon(
                 key: const ValueKey('bookingConversation'),
