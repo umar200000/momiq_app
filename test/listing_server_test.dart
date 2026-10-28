@@ -20,6 +20,7 @@ void main() {
         '_revision': 4,
       };
       var fail = false;
+      var failureStatus = 500;
       server.listen((request) async {
         expect(
           request.uri.path,
@@ -34,8 +35,14 @@ void main() {
               jsonDecode(await utf8.decoder.bind(request).join())
                   as Map<String, dynamic>;
           if (fail) {
-            request.response.statusCode = 500;
-            request.response.write(jsonEncode({'error': 'Unavailable'}));
+            request.response.statusCode = failureStatus;
+            request.response.write(
+              jsonEncode({
+                'error': failureStatus == 409
+                    ? 'Existing care prevents housing change'
+                    : 'Unavailable',
+              }),
+            );
             await request.response.close();
             return;
           }
@@ -104,6 +111,17 @@ void main() {
       expect(restored.status(ServiceType.homeVisit), 'archived');
       expect(restored[ServiceType.homeVisit]?.dailyPrice, 50000);
       fail = true;
+      failureStatus = 409;
+      await expectLater(
+        restored.setHousing(HousingType.apartment),
+        throwsA(
+          isA<CustomerApiException>().having((e) => e.status, 'status', 409),
+        ),
+      );
+      expect(restored.housing, HousingType.house);
+      expect(restored.status(ServiceType.homeVisit), 'archived');
+      expect(restored[ServiceType.homeVisit]?.dailyPrice, 50000);
+      failureStatus = 500;
       await expectLater(
         restored.setActive(ServiceType.homeVisit, true),
         throwsA(isA<CustomerApiException>()),
