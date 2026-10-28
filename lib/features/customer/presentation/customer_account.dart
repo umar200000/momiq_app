@@ -410,14 +410,12 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
 
   final _form = GlobalKey<FormState>();
   late final _first = TextEditingController(
-    text: widget.registration ? '' : widget.store.profile['first'],
+    text: widget.store.profile['first'] ?? '',
   );
   late final _last = TextEditingController(
-    text: widget.registration ? '' : widget.store.profile['last'],
+    text: widget.store.profile['last'] ?? '',
   );
-  late String? _photo = widget.registration
-      ? null
-      : widget.store.profile['photo'];
+  late String? _photo = widget.store.profile['photo'];
   bool _saving = false;
   bool _picking = false;
   late final _photos = widget.photoSource ?? ProfilePhotoSource();

@@ -38,6 +38,43 @@ class CustomerApi {
   static Future<bool> customerRole() async =>
       (await SharedPreferences.getInstance()).getString('momiq.api.role') !=
       'sitter';
+  static Future<Map<String, dynamic>>? _roleChange;
+  static Future<Map<String, dynamic>> switchRole({required bool customer}) {
+    if (_roleChange != null) throw StateError('Rol almashmoqda');
+    return _roleChange = _switchRole(
+      customer: customer,
+    ).whenComplete(() => _roleChange = null);
+  }
+
+  static Future<Map<String, dynamic>> _switchRole({
+    required bool customer,
+  }) async {
+    final api = await restore();
+    if (api == null) throw CustomerApiException('Qayta kiring', 401);
+    final version = sessionVersion;
+    final role = customer ? 'customer' : 'sitter';
+    final response = await api.request('POST', '/me/role', {'role': role});
+    if (!identical(active, api) || version != sessionVersion) {
+      throw StateError('Sessiya o‘zgargan');
+    }
+    if (response['userId'] != api.userId || response['role'] != role) {
+      throw StateError('Rol javobi mos emas');
+    }
+    final account = Map<String, dynamic>.from(response['account']);
+    final prefs = await SharedPreferences.getInstance();
+    if (!identical(active, api) || version != sessionVersion) {
+      throw StateError('Sessiya o‘zgargan');
+    }
+    if (!await prefs.setString('momiq.api.account', jsonEncode(account)) ||
+        !await prefs.setString('momiq.api.role', role)) {
+      throw StateError('Rol saqlanmadi');
+    }
+    // Same person, token and wallet drafts; invalidate outgoing page stores.
+    sessionVersion++;
+    ListingStore.instance.resetSession();
+    return account;
+  }
+
   static Future<void> rememberAccount(Map<String, dynamic> account) async {
     final current = active;
     if (current == null) return;

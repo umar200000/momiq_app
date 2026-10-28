@@ -51,6 +51,20 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
           if (_avatar == null && profile['photo'] is String) {
             _avatar = base64Decode(profile['photo']);
           }
+          final sitter = account['sitterProfile'] as Map?;
+          if (sitter != null) {
+            _years ??= sitter['years'] as int?;
+            if (_experience.text.isEmpty) {
+              _experience.text = sitter['about'] ?? '';
+            }
+            if (_home.isEmpty) {
+              _home.addAll(
+                (sitter['homePhotos'] as List? ?? []).whereType<String>().map(
+                  base64Decode,
+                ),
+              );
+            }
+          }
         });
       }
       return account;

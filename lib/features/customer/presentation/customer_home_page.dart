@@ -1,4 +1,5 @@
 import '../../chat/presentation/conversation_page.dart';
+import '../../auth/presentation/role_switch_tile.dart';
 import '../data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'customer_home_design.dart';
@@ -572,6 +573,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
           onTap: () => cPush(context, item.$3),
         ),
+      const RoleSwitchTile(customer: false),
       cButton(
         lt(
           'Barcha qurilmalardan chiqish',

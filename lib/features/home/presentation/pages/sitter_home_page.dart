@@ -1,4 +1,5 @@
 import '../../../support/support_page.dart';
+import '../../../auth/presentation/role_switch_tile.dart';
 import 'sitter_dashboard.dart';
 import '../../../chat/presentation/conversation_page.dart';
 import '../../../bookings/presentation/bookings_page.dart';
@@ -307,6 +308,7 @@ class _SitterHomePageState extends State<SitterHomePage> {
   ];
   List<Widget> chats() => [const ConversationInbox()];
   List<Widget> profile() => [
+    const RoleSwitchTile(customer: true),
     ListTile(
       key: const ValueKey('sitterWallet'),
       leading: const Icon(Icons.account_balance_wallet_outlined),
