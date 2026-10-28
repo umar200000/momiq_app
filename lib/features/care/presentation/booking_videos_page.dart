@@ -6,6 +6,7 @@ import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../data/booking_video_controller.dart';
 import '../data/video_picker_cache.dart';
+import '../../support/support_page.dart';
 
 class BookingVideosPage extends StatefulWidget {
   const BookingVideosPage({
@@ -91,7 +92,10 @@ class _BookingVideosPageState extends State<BookingVideosPage>
     );
     if (source == null || !mounted || !c.canSelect(pet, slot)) return;
     setState(() => picking = true);
+    String? selectionId;
     try {
+      selectionId = await c.beginSelection(pet, slot);
+      if (selectionId == null || !mounted || !c.live) return;
       final file = await ImagePicker().pickVideo(
         source: source,
         maxDuration: const Duration(seconds: 60),
@@ -106,8 +110,17 @@ class _BookingVideosPageState extends State<BookingVideosPage>
           ),
         );
       }
-      await c.select(pet, slot, await file.readAsBytes());
-      if (c.pending != null) await discardVideoPickerCopy(file.path);
+      await c.select(
+        pet,
+        slot,
+        await file.readAsBytes(),
+        selectionId: selectionId,
+      );
+      if (c.live &&
+          c.pending?['requestId'] == selectionId &&
+          !c.selectionInterrupted) {
+        await discardVideoPickerCopy(file.path);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -115,6 +128,9 @@ class _BookingVideosPageState extends State<BookingVideosPage>
         ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
+      if (selectionId != null && c.error == null) {
+        await c.cancelSelection(selectionId);
+      }
       if (mounted) setState(() => picking = false);
     }
   }
@@ -130,6 +146,119 @@ class _BookingVideosPageState extends State<BookingVideosPage>
     if (selected != null && mounted) {
       await c.load(day: selected.toIso8601String().substring(0, 10));
     }
+  }
+
+  Future<void> explain(String pet, String slot) async {
+    var reason = '', emergency = false;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => AlertDialog(
+          title: Text(
+            lt(
+              'Video yuborilmaganining sababi',
+              'Reason for missing video',
+              'Причина отсутствия видео',
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  lt(
+                    'Sabab mijoz va yordam xizmatiga ko‘rinadi. Bu video o‘rnini bosmaydi; avtomatik jarima yoki qaytim yo‘q.',
+                    'The customer and support can read this. It does not replace a video; no automatic fine or refund.',
+                    'Причину увидят клиент и поддержка. Это не заменяет видео; автоматического штрафа или возврата нет.',
+                  ),
+                ),
+                TextField(
+                  maxLength: 1000,
+                  maxLines: 3,
+                  onChanged: (value) => setDialog(() => reason = value),
+                  decoration: InputDecoration(
+                    labelText: lt('Sabab', 'Reason', 'Причина'),
+                  ),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: emergency,
+                  onChanged: (value) =>
+                      setDialog(() => emergency = value ?? false),
+                  title: Text(
+                    lt(
+                      'Favqulodda holat',
+                      'Emergency',
+                      'Чрезвычайная ситуация',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(lt('Bekor', 'Cancel', 'Отмена')),
+            ),
+            FilledButton(
+              onPressed: reason.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: Text(lt('Yuborish', 'Send', 'Отправить')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted == true && mounted && c.live) {
+      await c.explain(pet, slot, reason, emergency);
+    }
+  }
+
+  Widget followup(String pet, String slot) {
+    final rows = (c.data?['followups'] as List? ?? []).where(
+      (r) => r['slot'] == slot,
+    );
+    if (rows.isEmpty) return const SizedBox.shrink();
+    final row = rows.first;
+    final notes = (row['explanations'] as List).where((n) => n['petId'] == pet);
+    if (notes.isNotEmpty) {
+      final note = notes.first;
+      return ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(
+          note['emergency'] == true
+              ? lt(
+                  'Enaga favqulodda holat bildirdi',
+                  'Sitter reported an emergency',
+                  'Няня сообщила о чрезвычайной ситуации',
+                )
+              : lt(
+                  'Enaga bildirgan sabab',
+                  'Reason reported by sitter',
+                  'Причина, указанная няней',
+                ),
+        ),
+        subtitle: Text('${note['reason']}\n${note['created']}'),
+      );
+    }
+    if (row['canExplain'] != true ||
+        !(row['missingPetIds'] as List).contains(pet)) {
+      return const SizedBox.shrink();
+    }
+    return TextButton(
+      onPressed: c.busy || picking || c.explanationDraft != null
+          ? null
+          : () => explain(pet, slot),
+      child: Text(
+        lt(
+          'Sabab / favqulodda holatni yozish',
+          'Report reason / emergency',
+          'Указать причину / чрезвычайную ситуацию',
+        ),
+      ),
+    );
   }
 
   Future<void> discard() async {
@@ -206,7 +335,27 @@ class _BookingVideosPageState extends State<BookingVideosPage>
               onPressed: locked ? null : refresh,
               child: Text(lt('Yangilash', 'Refresh', 'Обновить')),
             ),
-            if (c.pending != null)
+            TextButton.icon(
+              onPressed: locked
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SupportThreadPage(
+                          api: widget.api,
+                          bookingId: widget.bookingId,
+                        ),
+                      ),
+                    ),
+              icon: const Icon(Icons.support_agent),
+              label: Text(
+                lt(
+                  'Yordamga murojaat',
+                  'Contact support',
+                  'Обратиться в поддержку',
+                ),
+              ),
+            ),
+            if (c.explanationDraft != null)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -214,10 +363,90 @@ class _BookingVideosPageState extends State<BookingVideosPage>
                     children: [
                       Text(
                         lt(
-                          'Video qoralamasi saqlangan. Server tasdiqlamaguncha yuborilgan deb hisoblanmaydi.',
-                          'Video draft saved. It is submitted only after the server confirms it.',
-                          'Черновик сохранён. Отправка завершится после подтверждения сервера.',
+                          'Sabab hali server tomonidan tasdiqlanmagan.',
+                          'The server has not confirmed this explanation.',
+                          'Сервер ещё не подтвердил объяснение.',
                         ),
+                      ),
+                      Text(
+                        '${c.explanationDraft!['day']} · ${c.explanationDraft!['reason']}',
+                      ),
+                      FilledButton(
+                        onPressed: locked ? null : c.sendExplanation,
+                        child: Text(
+                          lt(
+                            'Sababni qayta yuborish',
+                            'Retry explanation',
+                            'Повторить отправку причины',
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: locked
+                            ? null
+                            : () async {
+                                final yes = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    content: Text(
+                                      lt(
+                                        'Faqat telefondagi sabab qoralamasi tozalanadi. Serverga yetib borgan sabab saqlanadi.',
+                                        'Only the local explanation draft is cleared. A server-confirmed explanation remains.',
+                                        'Удалится только черновик на телефоне. Сохранённая сервером причина останется.',
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: Text(
+                                          lt('Bekor', 'Cancel', 'Отмена'),
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: Text(
+                                          lt('Tozalash', 'Clear', 'Очистить'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (yes == true && mounted) {
+                                  await c.discardExplanation();
+                                }
+                              },
+                        child: Text(
+                          lt(
+                            'Sabab qoralamasini tozalash',
+                            'Clear explanation draft',
+                            'Очистить черновик причины',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (c.pending != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      Text(
+                        c.selectionInterrupted
+                            ? lt(
+                                'Video tanlash yakunlanmagan. Hech narsa yuborilmadi. Qoralamani tozalab, kerakli hayvon va vaqt uchun videoni qayta tanlang.',
+                                'Video selection was interrupted. Nothing was uploaded. Clear the draft and select the video again for the intended pet and time.',
+                                'Выбор видео прерван. Ничего не отправлено. Очистите черновик и снова выберите видео для нужного питомца и времени.',
+                              )
+                            : lt(
+                                'Video qoralamasi saqlangan. Server tasdiqlamaguncha yuborilgan deb hisoblanmaydi.',
+                                'Video draft saved. It is submitted only after the server confirms it.',
+                                'Черновик сохранён. Отправка завершится после подтверждения сервера.',
+                              ),
                       ),
                       Text(
                         '${c.pending!['day']} · ${c.pending!['slot'] == 'morning' ? lt('Ertalab', 'Morning', 'Утро') : lt('Kechqurun', 'Evening', 'Вечер')}',
@@ -243,16 +472,17 @@ class _BookingVideosPageState extends State<BookingVideosPage>
                           ),
                         ),
                       ] else ...[
-                        FilledButton(
-                          onPressed: locked ? null : c.send,
-                          child: Text(
-                            lt(
-                              'Yuborish / qayta urinish',
-                              'Send / retry',
-                              'Отправить / повторить',
+                        if (!c.selectionInterrupted)
+                          FilledButton(
+                            onPressed: locked ? null : c.send,
+                            child: Text(
+                              lt(
+                                'Yuborish / qayta urinish',
+                                'Send / retry',
+                                'Отправить / повторить',
+                              ),
                             ),
                           ),
-                        ),
                         TextButton(
                           onPressed: locked ? null : discard,
                           child: Text(
@@ -305,30 +535,36 @@ class _BookingVideosPageState extends State<BookingVideosPage>
                                   ? lt('Ertalab', 'Morning', 'Утро')
                                   : lt('Kechqurun', 'Evening', 'Вечер');
                               if (entries.isEmpty) {
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(label),
-                                  subtitle: Text(
-                                    lt(
-                                      'Video hali yuborilmagan',
-                                      'No video submitted',
-                                      'Видео не отправлено',
+                                return Column(
+                                  children: [
+                                    ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      title: Text(label),
+                                      subtitle: Text(
+                                        lt(
+                                          'Video hali yuborilmagan',
+                                          'No video submitted',
+                                          'Видео не отправлено',
+                                        ),
+                                      ),
+                                      trailing: IconButton(
+                                        tooltip: lt(
+                                          'Video qo‘shish',
+                                          'Add video',
+                                          'Добавить видео',
+                                        ),
+                                        icon: const Icon(
+                                          Icons.add_a_photo_outlined,
+                                        ),
+                                        onPressed:
+                                            !locked &&
+                                                c.canSelect(pet['id'], slot)
+                                            ? () => pick(pet['id'], slot)
+                                            : null,
+                                      ),
                                     ),
-                                  ),
-                                  trailing: IconButton(
-                                    tooltip: lt(
-                                      'Video qo‘shish',
-                                      'Add video',
-                                      'Добавить видео',
-                                    ),
-                                    icon: const Icon(
-                                      Icons.add_a_photo_outlined,
-                                    ),
-                                    onPressed:
-                                        !locked && c.canSelect(pet['id'], slot)
-                                        ? () => pick(pet['id'], slot)
-                                        : null,
-                                  ),
+                                    followup(pet['id'], slot),
+                                  ],
                                 );
                               }
                               final item = entries.first;

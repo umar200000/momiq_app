@@ -13,6 +13,7 @@ class VideoApi extends CustomerApi {
   String today = '2026-10-28';
   Completer<void>? gate;
   List<VideoJson> items = [];
+  List<VideoJson> followups = [];
   @override
   Future<VideoJson> request(
     String method,
@@ -25,6 +26,7 @@ class VideoApi extends CustomerApi {
       'canUpload': allowed,
       'serviceAvailable': true,
       'items': items,
+      'followups': followups,
       'policy': {
         'today': today,
         'slots': [
@@ -72,7 +74,217 @@ class FakeUpload extends VideoUpload {
   }
 }
 
+class ExplanationApi extends VideoApi {
+  bool loseResponse = true;
+  final sent = <VideoJson>[];
+  @override
+  Future<VideoJson> request(
+    String method,
+    String path, [
+    VideoJson? body,
+  ]) async {
+    if (method == 'GET') return super.request(method, path, body);
+    sent.add(Map.of(body!));
+    if (loseResponse) throw StateError('TEST response lost');
+    return {'ok': true};
+  }
+}
+
 void main() {
+  test(
+    'explanation response loss survives restart with exact identity and no video draft change',
+    () async {
+      final api = ExplanationApi(), video = ChatDraft(), notes = ChatDraft();
+      var c = BookingVideoController(
+        api,
+        'booking',
+        storage: video,
+        explanationStorage: notes,
+      );
+      await c.load();
+      await c.select('cat', 'morning', Uint8List(20));
+      final originalVideo = Map.of(video.value!);
+      await c.explain('cat', 'evening', 'TEST emergency', true);
+      expect(c.explanationDraft, isNotNull);
+      expect(c.error, isNotNull);
+      c.dispose();
+      api.loseResponse = false;
+      c = BookingVideoController(
+        api,
+        'booking',
+        storage: video,
+        explanationStorage: notes,
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      await c.sendExplanation();
+      expect(api.sent.length, 2);
+      expect(api.sent.first, api.sent.last);
+      expect(notes.value, isNull);
+      expect(c.explanationDraft, isNull);
+      expect(video.value, originalVideo);
+    },
+  );
+  testWidgets(
+    'missing video shows sitter explanation and support without treating it as delivered',
+    (t) async {
+      final api = VideoApi()..allowed = false;
+      api.followups = [
+        {
+          'slot': 'morning',
+          'canExplain': false,
+          'missingPetIds': ['cat'],
+          'explanations': [
+            {
+              'petId': 'cat',
+              'reason': 'TEST emergency',
+              'emergency': true,
+              'created': '2026-10-28',
+            },
+          ],
+        },
+      ];
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: ChatDraft(),
+        explanationStorage: ChatDraft(),
+      );
+      addTearDown(c.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingVideosPage(
+            api: api,
+            bookingId: 'booking',
+            controller: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(
+        find.text('Enaga favqulodda holat bildirdi'),
+        150,
+      );
+      expect(find.text('Enaga favqulodda holat bildirdi'), findsOneWidget);
+      expect(find.text('Video hali yuborilmagan'), findsNWidgets(2));
+      expect(find.text('Serverda saqlangan'), findsNothing);
+      await t.pumpWidget(const SizedBox());
+    },
+  );
+  test(
+    'interrupted picker restores only target and never uploads lost global media',
+    () async {
+      final api = VideoApi(), storage = ChatDraft(), upload = FakeUpload();
+      var c = BookingVideoController(
+        api,
+        'booking',
+        storage: storage,
+        explanationStorage: ChatDraft(),
+        transport: () => upload,
+      );
+      await c.load();
+      final id = await c.beginSelection('cat', 'morning');
+      expect(id, isNotNull);
+      expect(storage.value!['bytes'], isNull);
+      c.dispose();
+      c = BookingVideoController(
+        api,
+        'booking',
+        storage: storage,
+        explanationStorage: ChatDraft(),
+        transport: () => upload,
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      expect(c.selectionInterrupted, true);
+      await c.send();
+      expect(upload.paths, isEmpty);
+      await c.cancelSelection('another-picker');
+      expect(c.pending, isNotNull);
+      await c.discard();
+      expect(c.canSelect('cat', 'morning'), true);
+    },
+  );
+  test(
+    'picker target survives date refresh and cancellation cannot erase saved bytes',
+    () async {
+      final api = VideoApi(), storage = ChatDraft();
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: storage,
+        explanationStorage: ChatDraft(),
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      final id = await c.beginSelection('cat', 'morning');
+      api.today = '2026-10-29';
+      await c.load();
+      await c.select('another-pet', 'morning', Uint8List(20), selectionId: id);
+      expect(c.selectionInterrupted, true);
+      await c.select('cat', 'morning', Uint8List(20), selectionId: id);
+      expect(c.pending!['day'], '2026-10-28');
+      expect(c.pending!['requestId'], id);
+      expect(c.selectionInterrupted, false);
+      await c.cancelSelection(id!);
+      expect(storage.value!['bytes'], isNotNull);
+    },
+  );
+  test(
+    'picker requires durable intent and old session cannot store its result',
+    () async {
+      final api = VideoApi(), storage = ChatDraft()..failWrite = true;
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: storage,
+        explanationStorage: ChatDraft(),
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      expect(await c.beginSelection('cat', 'morning'), isNull);
+      expect(c.error, isNotNull);
+      storage.failWrite = false;
+      final id = await c.beginSelection('cat', 'morning');
+      CustomerApi.sessionVersion++;
+      await c.select('cat', 'morning', Uint8List(20), selectionId: id);
+      await c.cancelSelection(id!);
+      expect(storage.value!['kind'], 'selection');
+      expect(storage.value!['bytes'], isNull);
+    },
+  );
+  testWidgets(
+    'interrupted selection offers clear and reselect without a send button',
+    (t) async {
+      final api = VideoApi(), storage = ChatDraft();
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: storage,
+        explanationStorage: ChatDraft(),
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      await c.beginSelection('cat', 'morning');
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingVideosPage(
+            api: api,
+            bookingId: 'booking',
+            controller: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(
+        find.textContaining('Video tanlash yakunlanmagan'),
+        findsOneWidget,
+      );
+      expect(find.text('Yuborish / qayta urinish'), findsNothing);
+      expect(find.text('Qoralamani tozalash'), findsOneWidget);
+      await t.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets(
     'expired video keeps history without loading thumbnail or enabling playback',
     (t) async {
@@ -86,7 +298,12 @@ void main() {
           'available': false,
         },
       ];
-      final c = BookingVideoController(api, 'booking', storage: ChatDraft());
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: ChatDraft(),
+        explanationStorage: ChatDraft(),
+      );
       addTearDown(c.dispose);
       await t.pumpWidget(
         MaterialApp(
@@ -114,6 +331,7 @@ void main() {
         api,
         'booking',
         storage: storage,
+        explanationStorage: ChatDraft(),
         transport: () => upload,
       );
       await c.load();
@@ -129,6 +347,7 @@ void main() {
         api,
         'booking',
         storage: storage,
+        explanationStorage: ChatDraft(),
         transport: () => upload,
       );
       addTearDown(c.dispose);
@@ -151,6 +370,7 @@ void main() {
         api,
         'booking',
         storage: storage,
+        explanationStorage: ChatDraft(),
         transport: () => upload,
       );
       addTearDown(c.dispose);
@@ -179,7 +399,12 @@ void main() {
     'server windows and permission gate selection and empty media is rejected',
     () async {
       final api = VideoApi(), storage = ChatDraft();
-      final c = BookingVideoController(api, 'booking', storage: storage);
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: storage,
+        explanationStorage: ChatDraft(),
+      );
       addTearDown(c.dispose);
       await c.load();
       expect(c.canSelect('cat', 'morning'), true);
@@ -197,7 +422,12 @@ void main() {
     'read-only booking displays both missing videos and server-date refresh',
     (t) async {
       final api = VideoApi()..allowed = false;
-      final c = BookingVideoController(api, 'booking', storage: ChatDraft());
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: ChatDraft(),
+        explanationStorage: ChatDraft(),
+      );
       addTearDown(c.dispose);
       await t.pumpWidget(
         MaterialApp(

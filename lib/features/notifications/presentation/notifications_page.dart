@@ -114,6 +114,27 @@ class _NotificationsPageState extends State<NotificationsPage>
       return lt('Yangi chat xabari', 'New chat message', 'Новое сообщение');
     }
     if (item['kind'] == 'care') {
+      if (item['status'] == 'video_reminder') {
+        return lt(
+          'Video yuborishni unutmang',
+          'Video report is due soon',
+          'Скоро срок видеоотчёта',
+        );
+      }
+      if (item['status'] == 'video_missing') {
+        return lt(
+          'Video muddati o‘tgan',
+          'Video report is overdue',
+          'Срок видеоотчёта истёк',
+        );
+      }
+      if (item['status'] == 'video_explanation') {
+        return lt(
+          'Enaga video haqida sabab yozdi',
+          'Sitter explained the missing video',
+          'Няня указала причину отсутствия видео',
+        );
+      }
       return item['status'] == 'instructions'
           ? lt(
               'Parvarish ko‘rsatmasi yangilandi',

@@ -77,6 +77,7 @@ class BookingVideoController extends ChangeNotifier {
     this.api,
     this.bookingId, {
     WalletDraftStorage? storage,
+    WalletDraftStorage? explanationStorage,
     VideoUpload Function()? transport,
   }) : storage =
            storage ??
@@ -86,20 +87,29 @@ class BookingVideoController extends ChangeNotifier {
              byteLimit: 46 * 1024 * 1024,
              videoDraft: true,
            ),
+       explanationStorage =
+           explanationStorage ??
+           EncryptedWalletDraftStorage(
+             owner: api.userId,
+             scope: '${api.baseUrl}:video-explanation:$bookingId',
+             videoDraft: true,
+           ),
        transport = transport ?? VideoUpload.new;
   final CustomerApi api;
   final String bookingId;
   final WalletDraftStorage storage;
+  final WalletDraftStorage explanationStorage;
   final VideoUpload Function() transport;
   final _session = CustomerApi.sessionVersion;
   bool _dead = false, _restored = false;
   bool busy = false, uploading = false;
   double progress = 0;
-  VideoJson? data, pending;
+  VideoJson? data, pending, explanationDraft;
   Object? error;
   VideoUpload? _upload;
   String get path => '/bookings/$bookingId/videos';
   bool get live => !_dead && _session == CustomerApi.sessionVersion;
+  bool get selectionInterrupted => pending?['kind'] == 'selection';
   void check() {
     if (!live) throw StateError('Session expired');
   }
@@ -113,6 +123,7 @@ class BookingVideoController extends ChangeNotifier {
       !busy &&
       pending == null &&
       data?['canUpload'] == true &&
+      (data!['pets'] as List).any((p) => p['id'] == pet) &&
       (data!['policy']['slots'] as List).any(
         (s) => s['slot'] == slot && s['open'] == true,
       ) &&
@@ -128,9 +139,10 @@ class BookingVideoController extends ChangeNotifier {
     try {
       if (!_restored) {
         pending = await storage.read();
+        explanationDraft = await explanationStorage.read();
         check();
         if (pending != null &&
-            (pending!['bytes'] is! String ||
+            ((!selectionInterrupted && pending!['bytes'] is! String) ||
                 pending!['requestId'] is! String ||
                 pending!['petId'] is! String ||
                 pending!['day'] is! String ||
@@ -146,6 +158,11 @@ class BookingVideoController extends ChangeNotifier {
       check();
       data = result;
       final serverNow = DateTime.tryParse('${result['policy']?['serverTime']}');
+      if (explanationStorage is EncryptedWalletDraftStorage &&
+          serverNow != null) {
+        (explanationStorage as EncryptedWalletDraftStorage).serverTime =
+            serverNow;
+      }
       if (storage is EncryptedWalletDraftStorage && serverNow != null) {
         (storage as EncryptedWalletDraftStorage).serverTime = serverNow;
         await EncryptedWalletDraftStorage.clearExpiredVideoDrafts(serverNow);
@@ -154,6 +171,15 @@ class BookingVideoController extends ChangeNotifier {
         if (created != null &&
             !created.isAfter(serverNow.subtract(const Duration(days: 30)))) {
           pending = null;
+        }
+        final noteCreated = DateTime.tryParse(
+          '${explanationDraft?['createdAt']}',
+        );
+        if (noteCreated != null &&
+            !noteCreated.isAfter(
+              serverNow.subtract(const Duration(days: 30)),
+            )) {
+          explanationDraft = null;
         }
       }
     } catch (e) {
@@ -164,8 +190,148 @@ class BookingVideoController extends ChangeNotifier {
     }
   }
 
-  Future<void> select(String pet, String slot, Uint8List bytes) async {
-    if (!canSelect(pet, slot) || !_restored) return;
+  Future<void> explain(
+    String pet,
+    String slot,
+    String reason,
+    bool emergency,
+  ) async {
+    if (!live || busy || explanationDraft != null || data == null) return;
+    busy = true;
+    error = null;
+    changed();
+    try {
+      final draft = <String, dynamic>{
+        'petId': pet,
+        'slot': slot,
+        'day': data!['day'],
+        'reason': reason,
+        'emergency': emergency,
+        'requestId': chatRequestId(),
+        'createdAt': data!['policy']['serverTime'],
+      };
+      await explanationStorage.write(draft);
+      check();
+      explanationDraft = draft;
+    } catch (e) {
+      if (live) error = e;
+    } finally {
+      busy = false;
+      changed();
+    }
+    if (live && explanationDraft != null) await sendExplanation();
+  }
+
+  Future<void> sendExplanation() async {
+    if (!live || busy || explanationDraft == null) return;
+    busy = true;
+    error = null;
+    changed();
+    final draft = explanationDraft!;
+    try {
+      final result = await api.request('POST', '$path/explanations', {
+        for (final key in [
+          'petId',
+          'slot',
+          'day',
+          'reason',
+          'emergency',
+          'requestId',
+        ])
+          key: draft[key],
+      });
+      check();
+      if (result['ok'] != true) {
+        throw const FormatException('Sabab tasdig‘i mos emas');
+      }
+      await explanationStorage.clear();
+      check();
+      explanationDraft = null;
+    } catch (e) {
+      if (live) error = e;
+    } finally {
+      busy = false;
+      changed();
+    }
+    if (live && explanationDraft == null) await load(day: draft['day']);
+  }
+
+  Future<void> discardExplanation() async {
+    if (!live || busy) return;
+    busy = true;
+    error = null;
+    changed();
+    try {
+      await explanationStorage.clear();
+      check();
+      explanationDraft = null;
+    } catch (e) {
+      if (live) error = e;
+    } finally {
+      busy = false;
+      changed();
+    }
+    if (live) await load();
+  }
+
+  /// Save the target before handing control to a camera/gallery activity. After
+  /// process death its global lost-data cache cannot safely identify our flow.
+  Future<String?> beginSelection(String pet, String slot) async {
+    if (!canSelect(pet, slot) || !_restored) return null;
+    busy = true;
+    error = null;
+    changed();
+    try {
+      final intent = <String, dynamic>{
+        'kind': 'selection',
+        'petId': pet,
+        'slot': slot,
+        'day': data!['day'],
+        'requestId': chatRequestId(),
+        'createdAt': data!['policy']['serverTime'],
+      };
+      await storage.write(intent);
+      check();
+      pending = intent;
+      return intent['requestId'] as String;
+    } catch (e) {
+      if (live) error = e;
+      return null;
+    } finally {
+      busy = false;
+      changed();
+    }
+  }
+
+  Future<void> cancelSelection(String requestId) async {
+    if (!live ||
+        busy ||
+        !selectionInterrupted ||
+        pending!['requestId'] != requestId) {
+      return;
+    }
+    await discard();
+  }
+
+  Future<void> select(
+    String pet,
+    String slot,
+    Uint8List bytes, {
+    String? selectionId,
+  }) async {
+    final intent = pending;
+    final fromPicker =
+        selectionId != null &&
+        selectionInterrupted &&
+        intent!['requestId'] == selectionId &&
+        intent['petId'] == pet &&
+        intent['slot'] == slot;
+    if (!live ||
+        busy ||
+        !_restored ||
+        (selectionId != null ? !fromPicker : !canSelect(pet, slot))) {
+      return;
+    }
     busy = true;
     error = null;
     changed();
@@ -176,10 +342,12 @@ class BookingVideoController extends ChangeNotifier {
       final draft = <String, dynamic>{
         'petId': pet,
         'slot': slot,
-        'day': data!['day'],
-        'requestId': chatRequestId(),
+        'day': fromPicker ? intent['day'] : data!['day'],
+        'requestId': fromPicker ? selectionId : chatRequestId(),
         'bytes': base64Encode(bytes),
-        'createdAt': data!['policy']['serverTime'],
+        'createdAt': fromPicker
+            ? intent['createdAt']
+            : data!['policy']['serverTime'],
       };
       await storage.write(draft);
       check();
@@ -193,7 +361,7 @@ class BookingVideoController extends ChangeNotifier {
   }
 
   Future<void> send() async {
-    if (!live || busy || pending == null) return;
+    if (!live || busy || pending == null || selectionInterrupted) return;
     busy = uploading = true;
     progress = 0;
     error = null;
