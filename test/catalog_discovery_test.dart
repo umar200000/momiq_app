@@ -10,9 +10,16 @@ class ReviewedCatalog implements CustomerFeedRepository {
   bool visible = true;
   bool fail = false;
   int price = 100000;
+  DateTime? requestedStart, requestedEnd;
   Completer<void>? gate;
   @override
-  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) async {
+  Future<List<CJson>> fetchSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+  }) async {
+    requestedStart = startsAt;
+    requestedEnd = endsAt;
     await gate?.future;
     if (fail) throw StateError('TEST network failure');
     return visible
@@ -40,6 +47,38 @@ class ReviewedCatalog implements CustomerFeedRepository {
 }
 
 void main() {
+  testWidgets(
+    'search validates dates, sends zoned endpoints and reset removes date filter',
+    (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final feed = ReviewedCatalog();
+      final store = CustomerStore(feedRepository: feed);
+      addTearDown(store.dispose);
+      await store.load();
+      await t.pumpWidget(MaterialApp(home: CustomerSearchPage(store: store)));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('searchDates')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('applyDiscoveryDates')));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Kelajakdagi kelish'), findsOneWidget);
+      final start = DateTime.utc(2027, 1, 4, 5);
+      final end = start.add(const Duration(days: 1));
+      Navigator.of(
+        t.element(find.byType(DiscoveryDatesPage)),
+      ).pop([start, end]);
+      await t.pumpAndSettle();
+      expect(feed.requestedStart, start);
+      expect(feed.requestedEnd, end);
+      expect(find.textContaining('04.01.2027 10:00'), findsOneWidget);
+      await t.ensureVisible(find.byKey(const ValueKey('clearSearchFilters')));
+      await t.tap(find.byKey(const ValueKey('clearSearchFilters')));
+      await t.pumpAndSettle();
+      expect(feed.requestedStart, isNull);
+      expect(feed.requestedEnd, isNull);
+      expect(t.takeException(), isNull);
+    },
+  );
   testWidgets(
     'search distinguishes loading and failed refresh, retries, and removes unavailable sitter on return',
     (t) async {
@@ -287,6 +326,9 @@ class QueuedCatalog implements CustomerFeedRepository {
   QueuedCatalog(this.results);
   final List<Future<List<CJson>>> results;
   @override
-  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) =>
-      results.removeAt(0);
+  Future<List<CJson>> fetchSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+  }) => results.removeAt(0);
 }

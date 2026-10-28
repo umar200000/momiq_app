@@ -104,6 +104,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
     with WidgetsBindingObserver {
   final _search = TextEditingController();
   late int? _service = widget.service;
+  DateTime? _startsAt, _endsAt;
   CJson _filter = {
     'pet': '',
     'min': 0,
@@ -132,23 +133,46 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   Future<void> _refresh() async {
     if (widget.store.feedLoading) return;
     try {
-      await widget.store.refreshSitters(location: widget.store.feedLocation);
+      await widget.store.refreshSitters(
+        location: widget.store.feedLocation,
+        startsAt: _startsAt,
+        endsAt: _endsAt,
+      );
     } catch (_) {
       // Store owns the retryable error state; no unhandled async failure.
     }
   }
 
-  void _clear() => setState(() {
-    _search.clear();
-    _service = null;
-    _filter = {
-      'pet': '',
-      'min': 0,
-      'max': null,
-      'distance': null,
-      'rating': false,
-    };
-  });
+  void _clear() {
+    final hadDates = _startsAt != null;
+    setState(() {
+      _startsAt = _endsAt = null;
+      _search.clear();
+      _service = null;
+      _filter = {
+        'pet': '',
+        'min': 0,
+        'max': null,
+        'distance': null,
+        'rating': false,
+      };
+    });
+    if (hadDates) _refresh();
+  }
+
+  Future<void> _dates() async {
+    if (widget.store.feedLoading) return;
+    final result = await cPush<List<DateTime>>(
+      context,
+      const DiscoveryDatesPage(),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _startsAt = result[0];
+      _endsAt = result[1];
+    });
+    await _refresh();
+  }
 
   @override
   void dispose() {
@@ -237,9 +261,24 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
             ],
           ),
           const SizedBox(height: 14),
+          OutlinedButton.icon(
+            key: const ValueKey('searchDates'),
+            onPressed: widget.store.feedLoading ? null : _dates,
+            icon: const Icon(Icons.date_range),
+            label: Text(
+              _startsAt == null
+                  ? 'Kelish va ketish sanasini tanlash'
+                  : '${discoveryTime(_startsAt!)} — ${discoveryTime(_endsAt!)}',
+            ),
+          ),
+          if (_startsAt != null)
+            cText(
+              'Jadval bo‘yicha mos enagalar. Bo‘sh joy va qabul bron vaqtida qayta tekshiriladi. Toshkent vaqti.',
+              size: 12,
+            ),
           TextButton(
             key: const ValueKey('clearSearchFilters'),
-            onPressed: _clear,
+            onPressed: widget.store.feedLoading ? null : _clear,
             child: Text(
               lt(
                 'Qidiruv va filtrlarni tozalash',
@@ -292,6 +331,103 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
         ],
       );
     },
+  );
+}
+
+String discoveryTime(DateTime value) {
+  final local = value.toUtc().add(const Duration(hours: 5));
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
+}
+
+class DiscoveryDatesPage extends StatefulWidget {
+  const DiscoveryDatesPage({super.key});
+  @override
+  State<DiscoveryDatesPage> createState() => _DiscoveryDatesPageState();
+}
+
+class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
+  DateTime? start, end;
+  Future<void> pick(bool first) async {
+    final now = DateTime.now().toUtc().add(const Duration(hours: 5));
+    final old =
+        (first ? start : end)?.toUtc().add(const Duration(hours: 5)) ?? now;
+    final day = await showDatePicker(
+      context: context,
+      initialDate: old.isBefore(now) ? now : old,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 1, now.month, now.day),
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
+      helpText: 'Toshkent vaqti',
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
+    );
+    if (time == null || !mounted) return;
+    final value = DateTime.utc(
+      day.year,
+      day.month,
+      day.day,
+      time.hour,
+      time.minute,
+    ).subtract(const Duration(hours: 5));
+    setState(() {
+      if (first) {
+        start = value;
+      } else {
+        end = value;
+      }
+    });
+  }
+
+  void apply() {
+    if (start == null ||
+        end == null ||
+        !start!.isAfter(DateTime.now().toUtc()) ||
+        !end!.isAfter(start!) ||
+        end!.difference(start!) > const Duration(days: 365)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Kelajakdagi kelish va undan keyingi ketish vaqtini tanlang (365 kungacha).',
+          ),
+        ),
+      );
+      return;
+    }
+    Navigator.pop(context, [start!, end!]);
+  }
+
+  @override
+  Widget build(BuildContext context) => CustomerPage(
+    title: 'Kelish va ketish vaqti',
+    children: [
+      cText(
+        'Toshkent vaqti. Tunab qolish mumkin; enaganing jadvali faqat kelish va ketish vaqtlariga qo‘llanadi.',
+      ),
+      for (final first in [true, false])
+        ListTile(
+          key: ValueKey(first ? 'discoveryStart' : 'discoveryEnd'),
+          title: Text(first ? 'Kelish' : 'Ketish'),
+          subtitle: Text(
+            (first ? start : end) == null
+                ? 'Sana va vaqtni tanlang'
+                : discoveryTime((first ? start : end)!),
+          ),
+          trailing: const Icon(Icons.calendar_month),
+          onTap: () => pick(first),
+        ),
+      FilledButton(
+        key: const ValueKey('applyDiscoveryDates'),
+        onPressed: apply,
+        child: const Text('Enagalarni ko‘rsatish'),
+      ),
+    ],
   );
 }
 

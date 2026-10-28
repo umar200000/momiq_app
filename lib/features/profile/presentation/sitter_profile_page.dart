@@ -40,6 +40,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       _chat = true,
       _care = true;
   List<bool> _days = [true, true, true, true, true, false, false];
+  bool _hoursEnabled = true;
+  List<String> _closedDates = [];
   TimeOfDay _start = const TimeOfDay(hour: 9, minute: 0),
       _end = const TimeOfDay(hour: 18, minute: 0);
   String tr(String uz, String en, String ru) => lt(uz, en, ru);
@@ -86,6 +88,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
         _chat = notifications['chat'] != false;
         _care = notifications['video'] != false;
         final schedule = sitter['schedule'] as Map?;
+        _hoursEnabled = schedule != null;
+        _closedDates = List<String>.from(sitter['closedDates'] ?? []);
         if (schedule != null) {
           _days = List<bool>.from(schedule['days']);
           final start = schedule['start'] as int;
@@ -101,6 +105,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       _years.text = p.getString('mock.profile.years') ?? '';
       _about.text = p.getString('mock.profile.about') ?? '';
       final days = p.getStringList('mock.profile.days');
+      _closedDates = p.getStringList('mock.profile.closedDates') ?? [];
+      _hoursEnabled = p.getBool('mock.profile.hoursEnabled') ?? true;
       if (days?.length == 7) _days = days!.map((v) => v == 'true').toList();
       _orders = p.getBool('mock.notify.orders') ?? true;
       _chat = p.getBool('mock.notify.chat') ?? true;
@@ -130,6 +136,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   Future<void> _save() async {
     if (_saving || !(_form.currentState?.validate() ?? true)) return;
     if (widget.section == 1 &&
+        _hoursEnabled &&
         _start.hour * 60 + _start.minute >= _end.hour * 60 + _end.minute) {
       _notice(
         tr(
@@ -172,11 +179,14 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
         } else if (widget.section == 1) {
           account['sitterProfile'] = {
             ...?account['sitterProfile'] as Map?,
-            'schedule': {
-              'days': _days,
-              'start': _start.hour * 60 + _start.minute,
-              'end': _end.hour * 60 + _end.minute,
-            },
+            'closedDates': [..._closedDates]..sort(),
+            'schedule': !_hoursEnabled
+                ? null
+                : {
+                    'days': _days,
+                    'start': _start.hour * 60 + _start.minute,
+                    'end': _end.hour * 60 + _end.minute,
+                  },
           };
         } else if (widget.section == 3) {
           account['notifications'] = {
@@ -211,6 +221,12 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
           );
         }
       } else if (widget.section == 1) {
+        results.add(
+          await p.setStringList('mock.profile.closedDates', _closedDates),
+        );
+        results.add(
+          await p.setBool('mock.profile.hoursEnabled', _hoursEnabled),
+        );
         results.add(
           await p.setStringList(
             'mock.profile.days',
@@ -467,63 +483,162 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                     if (widget.section == 1) ...[
                       Text(
                         tr(
-                          'Qaysi kunlari ishlaysiz?',
-                          'Which days do you work?',
-                          'В какие дни вы работаете?',
+                          'Toshkent vaqti. Ish kunlari va soati faqat olib kelish va olib ketishga tegishli. Hayvon tunda qolishi mumkin. Qabul qilingan buyurtmalar o‘zgarmaydi.',
+                          'Tashkent time. Workdays and hours apply only to drop-off and pick-up. Overnight stays are allowed. Accepted bookings stay unchanged.',
+                          'Время Ташкента. Рабочие дни и часы ограничивают только передачу и возврат питомца. Ночёвка разрешена. Принятые заказы сохраняются.',
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      for (var i = 0; i < 7; i++)
-                        tile(
-                          SwitchListTile(
-                            key: ValueKey('workDay-$i'),
-                            title: Text(
-                              [
-                                tr('Dushanba', 'Monday', 'Понедельник'),
-                                tr('Seshanba', 'Tuesday', 'Вторник'),
-                                tr('Chorshanba', 'Wednesday', 'Среда'),
-                                tr('Payshanba', 'Thursday', 'Четверг'),
-                                tr('Juma', 'Friday', 'Пятница'),
-                                tr('Shanba', 'Saturday', 'Суббота'),
-                                tr('Yakshanba', 'Sunday', 'Воскресенье'),
-                              ][i],
-                            ),
-                            value: _days[i],
-                            onChanged: _saving
-                                ? null
-                                : (v) => setState(() => _days[i] = v),
+                      SwitchListTile(
+                        key: const ValueKey('handoverHoursEnabled'),
+                        title: Text(
+                          tr(
+                            'Olib kelish/ketish vaqtini cheklash',
+                            'Set handover hours',
+                            'Ограничить время передачи',
                           ),
                         ),
-                      for (final start in [true, false])
-                        tile(
-                          ListTile(
-                            title: Text(
-                              start
-                                  ? tr('Boshlanish', 'Start', 'Начало')
-                                  : tr('Tugash', 'End', 'Окончание'),
-                            ),
-                            trailing: Text(
-                              (start ? _start : _end).format(context),
-                            ),
-                            onTap: _saving
-                                ? null
-                                : () async {
-                                    final value = await showTimePicker(
-                                      context: context,
-                                      initialTime: start ? _start : _end,
-                                    );
-                                    if (value != null && mounted) {
-                                      setState(() {
-                                        if (start) {
-                                          _start = value;
-                                        } else {
-                                          _end = value;
-                                        }
-                                      });
-                                    }
-                                  },
+                        value: _hoursEnabled,
+                        onChanged: _saving
+                            ? null
+                            : (value) => setState(() => _hoursEnabled = value),
+                      ),
+                      if (_hoursEnabled) ...[
+                        Text(
+                          tr(
+                            'Qaysi kunlari ishlaysiz?',
+                            'Which days do you work?',
+                            'В какие дни вы работаете?',
                           ),
                         ),
+                        const SizedBox(height: 12),
+                        for (var i = 0; i < 7; i++)
+                          tile(
+                            SwitchListTile(
+                              key: ValueKey('workDay-$i'),
+                              title: Text(
+                                [
+                                  tr('Dushanba', 'Monday', 'Понедельник'),
+                                  tr('Seshanba', 'Tuesday', 'Вторник'),
+                                  tr('Chorshanba', 'Wednesday', 'Среда'),
+                                  tr('Payshanba', 'Thursday', 'Четверг'),
+                                  tr('Juma', 'Friday', 'Пятница'),
+                                  tr('Shanba', 'Saturday', 'Суббота'),
+                                  tr('Yakshanba', 'Sunday', 'Воскресенье'),
+                                ][i],
+                              ),
+                              value: _days[i],
+                              onChanged: _saving
+                                  ? null
+                                  : (v) => setState(() => _days[i] = v),
+                            ),
+                          ),
+                        for (final start in [true, false])
+                          tile(
+                            ListTile(
+                              title: Text(
+                                start
+                                    ? tr('Boshlanish', 'Start', 'Начало')
+                                    : tr('Tugash', 'End', 'Окончание'),
+                              ),
+                              trailing: Text(
+                                (start ? _start : _end).format(context),
+                              ),
+                              onTap: _saving
+                                  ? null
+                                  : () async {
+                                      final value = await showTimePicker(
+                                        context: context,
+                                        initialTime: start ? _start : _end,
+                                      );
+                                      if (value != null && mounted) {
+                                        setState(() {
+                                          if (start) {
+                                            _start = value;
+                                          } else {
+                                            _end = value;
+                                          }
+                                        });
+                                      }
+                                    },
+                            ),
+                          ),
+                      ],
+                      const SizedBox(height: 16),
+                      Text(
+                        tr(
+                          'Yangi bron boshlanmaydigan sanalar',
+                          'Dates closed to new arrivals',
+                          'Даты без новых заездов',
+                        ),
+                      ),
+                      Text(
+                        tr(
+                          'Bu sanada avval boshlangan parvarish davom etishi va hayvon olib ketilishi mumkin.',
+                          'Existing stays and pick-ups can continue on these dates.',
+                          'В эти даты возможны продолжение ухода и возврат питомца.',
+                        ),
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final date in _closedDates)
+                            InputChip(
+                              key: ValueKey('closedDate-$date'),
+                              label: Text(date),
+                              onDeleted: _saving
+                                  ? null
+                                  : () => setState(
+                                      () => _closedDates.remove(date),
+                                    ),
+                            ),
+                        ],
+                      ),
+                      TextButton.icon(
+                        key: const ValueKey('addClosedDate'),
+                        icon: const Icon(Icons.event_busy),
+                        label: Text(
+                          tr(
+                            'Yopiq sana qo‘shish',
+                            'Add closed date',
+                            'Добавить закрытую дату',
+                          ),
+                        ),
+                        onPressed: _saving || _closedDates.length >= 366
+                            ? null
+                            : () async {
+                                final now = DateTime.now().toUtc().add(
+                                  const Duration(hours: 5),
+                                );
+                                final selected = await showDatePicker(
+                                  context: context,
+                                  initialDate: DateTime(
+                                    now.year,
+                                    now.month,
+                                    now.day,
+                                  ),
+                                  firstDate: DateTime(
+                                    now.year,
+                                    now.month,
+                                    now.day,
+                                  ),
+                                  lastDate: DateTime(
+                                    now.year + 1,
+                                    now.month,
+                                    now.day,
+                                  ),
+                                );
+                                if (selected == null || !mounted) return;
+                                final date =
+                                    '${selected.year.toString().padLeft(4, '0')}-${selected.month.toString().padLeft(2, '0')}-${selected.day.toString().padLeft(2, '0')}';
+                                if (!_closedDates.contains(date)) {
+                                  setState(
+                                    () =>
+                                        _closedDates = [..._closedDates, date]
+                                          ..sort(),
+                                  );
+                                }
+                              },
+                      ),
                     ],
                     if (widget.section == 2)
                       Text(

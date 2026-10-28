@@ -45,7 +45,11 @@ class FakeFeed extends CustomerFeedRepository {
   Completer<List<CJson>>? pending;
   bool fail = false;
   @override
-  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) async {
+  Future<List<CJson>> fetchSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+  }) async {
     calls++;
     if (fail) throw StateError('Offline');
     if (pending != null) return pending!.future;

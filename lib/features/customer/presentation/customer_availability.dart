@@ -19,9 +19,39 @@ class CustomerAvailability extends StatelessWidget {
     listenable: store,
     builder: (context, _) {
       if (sitter['availabilityKnown'] != true) {
+        final availability = sitter['availability'] as Map?;
+        final schedule = availability?['schedule'] as Map?;
+        final closed = List<String>.from(availability?['closedDates'] ?? []);
+        String time(int minutes) =>
+            '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
+        const days = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya'];
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
-          child: cText('Mavjud sanalar hali tasdiqlanmagan', size: 13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              cText('Mavjud sanalar hali tasdiqlanmagan', size: 13),
+              if (availability != null) ...[
+                const SizedBox(height: 6),
+                cText(
+                  schedule == null
+                      ? 'Olib kelish/ketish soati cheklanmagan; bronni enaga tasdiqlaydi.'
+                      : 'Olib kelish/ketish: ${[for (var i = 0; i < 7; i++)
+                          if ((schedule['days'] as List)[i] == true) days[i]].join(', ')} · ${time(schedule['start'])}–${time(schedule['end'])} (Toshkent)',
+                  size: 12,
+                ),
+                cText(
+                  'Tunda qolish mumkin. Yakuniy mavjudlik bron vaqtida tekshiriladi.',
+                  size: 12,
+                ),
+                if (closed.isNotEmpty)
+                  cText(
+                    'Yangi bron boshlanmaydi: ${closed.join(', ')}',
+                    size: 12,
+                  ),
+              ],
+            ],
+          ),
         );
       }
       final capacity = sitterCapacity(sitter);

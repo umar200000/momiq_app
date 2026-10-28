@@ -133,7 +133,11 @@ class CustomerStore extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshSitters({CustomerCoordinates? location}) async {
+  Future<void> refreshSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+  }) async {
     if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
     final version = ++_feedVersion;
     feedLoading = true;
@@ -141,7 +145,11 @@ class CustomerStore extends ChangeNotifier {
     feedLocation = location;
     notifyListeners();
     try {
-      final result = await feedRepository.fetchSitters(location: location);
+      final result = await feedRepository.fetchSitters(
+        location: location,
+        startsAt: startsAt,
+        endsAt: endsAt,
+      );
       if (_disposed ||
           version != _feedVersion ||
           _sessionVersion != CustomerApi.sessionVersion) {

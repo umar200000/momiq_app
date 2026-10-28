@@ -80,6 +80,54 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets(
+    'closed dates survive reload, explicit removal and failed writes; unset hours stay unset',
+    (tester) async {
+      final api = ProfileApi();
+      api.account['sitterProfile'].remove('schedule');
+      api.account['sitterProfile']['closedDates'] = ['2026-11-03'];
+      CustomerApi.active = api;
+      await open(tester, 1);
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const ValueKey('handoverHoursEnabled')),
+            )
+            .value,
+        isFalse,
+      );
+      expect(
+        find.byKey(const ValueKey('closedDate-2026-11-03')),
+        findsOneWidget,
+      );
+      await save(tester);
+      expect(api.saved!['sitterProfile']['schedule'], isNull);
+      expect(api.saved!['sitterProfile']['closedDates'], ['2026-11-03']);
+      await open(tester, 1);
+      final chip = find.byKey(const ValueKey('closedDate-2026-11-03'));
+      await tester.ensureVisible(chip);
+      tester.widget<InputChip>(chip).onDeleted!();
+      await tester.pumpAndSettle();
+      api.failWrite = true;
+      await save(tester);
+      expect(find.text('Conflict: reload'), findsOneWidget);
+      expect(api.account['sitterProfile']['closedDates'], ['2026-11-03']);
+      api.failWrite = false;
+      await save(tester);
+      expect(api.account['sitterProfile']['closedDates'], isEmpty);
+      await open(tester, 1);
+      final add = find.byKey(const ValueKey('addClosedDate'));
+      await tester.ensureVisible(add);
+      await tester.tap(add);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(find.byType(InputChip), findsOneWidget);
+      await save(tester);
+      expect(api.account['sitterProfile']['closedDates'], hasLength(1));
+    },
+  );
+
   testWidgets('profile edits persist', (tester) async {
     await open(tester, 0);
     await tester.enterText(find.byKey(const ValueKey('profileFirst')), 'Umar');

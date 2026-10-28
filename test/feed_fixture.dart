@@ -10,7 +10,11 @@ class FixtureCustomerFeedRepository implements CustomerFeedRepository {
   });
   final Duration delay;
   @override
-  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) async {
+  Future<List<CJson>> fetchSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+  }) async {
     await Future<void>.delayed(delay);
     const coordinates = [
       (41.2995, 69.2726),
