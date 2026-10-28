@@ -563,6 +563,11 @@ class _ConversationPageState extends State<ConversationPage>
                         chat?.conversation?['peerReadThrough'] ?? '0',
                       ) >=
                       int.parse(m['id']);
+                  final delivered =
+                      int.parse(
+                        chat?.conversation?['peerDeliveredThrough'] ?? '0',
+                      ) >=
+                      int.parse(m['id']);
                   final time = DateTime.tryParse(m['created'] ?? '')?.toLocal();
                   return Align(
                     alignment: mine
@@ -592,7 +597,11 @@ class _ConversationPageState extends State<ConversationPage>
                                 key: ValueKey('image-${m['id']}'),
                               ),
                             Text(
-                              '${time == null ? '' : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'}${mine ? ' · ${read ? lt('O‘qilgan', 'Read', 'Прочитано') : lt('Yuborildi', 'Sent', 'Отправлено')}' : ''}',
+                              '${time == null ? '' : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'}${mine ? ' · ${read
+                                        ? lt('O‘qilgan', 'Read', 'Прочитано')
+                                        : delivered
+                                        ? lt('Yetkazildi', 'Delivered', 'Доставлено')
+                                        : lt('Yuborildi', 'Sent', 'Отправлено')}' : ''}',
                               style: Theme.of(context).textTheme.labelSmall,
                             ),
                             if (!mine && m['hidden'] != true)

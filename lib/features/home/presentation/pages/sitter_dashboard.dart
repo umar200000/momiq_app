@@ -273,9 +273,9 @@ class _SitterDashboardState extends State<SitterDashboard>
             ],
             Text(
               lt(
-                'MyID tekshiruvi hali ulanmagan. TEST tasdiq shaxs tekshiruvi emas.',
-                'MyID is not connected yet. TEST approval is not identity verification.',
-                'MyID пока не подключён. Одобрение TEST не является проверкой личности.',
+                'Shaxs tekshiruvi yakunlanmagan. TEST tasdiq shaxs tekshiruvi emas.',
+                'Identity verification is incomplete. TEST approval is not identity verification.',
+                'Проверка личности не завершена. Одобрение TEST не является проверкой личности.',
               ),
             ),
             Wrap(

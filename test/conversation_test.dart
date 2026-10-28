@@ -46,6 +46,9 @@ class ChatApi extends CustomerApi {
   final posts = <ChatJson>[];
   final paths = <String>[];
   final reads = <String>[];
+  final deliveries = <String>[];
+  bool failDelivery = false;
+  String peerDelivered = '0', peerRead = '0';
   bool loseResponse = false;
   bool blocked = false;
   int blockRevision = 0;
@@ -60,12 +63,18 @@ class ChatApi extends CustomerApi {
     'blockedByMe': blocked,
     'blockRevision': blockRevision,
     'unreadCount': 1,
-    'peerReadThrough': '0',
+    'peerReadThrough': peerRead,
+    'peerDeliveredThrough': peerDelivered,
     'lastMessage': items.lastOrNull,
   };
   @override
   Future<ChatJson> request(String method, String path, [ChatJson? body]) async {
     paths.add('$method $path');
+    if (path.endsWith('/received')) {
+      deliveries.add(body!['throughId']);
+      if (failDelivery) throw StateError('receipt unavailable');
+      return {'ok': true};
+    }
     if (path.endsWith('/block')) {
       blocked = body!['blocked'];
       blockRevision++;
@@ -134,6 +143,54 @@ class ReportApi extends CustomerApi {
 }
 
 void main() {
+  test(
+    'delivery acknowledges only fetched incoming messages, retries without reading, ignores local sends',
+    () async {
+      final api = ChatApi()
+        ..items.addAll([msg(1), msg(2, mine: true)])
+        ..failDelivery = true;
+      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      addTearDown(chat.dispose);
+      await chat.initialize();
+      await Future<void>.delayed(Duration.zero);
+      expect(chat.ready, isTrue);
+      expect(chat.error, isNull);
+      expect(api.deliveries, ['1']);
+      expect(api.reads, isEmpty);
+      api.failDelivery = false;
+      await chat.refresh();
+      await Future<void>.delayed(Duration.zero);
+      expect(api.deliveries, ['1', '1']);
+      expect(api.reads, isEmpty);
+      await chat.send('own message', null);
+      await chat.refresh();
+      expect(api.deliveries, ['1', '1']);
+      api.items.add(msg(4));
+      await chat.refresh();
+      await Future<void>.delayed(Duration.zero);
+      expect(api.deliveries.last, '4');
+      expect(api.reads, isEmpty);
+      await chat.refresh();
+      expect(api.deliveries.length, 3);
+    },
+  );
+  testWidgets('outgoing bubble distinguishes delivered from read', (t) async {
+    final api = ChatApi()
+      ..items.add(msg(1, mine: true))
+      ..peerDelivered = '1';
+    final chat = ConversationController(api, 'chat', storage: ChatDraft());
+    await t.pumpWidget(MaterialApp(home: ConversationPage(controller: chat)));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Yetkazildi'), findsOneWidget);
+    expect(find.textContaining('O‘qilgan'), findsNothing);
+    api.peerRead = '1';
+    await chat.refresh();
+    await t.pumpAndSettle();
+    expect(find.textContaining('O‘qilgan'), findsOneWidget);
+    expect(find.textContaining('Yetkazildi'), findsNothing);
+    await t.pumpWidget(const SizedBox());
+  });
+
   test(
     'moderation delta removes loaded content without advancing message cursor',
     () async {

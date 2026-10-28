@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -31,7 +32,8 @@ class ConversationController extends ChangeNotifier {
   String readCursor = '0';
   String _changeCursor = '0';
   final _redacted = <String>{};
-  int _readAcknowledged = 0;
+  int _readAcknowledged = 0, _deliveryAcknowledged = 0;
+  bool _receiving = false;
   bool get live => !_dead && _session == CustomerApi.sessionVersion;
   String get path => '/conversations/$id';
 
@@ -62,6 +64,7 @@ class ConversationController extends ChangeNotifier {
       _changeCursor = page['changeCursor'] ?? '0';
       more = page['hasMore'] == true;
       ready = true;
+      unawaited(_receivedFetched());
     } catch (e) {
       error = e;
     } finally {
@@ -116,6 +119,7 @@ class ConversationController extends ChangeNotifier {
         _changeCursor = page['changeCursor'] ?? _changeCursor;
       }
       if (older) more = page['hasMore'] == true;
+      unawaited(_receivedFetched());
     } catch (e) {
       error = e;
     } finally {
@@ -168,6 +172,28 @@ class ConversationController extends ChangeNotifier {
     } finally {
       sending = false;
       changed();
+    }
+  }
+
+  Future<void> _receivedFetched() async {
+    if (!live || !ready || _receiving) return;
+    var last = 0;
+    for (final message in messages) {
+      if (message['mine'] != true) {
+        final id = int.parse(message['id']);
+        if (id > last) last = id;
+      }
+    }
+    if (last <= _deliveryAcknowledged) return;
+    _receiving = true;
+    try {
+      await api.request('POST', '$path/received', {'throughId': '$last'});
+      if (live) _deliveryAcknowledged = last;
+    } catch (_) {
+      // Receipt failure cannot turn a fetched message into a send failure.
+      // The next poll retries the same highest fetched incoming ID.
+    } finally {
+      _receiving = false;
     }
   }
 
