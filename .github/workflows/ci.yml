@@ -23,6 +23,11 @@ jobs:
           cache: true
       - run: cp lib/core/config/maps_key.example.dart lib/core/config/maps_key.local.dart
       - run: flutter pub get --enforce-lockfile
+      - name: Audit public Pub dependency versions
+        run: |
+          python3 -m unittest discover -s tool -p test_audit_pub.py -q
+          flutter pub deps --json > pub-deps.json
+          python3 tool/audit_pub.py pub-deps.json --output pub-audit.json
       - run: flutter analyze
       - run: flutter test
       - name: Build Android debug for ARM64
