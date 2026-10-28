@@ -1,3 +1,4 @@
+import '../../customer/presentation/pet_safety.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../core/localization/app_language.dart';
@@ -492,6 +493,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                   title: Text('${pet['name'] ?? pet['type']}'),
                   subtitle: Text('${pet['notes'] ?? ''}'),
                 ),
+                PetSafetySummary(pet: Map<String, dynamic>.from(pet)),
                 for (final kind in ['photo', 'passport'])
                   if (pet[kind == 'photo' ? 'hasPhoto' : 'hasPassport'] == true)
                     BookingAnimalImage(

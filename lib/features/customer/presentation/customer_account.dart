@@ -1,3 +1,4 @@
+import 'pet_safety.dart';
 import '../../onboarding/data/profile_photo_source.dart';
 import 'customer_home_page.dart';
 import 'dart:convert';
@@ -166,6 +167,9 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
       _breed = TextEditingController(),
       _notes = TextEditingController(),
       _otherType = TextEditingController();
+  final _safety = {
+    for (final field in petSafetyFields) field: TextEditingController(),
+  };
   String? _type;
   String _sex = '';
   bool _picking = false;
@@ -184,6 +188,9 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
       _age.text = p['age'] ?? '';
       _breed.text = p['breed'] ?? '';
       _notes.text = p['notes'] ?? '';
+      for (final field in petSafetyFields) {
+        _safety[field]!.text = p[field] as String? ?? '';
+      }
       if (widget.allowedTypes.contains(p['type'])) _type = p['type'];
       _otherType.text = p['otherType'] ?? '';
       _sex = p['sex'] ?? '';
@@ -267,6 +274,7 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
         'sex': _sex,
         'breed': _breed.text.trim(),
         'notes': _notes.text.trim(),
+        for (final field in petSafetyFields) field: _safety[field]!.text.trim(),
         'photo': _photo,
       }, expectedRevision: _revision);
       if (mounted) Navigator.pop(context, id);
@@ -279,7 +287,14 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
 
   @override
   void dispose() {
-    for (final c in [_name, _age, _breed, _notes, _otherType]) {
+    for (final c in [
+      _name,
+      _age,
+      _breed,
+      _notes,
+      _otherType,
+      ..._safety.values,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -362,6 +377,7 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
             const SizedBox(height: 18),
             cField(_breed, 'Zoti'),
             cField(_notes, 'Xususiyatlari', lines: 3),
+            PetSafetyFields(controllers: _safety),
           ],
         ),
       ),

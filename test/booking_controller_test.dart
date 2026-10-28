@@ -154,6 +154,33 @@ class DelayedInboxApi extends CustomerApi {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets(
+    'booking detail renders immutable care facts supplied by server',
+    (t) async {
+      final api = BookingApiFake();
+      api.booking['snapshot']['pets'][0].addAll({
+        'allergies': 'TEST snapshot allergy',
+        'emergencyPhone': '+998900000099',
+      });
+      final c = BookingController(
+        api,
+        fixture()['id'],
+        storage: BookingMemory(),
+      );
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingDetailPage(api: api, id: fixture()['id'], controller: c),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.ensureVisible(
+        find.byKey(const ValueKey('petSafetySummary-emergencyPhone')),
+      );
+      expect(find.textContaining('TEST snapshot allergy'), findsOneWidget);
+      expect(find.textContaining('+998900000099'), findsOneWidget);
+      expect(api.posts, isEmpty);
+    },
+  );
   testWidgets('amendment notice never sends a hidden change or cancellation', (
     t,
   ) async {
@@ -469,6 +496,8 @@ void main() {
     expect(find.textContaining('50000 UZS komissiya'), findsOneWidget);
     expect(api.posts, isEmpty);
     await t.tap(find.widgetWithText(FilledButton, 'Tasdiqlash'));
+    await t.pumpAndSettle();
+    await t.drag(find.byType(Scrollable).first, const Offset(0, 1000));
     await t.pumpAndSettle();
     expect(find.text('Qabul qilingan'), findsOneWidget);
     expect(api.charges, 1);
