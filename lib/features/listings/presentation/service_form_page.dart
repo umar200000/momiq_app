@@ -1,6 +1,4 @@
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
-import '../data/map_access.dart';
-import 'map_requirements_panel.dart';
 import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import 'price_input_formatter.dart';
@@ -17,53 +15,16 @@ class ServiceFormPage extends StatefulWidget {
     required this.type,
     required this.store,
     this.locationPicker = pickCareLocation,
-    this.accessProbe,
   });
   final ServiceType type;
   final ListingStore store;
   final LocationPicker locationPicker;
-  final MapAccessProbe? accessProbe;
   @override
   State<ServiceFormPage> createState() => _ServiceFormPageState();
 }
 
 class _ServiceFormPageState extends State<ServiceFormPage> {
   final _price = TextEditingController();
-  late final _access = MapAccessController(probe: widget.accessProbe);
-  bool _askedForAccess = false;
-  void _accessChanged() {
-    if (!mounted) return;
-    setState(() {});
-    if (_access.ready) {
-      _askedForAccess = false;
-      return;
-    }
-    if (_access.state == null || _askedForAccess || _choosingLocation) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          _askedForAccess ||
-          _access.ready ||
-          ModalRoute.of(context)?.isCurrent != true) {
-        return;
-      }
-      _askedForAccess = true;
-      showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          backgroundColor: listingSurface,
-          content: SingleChildScrollView(
-            child: MapRequirementsPanel(controller: _access),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(lt('Davom etish', 'Continue', 'Продолжить')),
-            ),
-          ],
-        ),
-      );
-    });
-  }
 
   final Set<PetType> _pets = {};
   int _capacity = 1;
@@ -85,10 +46,6 @@ class _ServiceFormPageState extends State<ServiceFormPage> {
   @override
   void initState() {
     super.initState();
-    if (!_visiting) {
-      _access.addListener(_accessChanged);
-      _access.start();
-    }
     _original = widget.store[widget.type];
     if (_original != null) {
       _pets.addAll(_original.pets);
@@ -100,8 +57,6 @@ class _ServiceFormPageState extends State<ServiceFormPage> {
 
   @override
   void dispose() {
-    _access.removeListener(_accessChanged);
-    _access.dispose();
     _price.dispose();
     super.dispose();
   }
@@ -137,7 +92,6 @@ class _ServiceFormPageState extends State<ServiceFormPage> {
     _choosingLocation = true;
     FocusScope.of(context).unfocus();
     try {
-      if (!await _access.refresh() || !mounted) return;
       final selected = await widget.locationPicker(context, _location);
       if (mounted && selected != null) setState(() => _location = selected);
     } finally {
@@ -262,13 +216,10 @@ class _ServiceFormPageState extends State<ServiceFormPage> {
                           'Адрес ухода *',
                         ),
                       ),
-                      if (!_access.ready)
-                        MapRequirementsPanel(controller: _access)
-                      else
-                        CareLocationPreview(
-                          location: _location,
-                          onTap: _pickLocation,
-                        ),
+                      CareLocationPreview(
+                        location: _location,
+                        onTap: _pickLocation,
+                      ),
                     ],
                     const SizedBox(height: 20),
                     sectionLabel(

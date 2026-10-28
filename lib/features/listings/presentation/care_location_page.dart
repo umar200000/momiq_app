@@ -1,7 +1,5 @@
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import '../data/current_position.dart';
-import '../data/map_access.dart';
-import 'map_requirements_panel.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -38,31 +36,7 @@ class _CareLocationPageState extends State<CareLocationPage>
     with WidgetsBindingObserver
     implements ym.MapCameraListener, ym.MapLoadedListener {
   final _query = TextEditingController();
-  final _access = MapAccessController();
   bool _initializingMap = false;
-  void _accessChanged() {
-    if (!mounted) return;
-    if (_access.ready) {
-      if (!_ready && !_initializingMap) _initialize();
-    } else if (_access.state != null) {
-      _tileTimeout?.cancel();
-      if (_map?.isValid() == true) _map!.setMapLoadedListener(null);
-      _queryVersion++;
-      _addressVersion++;
-      _querySession?.cancel();
-      _addressSession?.cancel();
-      _debounce?.cancel();
-      _querySession = null;
-      _addressSession = null;
-      _stop();
-      _map = null;
-      _window = null;
-      _ready = false;
-      _searching = false;
-      _resolving = false;
-    }
-    setState(() {});
-  }
 
   ym.MapWindow? _window;
   ym.Map? _map;
@@ -112,12 +86,11 @@ class _CareLocationPageState extends State<CareLocationPage>
     super.initState();
     _selected = widget.initial;
     WidgetsBinding.instance.addObserver(this);
-    _access.addListener(_accessChanged);
-    _access.start();
+    _initialize();
   }
 
   Future<void> _initialize() async {
-    if (_initializingMap || !_access.ready) return;
+    if (_initializingMap) return;
     _initializingMap = true;
     setState(() => _startupError = null);
     try {
@@ -125,7 +98,6 @@ class _CareLocationPageState extends State<CareLocationPage>
         throw UnsupportedError('mobile');
       }
       await CareMapRuntime.initialize();
-      if (!_access.ready) return;
       if (!mounted) return;
       _search = ys.SearchFactory.instance.createSearchManager(
         ys.SearchManagerType.Online,
@@ -386,10 +358,11 @@ class _CareLocationPageState extends State<CareLocationPage>
       if (!await Geolocator.isLocationServiceEnabled()) {
         _notice(
           lt(
-            'Telefon joylashuvini yoqing.',
-            'Turn on device location.',
-            'Включите геолокацию.',
+            'GPS o‘chiq. Uni yoqing yoki manzilni xaritadan qo‘lda tanlang.',
+            'GPS is off. Enable it or choose the address manually on the map.',
+            'GPS выключен. Включите его или выберите адрес на карте вручную.',
           ),
+          locationSettings: true,
         );
         return;
       }
@@ -409,7 +382,8 @@ class _CareLocationPageState extends State<CareLocationPage>
         );
         return;
       }
-      if (permission == LocationPermission.denied) {
+      if (permission != LocationPermission.always &&
+          permission != LocationPermission.whileInUse) {
         _notice(
           lt(
             'Joylashuv ruxsati berilmadi. Manzilni xaritadan tanlashingiz mumkin.',
@@ -421,7 +395,7 @@ class _CareLocationPageState extends State<CareLocationPage>
       }
 
       final position = await resolveCurrentPosition();
-      if (!mounted || !_access.ready) return;
+      if (!mounted) return;
       if (_map?.isValid() != true) {
         throw StateError('Map is not ready');
       }
@@ -434,6 +408,16 @@ class _CareLocationPageState extends State<CareLocationPage>
       );
       _map?.move(ym.CameraPosition(point, zoom: 17, azimuth: 0, tilt: 0));
       _reverse(point);
+    } on PositionQualityException {
+      if (mounted) {
+        _notice(
+          lt(
+            'Joylashuv yetarlicha aniq emas. Xaritadagi manzilni qo‘lda tanlang yoki qayta urining.',
+            'Location is not precise enough. Choose the address manually or retry.',
+            'Местоположение недостаточно точное. Выберите адрес вручную или повторите.',
+          ),
+        );
+      }
     } on TimeoutException {
       if (mounted) {
         _notice(
@@ -459,23 +443,26 @@ class _CareLocationPageState extends State<CareLocationPage>
     }
   }
 
-  void _notice(String message, {bool settings = false}) =>
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          action: settings
-              ? SnackBarAction(
-                  label: lt('Sozlamalar', 'Settings', 'Настройки'),
-                  onPressed: Geolocator.openAppSettings,
-                )
-              : null,
-        ),
-      );
+  void _notice(
+    String message, {
+    bool settings = false,
+    bool locationSettings = false,
+  }) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message),
+      action: settings || locationSettings
+          ? SnackBarAction(
+              label: lt('Sozlamalar', 'Settings', 'Настройки'),
+              onPressed: locationSettings
+                  ? Geolocator.openLocationSettings
+                  : Geolocator.openAppSettings,
+            )
+          : null,
+    ),
+  );
 
   @override
   void dispose() {
-    _access.removeListener(_accessChanged);
-    _access.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _queryVersion++;
     _addressVersion++;
@@ -503,13 +490,7 @@ class _CareLocationPageState extends State<CareLocationPage>
         style: profileText(17, bold: true),
       ),
     ),
-    body: !_access.ready
-        ? Center(
-            child: SingleChildScrollView(
-              child: MapRequirementsPanel(controller: _access),
-            ),
-          )
-        : !_ready
+    body: !_ready
         ? Center(
             child: _startupError == null
                 ? const CircularProgressIndicator()
@@ -537,6 +518,16 @@ class _CareLocationPageState extends State<CareLocationPage>
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
                   child: _searchField(),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    lt(
+                      'Manzilni qidiring yoki xaritani suring. GPS ruxsati shart emas.',
+                      'Search an address or move the map. GPS permission is optional.',
+                      'Найдите адрес или передвиньте карту. Разрешение GPS необязательно.',
+                    ),
+                  ),
                 ),
                 Expanded(
                   child: Stack(

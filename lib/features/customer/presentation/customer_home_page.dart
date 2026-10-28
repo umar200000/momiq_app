@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/widgets/momiq_shimmer.dart';
 import '../data/customer_feed_repository.dart';
 import '../data/customer_location_service.dart';
+import '../../listings/data/current_position.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../core/localization/app_language.dart';
@@ -240,6 +241,17 @@ class _CustomerHomePageState extends State<CustomerHomePage>
       setState(() => _coordinates = point);
       if (_refreshRequest != null) await _refreshRequest;
       if (mounted) await _refreshFeed(showShimmer: false);
+    } on PositionQualityException {
+      if (mounted) {
+        cNotice(
+          context,
+          lt(
+            'Joylashuv yetarlicha aniq emas. Toshkent bo‘yicha qidirishda davom eting yoki qayta urining.',
+            'Location is not precise enough. Keep browsing Toshkent or retry.',
+            'Местоположение недостаточно точное. Продолжайте поиск по Ташкенту или повторите.',
+          ),
+        );
+      }
     } catch (_) {
       if (mounted) {
         cNotice(
