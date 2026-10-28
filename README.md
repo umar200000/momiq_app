@@ -6,7 +6,7 @@ Flutter application for pet owners and pet sitters.
 
 ## Local setup
 
-1. On Windows run `./tool/setup-flutter.ps1`, then `./tool/flutter.ps1 pub get --enforce-lockfile`. This installs the pinned Flutter 3.44.5 in the project without replacing the global SDK. Other hosts should use `.flutter-version`.
+1. On Windows run `./tool/setup-flutter.ps1`, `./tool/setup-java.ps1`, then `./tool/flutter.ps1 pub get --enforce-lockfile`. This installs the pinned Flutter 3.44.5 and checksum-verified Temurin JDK 21 in the project without replacing global tools. Other hosts should use `.flutter-version` and JDK 21 as CI does.
 2. Copy `lib/core/config/maps_key.example.dart` to `lib/core/config/maps_key.local.dart`.
 3. Set your Yandex MapKit key in the local file, or pass `--dart-define=YANDEX_MAPKIT_API_KEY=YOUR_KEY` (the local file must still exist).
 4. Start the separate Momiq backend with `./start.ps1 -Port 8081 -Seed` after its Python setup.
@@ -25,6 +25,10 @@ The localhost backend uses development verification code `111111`; real SMS is n
 The live API integration test is opt-in: `./tool/flutter.ps1 test --dart-define=MOMIQ_INTEGRATION=true --dart-define-from-file=config/preview.json test/customer_api_integration_test.dart`.
 
 The Windows wrapper keeps Gradle and temporary build files in `.local/gradle` and `.local/tmp` to avoid filling the system drive. CI checks analysis, tests, an Android ARM64 debug build with Java 21 and an iOS simulator build. Release signing remains deferred. For an x64 Android emulator preview APK, run `./tool/flutter.ps1 build apk --debug --target-platform android-x64 --dart-define-from-file=config/preview.json`.
+
+The wrapper selects the project JDK for the Gradle **daemon/build JVM** using a process-scoped `org.gradle.java.home` system property, restores the original environment on exit, and rejects other major versions. `MOMIQ_JAVA_HOME` can select another JDK 21 security patch. Flutter's launcher/doctor may still report Android Studio's bundled Java; its preference is global and is intentionally left alone. See [Flutter's Java selection documentation](https://docs.flutter.dev/release/breaking-changes/android-java-gradle-migration-guide) and [Adoptium's verified download guidance](https://adoptium.net/installation/ci-scripts). The setup script records the official download URL and SHA-256; it does not silently update binaries.
+
+Current toolchain: Flutter 3.44.5 commit `f94f4fc76b4d74543ed9b085bbd75341ef65de22`, bundled Dart 3.12.2, Gradle 9.1.0, Android Gradle plugin 9.0.1, Kotlin 2.3.20, Java build runtime 21 / source target 17, compile/target SDK 36, min SDK 26, NDK 28.2.13676358 (SDK/NDK values derive from the pinned Flutter extension). `pubspec.lock` is committed. iOS uses Flutter-generated local Swift packages, not a committed CocoaPods lockfile; the pinned Yandex package includes its 4.45.0 binary URL/checksum. CI and the local wrapper use the same Flutter version; dependency updates require an explicit lockfile review. Host-specific memory/analyzer changes are separate from toolchain version changes.
 
 Credentials, signing keys, build outputs and local configuration are excluded from Git. Do not commit the local MapKit key.
 
