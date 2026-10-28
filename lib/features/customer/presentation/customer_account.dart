@@ -1,3 +1,4 @@
+import '../../support/support_page.dart';
 import 'pet_safety.dart';
 import '../../onboarding/data/profile_photo_source.dart';
 import 'customer_home_page.dart';
@@ -785,78 +786,9 @@ class _CustomerSettingsPageState extends State<CustomerSettingsPage> {
   );
 }
 
-class CustomerHelpPage extends StatefulWidget {
+class CustomerHelpPage extends StatelessWidget {
   const CustomerHelpPage({super.key, required this.store});
   final CustomerStore store;
   @override
-  State<CustomerHelpPage> createState() => _CustomerHelpPageState();
-}
-
-class _CustomerHelpPageState extends State<CustomerHelpPage> {
-  final _message = TextEditingController();
-  bool _saving = false;
-  @override
-  void dispose() {
-    _message.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    if (_saving) return;
-    if (_message.text.trim().isEmpty) {
-      cNotice(context, 'Murojaatingizni yozing.');
-      return;
-    }
-    setState(() => _saving = true);
-    try {
-      await widget.store.saveItem('support', {
-        'id': DateTime.now().microsecondsSinceEpoch.toString(),
-        'text': _message.text.trim(),
-      });
-      if (mounted) {
-        _message.clear();
-        cNotice(
-          context,
-          widget.store.remote
-              ? 'Murojaatingiz adminga yuborildi.'
-              : 'Murojaat yuborilmadi. Hisobingizga kiring.',
-        );
-      }
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi.');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => CustomerPage(
-    title: 'Yordam',
-    children: [
-      for (final q in [
-        (
-          'Buyurtma qanday beriladi?',
-          'Enagani, hayvoningizni va sanalarni tanlang, so‘ng buyurtmani yuboring.',
-        ),
-        (
-          'Buyurtmani qanday bekor qilaman?',
-          'Buyurtma tafsilotlarida Bekor qilish tugmasini bosing va sababini yozing.',
-        ),
-        (
-          'Video hisobot qayerda?',
-          'Buyurtma tafsilotlaridan Bugungi parvarish sahifasini oching.',
-        ),
-      ])
-        cCard(
-          ExpansionTile(
-            title: cText(q.$1, bold: true),
-            children: [
-              Padding(padding: const EdgeInsets.all(12), child: cText(q.$2)),
-            ],
-          ),
-        ),
-      cField(_message, 'Murojaatingiz', lines: 4),
-      cButton('Yuborish', _saving ? null : _send, loading: _saving),
-    ],
-  );
+  Widget build(BuildContext context) => SupportPage(api: store.api);
 }

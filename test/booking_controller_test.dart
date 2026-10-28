@@ -338,7 +338,7 @@ void main() {
       );
       await t.pumpAndSettle();
       final start = find.byKey(const ValueKey('confirmBooking-start'));
-      await t.ensureVisible(start);
+      await t.scrollUntilVisible(start, 250);
       await t.tap(start);
       await t.pumpAndSettle();
       expect(find.textContaining('Ikkala tomon tasdiqlagach'), findsOneWidget);
@@ -354,7 +354,7 @@ void main() {
       await c.load();
       await t.pumpAndSettle();
       final finish = find.byKey(const ValueKey('confirmBooking-complete'));
-      await t.ensureVisible(finish);
+      await t.scrollUntilVisible(finish, 250);
       await t.tap(finish);
       await t.pumpAndSettle();
       expect(

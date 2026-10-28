@@ -1,3 +1,4 @@
+import '../../../support/support_page.dart';
 import 'sitter_dashboard.dart';
 import '../../../chat/presentation/conversation_page.dart';
 import '../../../bookings/presentation/bookings_page.dart';
@@ -90,12 +91,14 @@ class _SitterHomePageState extends State<SitterHomePage> {
   Future<void> _openProfileSection(int section) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SitterProfilePage(
-          section: section,
-          firstName: _firstName,
-          lastName: _lastName,
-          avatar: _profileAvatar,
-        ),
+        builder: (_) => section == 4
+            ? const SupportPage()
+            : SitterProfilePage(
+                section: section,
+                firstName: _firstName,
+                lastName: _lastName,
+                avatar: _profileAvatar,
+              ),
       ),
     );
     if (mounted) await _loadProfile();

@@ -1,3 +1,4 @@
+import '../../support/support_page.dart';
 import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
@@ -13,12 +14,14 @@ class NotificationsPage extends StatefulWidget {
     this.api,
     this.bookingBuilder,
     this.careBuilder,
+    this.supportBuilder,
     this.conversationBuilder,
   });
   final CustomerApi? api;
   final Widget Function(CustomerApi api, String id)? bookingBuilder;
   final Widget Function(CustomerApi api, String id)? careBuilder,
-      conversationBuilder;
+      conversationBuilder,
+      supportBuilder;
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
@@ -104,6 +107,9 @@ class _NotificationsPageState extends State<NotificationsPage>
   }
 
   String _title(Map<String, dynamic> item) {
+    if (item['kind'] == 'support') {
+      return lt('Yordam xizmatidan javob', 'Support reply', 'Ответ поддержки');
+    }
     if (item['kind'] == 'conversation') {
       return lt('Yangi chat xabari', 'New chat message', 'Новое сообщение');
     }
@@ -153,6 +159,7 @@ class _NotificationsPageState extends State<NotificationsPage>
       'wallet_topup' ||
       'booking' ||
       'conversation' ||
+      'support' ||
       'care' => RegExp(r'^[a-f0-9]{32}$').hasMatch(target),
       'listing' => const {'boarding', 'homeVisit', 'personal'}.contains(target),
       _ => false,
@@ -205,7 +212,16 @@ class _NotificationsPageState extends State<NotificationsPage>
       // Only local, known destinations are accepted; no server-provided URLs.
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => item['kind'] == 'conversation'
+          builder: (_) => item['kind'] == 'support'
+              ? (widget.supportBuilder?.call(
+                      _api!,
+                      item['targetId'] as String,
+                    ) ??
+                    SupportThreadPage(
+                      api: _api!,
+                      id: item['targetId'] as String,
+                    ))
+              : item['kind'] == 'conversation'
               ? (widget.conversationBuilder?.call(
                       _api!,
                       item['targetId'] as String,

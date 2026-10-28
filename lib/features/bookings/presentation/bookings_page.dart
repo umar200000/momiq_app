@@ -1,3 +1,4 @@
+import '../../support/support_page.dart';
 import '../../customer/presentation/pet_safety.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -483,6 +484,27 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                 ),
               ),
               const SizedBox(height: 16),
+              TextButton.icon(
+                key: const ValueKey('bookingSupport'),
+                onPressed: locked
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => SupportThreadPage(
+                            api: c.api,
+                            bookingId: widget.id,
+                          ),
+                        ),
+                      ),
+                icon: const Icon(Icons.support_agent),
+                label: Text(
+                  lt(
+                    'Buyurtma bo‘yicha yordam',
+                    'Booking support',
+                    'Помощь по заказу',
+                  ),
+                ),
+              ),
               if (b['status'] == 'completed')
                 TextButton.icon(
                   key: const ValueKey('bookingReview'),
