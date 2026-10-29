@@ -6,6 +6,7 @@ import '../customer/data/customer_api.dart';
 import '../listings/presentation/listing_style.dart' show lt;
 import '../wallet/data/receipt_image.dart';
 import 'support_controller.dart';
+import 'support_resolution.dart';
 
 String supportState(String value) => switch (value) {
   'waiting_user' => lt(
@@ -468,6 +469,8 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
                       ),
                       Text(m['text']),
                       Text(m['created']),
+                      if (m['resolution'] != null)
+                        SupportResolution(value: m['resolution']),
                       if (m['hasImage'] == true)
                         SupportImage(
                           api: widget.api,

@@ -153,6 +153,15 @@ void main() {
         ..messages.add({
           'id': '1',
           'text': 'TEST operator reply',
+          'resolution': {
+            'snapshot': {
+              'kind': 'listing',
+              'available': true,
+              'status': 'rejected',
+              'sourceRevision': 4,
+              'decision': {'reason': 'TEST saved moderation reason'},
+            },
+          },
           'authorRole': 'support',
           'hasImage': false,
           'created': '2026-10-28',
@@ -167,6 +176,8 @@ void main() {
         await t.pumpAndSettle();
         expect(find.text('Momiq yordam xizmati'), findsOneWidget);
         expect(find.text('TEST operator reply'), findsOneWidget);
+        expect(find.text('TEST saved moderation reason'), findsOneWidget);
+        expect(find.text('Yopish paytidagi qaror'), findsOneWidget);
         await t.pumpWidget(const SizedBox());
         c.dispose();
       }
