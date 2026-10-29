@@ -148,6 +148,11 @@ class ListingStore extends ChangeNotifier {
   String reason(ServiceType type) =>
       _moderation[type.name]?['reason'] as String? ?? '';
   bool isTest(ServiceType type) => _moderation[type.name]?['testOnly'] == true;
+  Map<String, String>? appealTarget(ServiceType type) {
+    final target = _moderation[type.name]?['appealTarget'];
+    return target is Map ? Map<String, String>.from(target) : null;
+  }
+
   bool busy = false;
   HousingType get housing => _housing;
   int get maxCapacity => housing == HousingType.apartment ? 1 : 3;

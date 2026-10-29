@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/reviews/data/booking_review_controller.dart';
 import 'package:momiq_app/features/reviews/presentation/booking_review_page.dart';
+import 'package:momiq_app/features/support/support_page.dart';
 import 'conversation_test.dart' show ChatDraft;
 
 class ReviewApi extends CustomerApi {
@@ -11,6 +12,7 @@ class ReviewApi extends CustomerApi {
   bool loseResponse = false;
   Completer<void>? gate;
   ReviewJson? review;
+  ReviewJson extra = {};
   final posts = <ReviewJson>[], saved = <String>{};
   @override
   Future<ReviewJson> request(
@@ -43,11 +45,57 @@ class ReviewApi extends CustomerApi {
       'canEdit': false,
       'canWithdraw': review != null && review!['withdrawn'] != true,
       'canRestore': review?['withdrawn'] == true,
+      ...extra,
     };
   }
 }
 
 void main() {
+  testWidgets(
+    'hidden review shows author decision and server appeal capability',
+    (t) async {
+      CustomerApi.active = null;
+      final api = ReviewApi()
+        ..review = {
+          'stars': 3,
+          'text': 'TEST original',
+          'revision': 2,
+          'hidden': true,
+        }
+        ..extra = {
+          'moderation': {'reason': 'TEST moderation reason'},
+          'appealTarget': {
+            'kind': 'review',
+            'id': '12',
+            'purpose': 'appeal',
+            'revision': '2',
+          },
+        };
+      final c = BookingReviewController(api, 'booking', storage: ChatDraft());
+      addTearDown(c.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingReviewPage(
+            api: api,
+            bookingId: 'booking',
+            controller: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.text('TEST moderation reason'), findsOneWidget);
+      final button = t.widget<PublicContentReportButton>(
+        find.byType(PublicContentReportButton),
+      );
+      expect(button.target, api.extra['appealTarget']);
+      expect(api.posts, isEmpty);
+      api.extra = {};
+      await c.load();
+      await t.pumpAndSettle();
+      expect(find.byType(PublicContentReportButton), findsNothing);
+      expect(find.text('TEST moderation reason'), findsNothing);
+    },
+  );
   test(
     'lost response survives restart with original immutable payload',
     () async {

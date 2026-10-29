@@ -10,6 +10,110 @@ import 'support_test.dart' show SupportApi;
 void main() {
   setUp(() => CustomerApi.active = null);
   tearDown(() => AppLanguage.current.value = 'uz');
+  test(
+    'appeal drafts separate decisions and retries retain original revision',
+    () async {
+      final api = SupportApi()..lost = true;
+      final storage = ChatDraft();
+      final target = {
+        'kind': 'listing',
+        'id': 'abc:boarding',
+        'purpose': 'appeal',
+        'revision': '7',
+      };
+      final scopes = {
+        SupportController.draftScope(api, null, {
+          'kind': 'listing',
+          'id': 'abc:boarding',
+        }),
+        SupportController.draftScope(api, null, target),
+        SupportController.draftScope(api, null, {...target, 'revision': '8'}),
+      };
+      expect(scopes.length, 3);
+      var c = SupportController(api, null, storage: storage, target: target);
+      await c.load();
+      expect(
+        await c.send('TEST appeal reason', null, subject: 'Appeal'),
+        false,
+      );
+      final original = Map.of(storage.value!);
+      c.dispose();
+      c = SupportController(
+        api,
+        null,
+        storage: storage,
+        target: {...target, 'revision': '8'},
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      expect(await c.send('Changed reason', null, subject: 'Changed'), true);
+      expect(api.posts, [original, original]);
+      expect(api.posts.last['target'], target);
+    },
+  );
+  for (final language in ['uz', 'en', 'ru']) {
+    testWidgets(
+      'appeal form shows decision context and sends reason in $language',
+      (t) async {
+        AppLanguage.current.value = language;
+        t.view.physicalSize = const Size(320, 640);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        final api = SupportApi()..lost = true;
+        final target = {
+          'kind': 'review',
+          'id': '18',
+          'purpose': 'appeal',
+          'revision': '2',
+        };
+        final c = SupportController(
+          api,
+          null,
+          storage: ChatDraft(),
+          target: target,
+        );
+        addTearDown(c.dispose);
+        await t.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2)),
+              child: child!,
+            ),
+            home: SupportThreadPage(api: api, target: target, controller: c),
+          ),
+        );
+        await t.pumpAndSettle();
+        expect(
+          find.textContaining(supportTargetLabel('review', 'appeal')),
+          findsWidgets,
+        );
+        await t.scrollUntilVisible(
+          find.byKey(const ValueKey('supportMessage')),
+          200,
+          scrollable: find.byType(Scrollable).first,
+          maxScrolls: 30,
+        );
+        await t.enterText(
+          find.byKey(const ValueKey('supportMessage')),
+          'TEST appeal reason',
+        );
+        await t.scrollUntilVisible(
+          find.byKey(const ValueKey('sendSupport')),
+          200,
+          scrollable: find.byType(Scrollable).first,
+          maxScrolls: 30,
+        );
+        await t.tap(find.byKey(const ValueKey('sendSupport')));
+        await t.pumpAndSettle();
+        expect(api.posts.single['target'], target);
+        expect(api.posts.single['text'], 'TEST appeal reason');
+        expect(api.posts.single['topic'], 'safety');
+        expect(t.takeException(), isNull);
+      },
+    );
+  }
   for (final language in ['uz', 'en', 'ru']) {
     testWidgets('report form remains usable with large text in $language', (
       t,

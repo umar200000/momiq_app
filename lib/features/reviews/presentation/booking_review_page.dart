@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../data/booking_review_controller.dart';
+import '../../support/support_page.dart';
 
 class BookingReviewPage extends StatefulWidget {
   const BookingReviewPage({
@@ -166,6 +167,16 @@ class _BookingReviewPageState extends State<BookingReviewPage> {
                     'You withdrew this review.',
                     'Вы скрыли этот отзыв.',
                   ),
+                ),
+              if (data?['moderation'] != null)
+                Text(data!['moderation']['reason']),
+              if (data?['appealTarget'] is Map &&
+                  c.live &&
+                  !c.busy &&
+                  c.pending == null)
+                PublicContentReportButton(
+                  api: widget.api,
+                  target: Map<String, String>.from(data!['appealTarget']),
                 ),
               if (data?['canWithdraw'] == true || data?['canRestore'] == true)
                 TextButton(

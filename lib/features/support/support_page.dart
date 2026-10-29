@@ -21,7 +21,13 @@ String supportError() => lt(
   'Не удалось загрузить или отправить. Повторите.',
 );
 
-String supportTargetLabel(String kind) => kind == 'review'
+String supportTargetLabel(String kind, [String? purpose]) => purpose == 'appeal'
+    ? lt(
+        'Qarorni qayta ko‘rib chiqish',
+        'Appeal decision',
+        'Обжаловать решение',
+      )
+    : kind == 'review'
     ? lt('Sharhga shikoyat', 'Report review', 'Пожаловаться на отзыв')
     : lt(
         'E’lon yoki profilga shikoyat',
@@ -64,7 +70,9 @@ class _PublicContentReportButtonState extends State<PublicContentReportButton> {
             );
           },
     icon: const Icon(Icons.flag_outlined),
-    label: Text(supportTargetLabel(widget.target['kind']!)),
+    label: Text(
+      supportTargetLabel(widget.target['kind']!, widget.target['purpose']),
+    ),
   );
 }
 
@@ -238,7 +246,10 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
     if (widget.bookingId != null) topic = 'booking';
     if (widget.target != null) {
       topic = 'safety';
-      subject.text = supportTargetLabel(widget.target!['kind']!);
+      subject.text = supportTargetLabel(
+        widget.target!['kind']!,
+        widget.target!['purpose'],
+      );
     }
     load();
   }
@@ -366,15 +377,21 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
             if (ticket != null) Text(supportState(ticket['status'])),
             if (target != null) ...[
               Text(
-                '${supportTargetLabel(target['kind'])} · #${target['id']}',
+                '${supportTargetLabel(target['kind'], target['purpose'])} · #${target['id']}',
                 key: const ValueKey('supportTarget'),
               ),
               Text(
-                lt(
-                  'Sababini yozing. Yordam xizmati ko‘rib chiqadi; shikoyatning o‘zi kontentni yashirmaydi. Rasmdagi muammo bo‘lsa, rasmni ham biriktiring.',
-                  'Describe the reason. Support will review it; submitting a report does not hide content. Attach an image if the issue concerns a photo.',
-                  'Опишите причину. Поддержка рассмотрит обращение; жалоба не скрывает контент автоматически. Если проблема в фото, приложите изображение.',
-                ),
+                target['purpose'] == 'appeal'
+                    ? lt(
+                        'Qarorga nega rozi emasligingizni yozing. Administrator qayta ko‘rib chiqadi. Murojaat yuborish e’lon yoki sharhni avtomatik tiklamaydi.',
+                        'Explain why you disagree. An administrator will review the decision. Submitting an appeal does not automatically restore the listing or review.',
+                        'Объясните, почему вы не согласны. Администратор пересмотрит решение. Обращение не восстанавливает объявление или отзыв автоматически.',
+                      )
+                    : lt(
+                        'Sababini yozing. Yordam xizmati ko‘rib chiqadi; shikoyatning o‘zi kontentni yashirmaydi. Rasmdagi muammo bo‘lsa, rasmni ham biriktiring.',
+                        'Describe the reason. Support will review it; submitting a report does not hide content. Attach an image if the issue concerns a photo.',
+                        'Опишите причину. Поддержка рассмотрит обращение; жалоба не скрывает контент автоматически. Если проблема в фото, приложите изображение.',
+                      ),
               ),
             ],
             if (widget.id == null) ...[

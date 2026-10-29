@@ -23,7 +23,7 @@ class SupportController extends ChangeNotifier {
     String? id,
     Map<String, String>? target,
   ) =>
-      '${api.baseUrl}/support/${id ?? 'new'}${id == null && target != null ? '/${target['kind']}/${Uri.encodeComponent(target['id']!)}' : ''}';
+      '${api.baseUrl}/support/${id ?? 'new'}${id == null && target != null ? '/${target['kind']}/${Uri.encodeComponent(target['id']!)}${target['purpose'] == 'appeal' ? '/appeal/${target['revision']}' : ''}' : ''}';
   final Map<String, String>? target;
   final CustomerApi api;
   final String? id;

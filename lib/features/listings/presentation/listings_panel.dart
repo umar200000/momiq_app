@@ -7,6 +7,7 @@ import '../../customer/data/customer_api.dart';
 import 'care_location_page.dart';
 import 'listing_style.dart';
 import 'service_form_page.dart';
+import '../../support/support_page.dart';
 
 class ListingsPanel extends StatefulWidget {
   const ListingsPanel({
@@ -321,6 +322,11 @@ class _ListingsPanelState extends State<ListingsPanel> {
               Text(_statusText(type), style: profileText(13, bold: true)),
               if (_store.reason(type).isNotEmpty)
                 Text(_store.reason(type), style: profileText(12)),
+              if (_store.appealTarget(type) != null && !_store.busy)
+                PublicContentReportButton(
+                  api: _store.api,
+                  target: _store.appealTarget(type)!,
+                ),
               if (_store.isTest(type))
                 Text(
                   lt(
