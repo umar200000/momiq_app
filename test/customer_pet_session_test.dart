@@ -189,13 +189,16 @@ void main() {
       );
       await s.load();
       await seedTestPets(s);
+      final api = ComposerApi();
+      s.api =
+          api; // Booking composer and account use the same authenticated source.
       await t.pumpWidget(
         MaterialApp(
           home: BookingRequestPage(
             store: s,
             sitter: customerSitters.first,
             composer: BookingComposer(
-              ComposerApi(),
+              api,
               customerSitters.first['id'],
               storage: BookingMemory(),
             ),
