@@ -1,3 +1,4 @@
+import '../../bookings/presentation/booking_draft_recovery.dart';
 import '../../bookings/presentation/booking_source_boundary.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -230,6 +231,8 @@ class _BookingCarePageState extends State<_BookingCarePage>
           padding: const EdgeInsets.all(20),
           children: [
             if (c.busy) const LinearProgressIndicator(),
+            if (c.invalidDraft)
+              BookingDraftRecovery(onClear: c.busy ? null : discard),
             if (c.error != null)
               Text(
                 lt(

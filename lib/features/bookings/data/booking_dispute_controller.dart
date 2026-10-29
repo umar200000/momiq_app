@@ -19,6 +19,7 @@ class BookingDisputeController extends ChangeNotifier {
   final WalletDraftStorage storage;
   final session = CustomerApi.sessionVersion;
   bool busy = false, _dead = false, _restored = false;
+  bool invalidDraft = false;
   DisputeJson? data, pending;
   Object? error;
   bool get live => !_dead && session == CustomerApi.sessionVersion;
@@ -38,10 +39,16 @@ class BookingDisputeController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        final saved = await storage.read();
-        check();
-        pending = disputeDraft(saved);
-        _restored = true;
+        try {
+          final saved = await storage.read();
+          check();
+          pending = disputeDraft(saved);
+          invalidDraft = false;
+          _restored = true;
+        } on FormatException {
+          if (live) invalidDraft = true;
+          rethrow;
+        }
       }
       final response = await api.request(
         'GET',
@@ -120,8 +127,11 @@ class BookingDisputeController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
+      invalidDraft = false;
+      _restored = false;
     } catch (e) {
       if (live) error = e;
+      return;
     } finally {
       busy = false;
       changed();

@@ -19,6 +19,7 @@ class BookingReviewController extends ChangeNotifier {
   final WalletDraftStorage storage;
   final _session = CustomerApi.sessionVersion;
   bool busy = false, _dead = false, _restored = false;
+  bool invalidDraft = false;
   ReviewJson? data, pending;
   Object? error;
   bool get live => !_dead && _session == CustomerApi.sessionVersion;
@@ -38,10 +39,16 @@ class BookingReviewController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        final saved = await storage.read();
-        check();
-        pending = bookingReviewDraft(saved);
-        _restored = true;
+        try {
+          final saved = await storage.read();
+          check();
+          pending = bookingReviewDraft(saved);
+          invalidDraft = false;
+          _restored = true;
+        } on FormatException {
+          if (live) invalidDraft = true;
+          rethrow;
+        }
       }
       final result = await api.request('GET', path);
       check();
@@ -105,8 +112,11 @@ class BookingReviewController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
+      invalidDraft = false;
+      _restored = false;
     } catch (e) {
       if (live) error = e;
+      return;
     } finally {
       busy = false;
       changed();

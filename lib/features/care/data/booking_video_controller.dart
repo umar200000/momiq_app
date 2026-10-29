@@ -1,3 +1,4 @@
+import 'booking_video_data.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -156,7 +157,7 @@ class BookingVideoController extends ChangeNotifier {
         '$path${day == null ? '' : '?day=${Uri.encodeQueryComponent(day)}'}',
       );
       check();
-      data = result;
+      data = videoOverview(result, bookingId, day: day);
       final serverNow = DateTime.tryParse('${result['policy']?['serverTime']}');
       if (explanationStorage is EncryptedWalletDraftStorage &&
           serverNow != null) {

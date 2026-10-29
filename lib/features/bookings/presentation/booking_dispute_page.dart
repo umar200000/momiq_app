@@ -1,3 +1,4 @@
+import 'booking_draft_recovery.dart';
 import 'booking_source_boundary.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -238,6 +239,8 @@ class _BookingDisputePageState extends State<_BookingDisputePage>
               ),
             ),
             if (c.busy) const LinearProgressIndicator(),
+            if (c.invalidDraft)
+              BookingDraftRecovery(onClear: c.busy ? null : c.discard),
             if (c.error != null)
               Text(
                 lt(

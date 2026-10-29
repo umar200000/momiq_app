@@ -21,6 +21,7 @@ class BookingCareController extends ChangeNotifier {
   CareJson? data, pending;
   Object? error;
   bool busy = false, _dead = false, _restored = false;
+  bool invalidDraft = false;
   final history = <CareJson>[];
   String? historyCursor;
   bool historyLoaded = false;
@@ -41,10 +42,16 @@ class BookingCareController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        final saved = await storage.read();
-        check();
-        pending = careDraft(saved);
-        _restored = true;
+        try {
+          final saved = await storage.read();
+          check();
+          pending = careDraft(saved);
+          invalidDraft = false;
+          _restored = true;
+        } on FormatException {
+          if (live) invalidDraft = true;
+          rethrow;
+        }
       }
       final result = await api.request(
         'GET',
@@ -108,8 +115,11 @@ class BookingCareController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
+      invalidDraft = false;
+      _restored = false;
     } catch (e) {
       if (live) error = e;
+      return;
     } finally {
       busy = false;
       changed();

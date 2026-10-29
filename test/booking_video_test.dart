@@ -22,16 +22,35 @@ class VideoApi extends CustomerApi {
   ]) async {
     if (gate != null) await gate!.future;
     return {
-      'day': today,
-      'canUpload': allowed,
+      'bookingId': Uri.parse(path).path.split('/')[2],
+      'status': 'active',
+      'retentionDays': 30,
+      'day': Uri.parse(path).queryParameters['day'] ?? today,
+      'canUpload':
+          allowed && (Uri.parse(path).queryParameters['day'] ?? today) == today,
       'serviceAvailable': true,
       'items': items,
       'followups': followups,
       'policy': {
         'today': today,
+        'timezone': 'Asia/Tashkent',
+        'serverTime': '${today}T${open ? '04' : '07'}:00:00Z',
+        'minSeconds': 10,
+        'maxSeconds': 60,
+        'maxBytes': 32 * 1024 * 1024,
         'slots': [
-          {'slot': 'morning', 'open': open},
-          {'slot': 'evening', 'open': false},
+          {
+            'slot': 'morning',
+            'open': open,
+            'opensAt': '${today}T07:00:00+05:00',
+            'closesAt': '${today}T11:00:00+05:00',
+          },
+          {
+            'slot': 'evening',
+            'open': false,
+            'opensAt': '${today}T18:00:00+05:00',
+            'closesAt': '${today}T22:00:00+05:00',
+          },
         ],
       },
       'pets': [
@@ -144,6 +163,7 @@ void main() {
       api.followups = [
         {
           'slot': 'morning',
+          'dueAt': '2026-10-28T11:00:00+05:00',
           'canExplain': false,
           'missingPetIds': ['cat'],
           'explanations': [
@@ -151,7 +171,7 @@ void main() {
               'petId': 'cat',
               'reason': 'TEST emergency',
               'emergency': true,
-              'created': '2026-10-28',
+              'created': '2026-10-28T06:00:00Z',
             },
           ],
         },
@@ -303,7 +323,13 @@ void main() {
       final api = VideoApi()..allowed = false;
       api.items = [
         {
-          'id': 'expired',
+          'id': 'e' * 32,
+          'day': '2026-10-28',
+          'created': '2026-10-28T02:00:00Z',
+          'expiresAt': '2026-10-28T03:00:00Z',
+          'bytes': 1000,
+          'width': 128,
+          'height': 96,
           'petId': 'cat',
           'slot': 'morning',
           'durationMs': 10000,

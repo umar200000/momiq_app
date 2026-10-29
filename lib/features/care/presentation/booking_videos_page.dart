@@ -370,7 +370,11 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
               ),
             if (c.error != null)
               Text(
-                '${c.error}',
+                lt(
+                  'Video holatini yuklash yoki saqlash amalga oshmadi. Yangilang yoki saqlangan so‘rovni qayta yuboring.',
+                  'Could not load or save the video status. Refresh or retry the saved request.',
+                  'Не удалось загрузить или сохранить статус видео. Обновите или повторите сохранённый запрос.',
+                ),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             TextButton(
