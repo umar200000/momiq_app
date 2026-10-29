@@ -22,12 +22,15 @@ class HistoryApi extends CustomerApi {
       return {
         'items': [
           {
+            'id': more
+                ? 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                : 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             'amountMinor': more ? 50 : 100,
             'reason': more ? 'TEST older correction' : 'TEST correction reason',
             'created': '2026-10-29T05:00:00Z',
           },
         ],
-        'nextCursor': more ? null : 'test-next',
+        'nextCursor': more ? null : 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         'correctedMinor': 150,
       };
     }
@@ -84,7 +87,9 @@ void main() {
     await t.pumpAndSettle();
     expect(
       api.calls,
-      contains('/wallet/topups/test/corrections?before=test-next'),
+      contains(
+        '/wallet/topups/test/corrections?before=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      ),
     );
     expect(find.textContaining('TEST older correction'), findsOneWidget);
     expect(find.text('Oldingi tuzatishlar'), findsNothing);
