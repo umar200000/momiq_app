@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../../customer/data/customer_api.dart';
 import '../../chat/data/conversation_controller.dart' show chatRequestId;
 import '../../wallet/data/wallet_draft_storage.dart';
+import 'booking_review_data.dart';
 
 typedef ReviewJson = Map<String, dynamic>;
 
@@ -37,13 +38,14 @@ class BookingReviewController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        pending = await storage.read();
+        final saved = await storage.read();
         check();
+        pending = bookingReviewDraft(saved);
         _restored = true;
       }
       final result = await api.request('GET', path);
       check();
-      data = result;
+      data = bookingReviewData(result, id);
     } catch (e) {
       if (live) error = e;
     } finally {
@@ -54,24 +56,35 @@ class BookingReviewController extends ChangeNotifier {
 
   Future<bool> submit(int stars, String text, {String action = 'save'}) async {
     if (!live || busy || data == null || !_restored) return false;
+    if (pending == null &&
+        data![switch (action) {
+              'save' => 'canCreate',
+              'withdraw' => 'canWithdraw',
+              'restore' => 'canRestore',
+              _ => 'unsupported',
+            }] !=
+            true) {
+      return false;
+    }
     busy = true;
     error = null;
     changed();
     try {
-      pending ??= {
+      pending ??= bookingReviewDraft({
         'stars': stars,
         'text': text,
         'revision': data!['review']?['revision'] ?? 0,
         'action': action,
         'requestId': chatRequestId(),
-      };
+      });
       await storage.write(pending!);
       check();
       final result = await api.request('POST', path, pending);
       check();
-      data = result;
+      final validated = bookingReviewData(result, id, request: pending);
       await storage.clear();
       check();
+      data = validated;
       pending = null;
       return true;
     } catch (e) {

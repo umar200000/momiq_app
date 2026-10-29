@@ -14,6 +14,7 @@ class DisputeApi extends CustomerApi {
   final posts = <DisputeJson>[],
       requests = <String>{},
       messages = <DisputeJson>[];
+  final receipts = <String, DisputeJson>{};
   @override
   Future<DisputeJson> request(
     String method,
@@ -27,11 +28,24 @@ class DisputeApi extends CustomerApi {
         messages.add({
           'id': '${messages.length + 1}',
           'role': 'customer',
+          'mine': true,
+          'action': body['action'],
+          'revision': messages.length + 1,
           'text': body['text'],
           'created': '2026-10-28T10:00:00Z',
-          'hasImage': false,
+          'hasImage': body['image'] != null,
         });
       }
+      receipts.putIfAbsent(
+        body['requestId'],
+        () => {
+          'requestId': body['requestId'],
+          'messageId': messages.last['id'],
+          'revision': messages.last['revision'],
+          'action': body['action'],
+          'kind': body['kind'],
+        },
+      );
       if (lost) {
         lost = false;
         throw StateError('Lost response');
@@ -40,10 +54,25 @@ class DisputeApi extends CustomerApi {
       await gate!.future;
     }
     return {
+      'bookingId': path.split('/')[2],
+      'bookingStatus': messages.isEmpty
+          ? 'accepted'
+          : resolved
+          ? 'cancelled'
+          : 'disputed',
+      'serverNow': '2026-10-29T00:00:00Z',
+      'refundableMinor': 1500000,
+      'customerServicePaymentRefunded': false,
+      if (method == 'POST') 'acknowledgement': receipts[body!['requestId']],
       'bookingRevision': messages.isEmpty ? 1 : 2,
       'case': messages.isEmpty
           ? null
           : {
+              'bookingId': path.split('/')[2],
+              'priorStatus': 'accepted',
+              'created': '2026-10-28T10:00:00Z',
+              'resolvedAt': resolved ? '2026-10-29T00:00:00Z' : null,
+              'outcome': resolved ? 'not_started' : null,
               'revision': messages.length,
               'kind': 'no_show',
               'status': resolved ? 'resolved' : 'open',
@@ -183,6 +212,9 @@ void main() {
       api.messages.add({
         'id': '1',
         'role': 'admin',
+        'mine': false,
+        'action': 'resolve',
+        'revision': 1,
         'text': 'TEST verified decision',
         'created': '2026-10-28T10:00:00Z',
         'hasImage': false,

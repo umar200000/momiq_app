@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../../customer/data/customer_api.dart';
 import '../../chat/data/conversation_controller.dart' show chatRequestId;
 import '../../wallet/data/wallet_draft_storage.dart';
+import 'booking_dispute_data.dart';
 
 typedef DisputeJson = Map<String, dynamic>;
 
@@ -37,15 +38,21 @@ class BookingDisputeController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        pending = await storage.read();
+        final saved = await storage.read();
         check();
+        pending = disputeDraft(saved);
         _restored = true;
       }
-      final result = await api.request(
+      final response = await api.request(
         'GET',
         '$path${more ? '?before=${data!['nextCursor']}' : ''}',
       );
       check();
+      final result = disputeData(
+        response,
+        id,
+        before: more ? data!['nextCursor'] : null,
+      );
       if (more) {
         final messages = <String, dynamic>{
           for (final m in [...result['items'], ...data!['items']]) m['id']: m,
@@ -75,7 +82,7 @@ class BookingDisputeController extends ChangeNotifier {
     changed();
     try {
       final existing = data!['case'];
-      pending ??= {
+      pending ??= disputeDraft({
         'action': existing == null ? 'report' : 'evidence',
         'kind':
             existing?['kind'] ??
@@ -85,14 +92,15 @@ class BookingDisputeController extends ChangeNotifier {
         'text': text.trim(),
         'image': image,
         'requestId': chatRequestId(),
-      };
+      });
       await storage.write(pending!);
       check();
       final result = await api.request('POST', path, pending);
       check();
-      data = result;
+      final validated = disputeData(result, id, request: pending);
       await storage.clear();
       check();
+      data = validated;
       pending = null;
       return true;
     } catch (e) {

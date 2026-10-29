@@ -1,10 +1,11 @@
+import '../../bookings/presentation/booking_source_boundary.dart';
 import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../data/booking_review_controller.dart';
 import '../../support/support_page.dart';
 
-class BookingReviewPage extends StatefulWidget {
+class BookingReviewPage extends StatelessWidget {
   const BookingReviewPage({
     super.key,
     required this.api,
@@ -15,15 +16,44 @@ class BookingReviewPage extends StatefulWidget {
   final String bookingId;
   final BookingReviewController? controller;
   @override
-  State<BookingReviewPage> createState() => _BookingReviewPageState();
+  Widget build(BuildContext context) => BookingSourceBoundary(
+    api: api,
+    valid:
+        controller == null ||
+        (identical(controller!.api, api) &&
+            controller!.id == bookingId &&
+            controller!.live),
+    child: _BookingReviewPage(
+      key: ValueKey((api, bookingId, controller)),
+      api: api,
+      bookingId: bookingId,
+      controller: controller,
+    ),
+  );
 }
 
-class _BookingReviewPageState extends State<BookingReviewPage> {
+class _BookingReviewPage extends StatefulWidget {
+  const _BookingReviewPage({
+    super.key,
+    required this.api,
+    required this.bookingId,
+    this.controller,
+  });
+  final CustomerApi api;
+  final String bookingId;
+  final BookingReviewController? controller;
+  @override
+  State<_BookingReviewPage> createState() => _BookingReviewPageState();
+}
+
+class _BookingReviewPageState extends State<_BookingReviewPage>
+    with BookingOwnedDialogs<_BookingReviewPage> {
   late final c =
       widget.controller ??
       BookingReviewController(widget.api, widget.bookingId);
   final text = TextEditingController();
   int stars = 0;
+  bool get live => mounted && c.live;
   @override
   void initState() {
     super.initState();
@@ -31,8 +61,9 @@ class _BookingReviewPageState extends State<BookingReviewPage> {
   }
 
   Future<void> load() async {
+    if (!live) return;
     await c.load();
-    if (!mounted) return;
+    if (!live) return;
     final saved = c.pending ?? c.data?['review'];
     if (saved != null && saved['stars'] is int && saved['text'] is String) {
       setState(() {
@@ -49,11 +80,15 @@ class _BookingReviewPageState extends State<BookingReviewPage> {
     super.dispose();
   }
 
+  bool confirming = false;
   Future<void> submit(String action) async {
+    if (!live || c.busy || confirming) return;
+    final submittedStars = stars, submittedText = text.text;
     if (c.pending == null) {
-      final accepted = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
+      confirming = true;
+      final accepted = await showOwnedDialog<bool>(
+        builder: (context) => AlertDialog(
+          scrollable: true,
           content: Text(
             action == 'save'
                 ? lt(
@@ -86,12 +121,13 @@ class _BookingReviewPageState extends State<BookingReviewPage> {
           ],
         ),
       );
-      if (accepted != true || !mounted) return;
+      confirming = false;
+      if (accepted != true || !live) return;
     }
     final existing = c.data?['review'];
     await c.submit(
-      action == 'save' ? stars : existing['stars'],
-      action == 'save' ? text.text : existing['text'],
+      action == 'save' ? submittedStars : existing['stars'],
+      action == 'save' ? submittedText : existing['text'],
       action: action,
     );
   }
@@ -100,6 +136,7 @@ class _BookingReviewPageState extends State<BookingReviewPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: c,
     builder: (context, _) {
+      if (!c.live) return bookingSourceExpired();
       final data = c.data, review = data?['review'];
       final editable =
           data?['canCreate'] == true &&
@@ -115,6 +152,7 @@ class _BookingReviewPageState extends State<BookingReviewPage> {
           actions: [
             IconButton(
               onPressed: c.busy ? null : load,
+              tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
               icon: const Icon(Icons.refresh),
             ),
           ],

@@ -20,11 +20,12 @@ class CareApi extends CustomerApi {
       saved.add(body['requestId']);
       report = {
         'id': '1',
-        'petId': 'cat',
-        'kind': 'report',
+        'petId': body['petId'],
+        'kind': body['kind'],
+        'actorRole': body['kind'] == 'instructions' ? 'customer' : 'sitter',
         'day': body['day'],
         'category': body['category'],
-        'revision': 1,
+        'revision': body['revision'] + 1,
         'payload': body['payload'],
         'created': '2026-10-28T05:00:00Z',
       };
@@ -32,7 +33,11 @@ class CareApi extends CustomerApi {
         loseResponse = false;
         throw StateError('Response lost');
       }
-      return report!;
+      return {
+        ...report!,
+        'bookingId': path.split('/')[2],
+        'requestId': body['requestId'],
+      };
     }
     if (gate != null) await gate!.future;
     if (failLoad) throw StateError('Offline');
@@ -44,6 +49,8 @@ class CareApi extends CustomerApi {
     }
     final day = Uri.parse(path).queryParameters['day'] ?? today;
     return {
+      'bookingId': path.split('/')[2],
+      'timezone': 'Asia/Tashkent',
       'myRole': role,
       'status': status,
       'today': today,
@@ -57,8 +64,10 @@ class CareApi extends CustomerApi {
           'name': 'TEST pet',
           'originalNotes': '',
           'originalMedication': '',
-          'instructions': null,
-          'reports': report == null ? [] : [report],
+          'instructions': report?['kind'] == 'instructions' ? report : null,
+          'reports': report?['kind'] == 'report' && report?['day'] == day
+              ? [report]
+              : [],
         },
       ],
     };

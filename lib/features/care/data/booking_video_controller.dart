@@ -241,7 +241,18 @@ class BookingVideoController extends ChangeNotifier {
           key: draft[key],
       });
       check();
-      if (result['ok'] != true) {
+      if (result['ok'] != true ||
+          result['bookingId'] != bookingId ||
+          [
+            'requestId',
+            'petId',
+            'day',
+            'slot',
+            'emergency',
+          ].any((key) => result[key] != draft[key]) ||
+          result['reason'] != (draft['reason'] as String).trim() ||
+          result['created'] is! String ||
+          DateTime.tryParse(result['created']) == null) {
         throw const FormatException('Sabab tasdig‘i mos emas');
       }
       await explanationStorage.clear();
@@ -390,9 +401,27 @@ class BookingVideoController extends ChangeNotifier {
       );
       check();
       if (result['id'] is! String ||
+          !RegExp(r'^[a-f0-9]{32}$').hasMatch(result['id']) ||
+          result['bookingId'] != bookingId ||
+          result['requestId'] != draft['requestId'] ||
           result['petId'] != draft['petId'] ||
           result['day'] != draft['day'] ||
-          result['slot'] != draft['slot']) {
+          result['slot'] != draft['slot'] ||
+          result['durationMs'] is! int ||
+          result['durationMs'] < 10000 ||
+          result['durationMs'] > 60000 ||
+          result['bytes'] is! int ||
+          result['bytes'] < 12 ||
+          result['bytes'] > 32 * 1024 * 1024 ||
+          result['width'] is! int ||
+          result['height'] is! int ||
+          result['width'] < 16 ||
+          result['height'] < 16 ||
+          result['width'] > 1920 ||
+          result['height'] > 1920 ||
+          result['width'] * result['height'] > 1920 * 1080 ||
+          result['created'] is! String ||
+          DateTime.tryParse(result['created']) == null) {
         throw const FormatException('Video tasdig‘i mos emas');
       }
       await storage.clear();

@@ -14,6 +14,7 @@ class ReviewApi extends CustomerApi {
   ReviewJson? review;
   ReviewJson extra = {};
   final posts = <ReviewJson>[], saved = <String>{};
+  final receipts = <String, ReviewJson>{};
   @override
   Future<ReviewJson> request(
     String method,
@@ -24,14 +25,27 @@ class ReviewApi extends CustomerApi {
       posts.add(Map.of(body!));
       if (saved.add(body['requestId'])) {
         review = {
+          'id': '12',
+          'name': 'TEST author',
+          'created': '2026-10-29T00:00:00Z',
+          'updated': '2026-10-29T00:00:00Z',
           'stars': body['stars'],
-          'text': body['text'],
+          'text': (body['text'] as String).trim(),
           'revision': (review?['revision'] ?? 0) + 1,
           'withdrawn': body['action'] == 'withdraw',
           'hidden': false,
           'testOnly': true,
         };
       }
+      receipts.putIfAbsent(
+        body['requestId'],
+        () => {
+          'requestId': body['requestId'],
+          'reviewId': review!['id'],
+          'revision': review!['revision'],
+          'action': body['action'],
+        },
+      );
       if (loseResponse) {
         loseResponse = false;
         throw StateError('Lost response');
@@ -40,6 +54,9 @@ class ReviewApi extends CustomerApi {
       await gate!.future;
     }
     return {
+      'bookingId': path.split('/')[2],
+      'reviewEditable': false,
+      if (method == 'POST') 'acknowledgement': receipts[body!['requestId']],
       'review': review,
       'canCreate': review == null,
       'canEdit': false,
@@ -57,13 +74,23 @@ void main() {
       CustomerApi.active = null;
       final api = ReviewApi()
         ..review = {
+          'id': '12',
+          'name': 'TEST author',
+          'withdrawn': false,
+          'testOnly': true,
+          'created': '2026-10-29T00:00:00Z',
+          'updated': '2026-10-29T00:00:00Z',
           'stars': 3,
           'text': 'TEST original',
           'revision': 2,
           'hidden': true,
         }
         ..extra = {
-          'moderation': {'reason': 'TEST moderation reason'},
+          'moderation': {
+            'reason': 'TEST moderation reason',
+            'revision': 2,
+            'decidedAt': '2026-10-29T00:00:00Z',
+          },
           'appealTarget': {
             'kind': 'review',
             'id': '12',

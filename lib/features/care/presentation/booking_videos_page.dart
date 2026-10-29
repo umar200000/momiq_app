@@ -1,3 +1,4 @@
+import '../../bookings/presentation/booking_source_boundary.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,7 +9,7 @@ import '../data/booking_video_controller.dart';
 import '../data/video_picker_cache.dart';
 import '../../support/support_page.dart';
 
-class BookingVideosPage extends StatefulWidget {
+class BookingVideosPage extends StatelessWidget {
   const BookingVideosPage({
     super.key,
     required this.api,
@@ -19,15 +20,43 @@ class BookingVideosPage extends StatefulWidget {
   final String bookingId;
   final BookingVideoController? controller;
   @override
-  State<BookingVideosPage> createState() => _BookingVideosPageState();
+  Widget build(BuildContext context) => BookingSourceBoundary(
+    api: api,
+    valid:
+        controller == null ||
+        (identical(controller!.api, api) &&
+            controller!.bookingId == bookingId &&
+            controller!.live),
+    child: _BookingVideosPage(
+      key: ValueKey((api, bookingId, controller)),
+      api: api,
+      bookingId: bookingId,
+      controller: controller,
+    ),
+  );
 }
 
-class _BookingVideosPageState extends State<BookingVideosPage>
-    with WidgetsBindingObserver {
+class _BookingVideosPage extends StatefulWidget {
+  const _BookingVideosPage({
+    super.key,
+    required this.api,
+    required this.bookingId,
+    this.controller,
+  });
+  final CustomerApi api;
+  final String bookingId;
+  final BookingVideoController? controller;
+  @override
+  State<_BookingVideosPage> createState() => _BookingVideosPageState();
+}
+
+class _BookingVideosPageState extends State<_BookingVideosPage>
+    with WidgetsBindingObserver, BookingOwnedDialogs<_BookingVideosPage> {
   late final c =
       widget.controller ?? BookingVideoController(widget.api, widget.bookingId);
   Timer? timer;
   bool foreground = true, picking = false;
+  bool get live => mounted && c.live;
   @override
   void initState() {
     super.initState();
@@ -37,7 +66,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
   }
 
   void refresh() {
-    if (mounted &&
+    if (live &&
         foreground &&
         !picking &&
         (ModalRoute.of(context)?.isCurrent ?? true)) {
@@ -64,8 +93,8 @@ class _BookingVideosPageState extends State<BookingVideosPage>
   }
 
   Future<void> pick(String pet, String slot) async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
+    if (!live || picking || !c.canSelect(pet, slot)) return;
+    final source = await showOwnedSheet<ImageSource>(
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -90,17 +119,17 @@ class _BookingVideosPageState extends State<BookingVideosPage>
         ),
       ),
     );
-    if (source == null || !mounted || !c.canSelect(pet, slot)) return;
+    if (source == null || !live || !c.canSelect(pet, slot)) return;
     setState(() => picking = true);
     String? selectionId;
     try {
       selectionId = await c.beginSelection(pet, slot);
-      if (selectionId == null || !mounted || !c.live) return;
+      if (selectionId == null || !live || !c.live) return;
       final file = await ImagePicker().pickVideo(
         source: source,
         maxDuration: const Duration(seconds: 60),
       );
-      if (file == null || !mounted || !c.live) return;
+      if (file == null || !live || !c.live) return;
       if (await file.length() > 32 * 1024 * 1024) {
         throw FormatException(
           lt(
@@ -110,6 +139,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
           ),
         );
       }
+      if (!live) return;
       await c.select(
         pet,
         slot,
@@ -121,39 +151,49 @@ class _BookingVideosPageState extends State<BookingVideosPage>
           !c.selectionInterrupted) {
         await discardVideoPickerCopy(file.path);
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+    } catch (_) {
+      if (mounted && live) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              lt(
+                'Video ochilmadi. Tanlovni yoki saqlangan qoralamani qayta tekshiring.',
+                'Could not open the video. Check the selection or saved draft.',
+                'Не удалось открыть видео. Проверьте выбор или сохранённый черновик.',
+              ),
+            ),
+          ),
+        );
       }
     } finally {
-      if (selectionId != null && c.error == null) {
+      if (live && selectionId != null && c.error == null) {
         await c.cancelSelection(selectionId);
       }
-      if (mounted) setState(() => picking = false);
+      if (live) setState(() => picking = false);
     }
   }
 
   Future<void> changeDay() async {
+    if (!live || c.busy || picking || c.data == null) return;
     final last = DateTime.parse(c.data!['policy']['today']);
-    final selected = await showDatePicker(
-      context: context,
+    final selected = await showOwnedDatePicker(
       initialDate: DateTime.parse(c.data!['day']),
       firstDate: DateTime(2020),
       lastDate: last,
     );
-    if (selected != null && mounted) {
+    if (selected != null && live) {
       await c.load(day: selected.toIso8601String().substring(0, 10));
     }
   }
 
   Future<void> explain(String pet, String slot) async {
+    if (!live || c.busy || picking || c.explanationDraft != null) return;
+    final day = c.data?['day'];
     var reason = '', emergency = false;
-    final accepted = await showDialog<bool>(
-      context: context,
+    final accepted = await showOwnedDialog<bool>(
       builder: (context) => StatefulBuilder(
         builder: (context, setDialog) => AlertDialog(
+          scrollable: true,
           title: Text(
             lt(
               'Video yuborilmaganining sababi',
@@ -211,7 +251,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
         ),
       ),
     );
-    if (accepted == true && mounted && c.live) {
+    if (accepted == true && live && c.data?['day'] == day) {
       await c.explain(pet, slot, reason, emergency);
     }
   }
@@ -262,9 +302,10 @@ class _BookingVideosPageState extends State<BookingVideosPage>
   }
 
   Future<void> discard() async {
-    final yes = await showDialog<bool>(
-      context: context,
+    if (!live || c.busy || picking) return;
+    final yes = await showOwnedDialog<bool>(
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(
           lt(
             'Qoralama tozalansinmi?',
@@ -291,7 +332,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
         ],
       ),
     );
-    if (yes == true && mounted) await c.discard();
+    if (yes == true && live) await c.discard();
   }
 
   @override
@@ -302,6 +343,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
     body: ListenableBuilder(
       listenable: c,
       builder: (context, _) {
+        if (!c.live) return bookingSourceExpired();
         final data = c.data;
         final locked = c.busy || picking || !c.live;
         return ListView(
@@ -385,9 +427,9 @@ class _BookingVideosPageState extends State<BookingVideosPage>
                         onPressed: locked
                             ? null
                             : () async {
-                                final yes = await showDialog<bool>(
-                                  context: context,
+                                final yes = await showOwnedDialog<bool>(
                                   builder: (context) => AlertDialog(
+                                    scrollable: true,
                                     content: Text(
                                       lt(
                                         'Faqat telefondagi sabab qoralamasi tozalanadi. Serverga yetib borgan sabab saqlanadi.',
@@ -413,7 +455,7 @@ class _BookingVideosPageState extends State<BookingVideosPage>
                                     ],
                                   ),
                                 );
-                                if (yes == true && mounted) {
+                                if (yes == true && live) {
                                   await c.discardExplanation();
                                 }
                               },

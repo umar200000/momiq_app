@@ -1,3 +1,4 @@
+import '../../bookings/presentation/booking_source_boundary.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
@@ -31,7 +32,7 @@ String careState(String value) => switch (value) {
   ),
 };
 
-class BookingCarePage extends StatefulWidget {
+class BookingCarePage extends StatelessWidget {
   const BookingCarePage({
     super.key,
     required this.api,
@@ -42,15 +43,43 @@ class BookingCarePage extends StatefulWidget {
   final String bookingId;
   final BookingCareController? controller;
   @override
-  State<BookingCarePage> createState() => _BookingCarePageState();
+  Widget build(BuildContext context) => BookingSourceBoundary(
+    api: api,
+    valid:
+        controller == null ||
+        (identical(controller!.api, api) &&
+            controller!.bookingId == bookingId &&
+            controller!.live),
+    child: _BookingCarePage(
+      key: ValueKey((api, bookingId, controller)),
+      api: api,
+      bookingId: bookingId,
+      controller: controller,
+    ),
+  );
 }
 
-class _BookingCarePageState extends State<BookingCarePage>
-    with WidgetsBindingObserver {
+class _BookingCarePage extends StatefulWidget {
+  const _BookingCarePage({
+    super.key,
+    required this.api,
+    required this.bookingId,
+    this.controller,
+  });
+  final CustomerApi api;
+  final String bookingId;
+  final BookingCareController? controller;
+  @override
+  State<_BookingCarePage> createState() => _BookingCarePageState();
+}
+
+class _BookingCarePageState extends State<_BookingCarePage>
+    with WidgetsBindingObserver, BookingOwnedDialogs<_BookingCarePage> {
   Timer? timer;
   bool foreground = true;
   late final c =
       widget.controller ?? BookingCareController(widget.api, widget.bookingId);
+  bool get live => mounted && c.live;
   @override
   void initState() {
     super.initState();
@@ -63,7 +92,7 @@ class _BookingCarePageState extends State<BookingCarePage>
   }
 
   void refreshVisible() {
-    if (mounted && foreground && (ModalRoute.of(context)?.isCurrent ?? true)) {
+    if (live && foreground && (ModalRoute.of(context)?.isCurrent ?? true)) {
       c.load(day: c.data?['day'] == c.data?['today'] ? null : c.data?['day']);
     }
   }
@@ -87,10 +116,11 @@ class _BookingCarePageState extends State<BookingCarePage>
     String? category,
     CareJson? previous,
   }) async {
+    if (!live || c.busy || c.pending != null) return;
+    final day = c.data?['day'];
     final instructions = category == null;
     final old = instructions ? pet['instructions'] : previous;
-    final values = await showDialog<CareJson>(
-      context: context,
+    final values = await showOwnedDialog<CareJson>(
       builder: (_) => _CareEditor(
         instructions: instructions,
         category: category,
@@ -98,11 +128,11 @@ class _BookingCarePageState extends State<BookingCarePage>
         correction: old != null,
       ),
     );
-    if (values == null || !mounted) return;
+    if (values == null || !live) return;
     await c.save({
       'petId': pet['id'],
       'kind': instructions ? 'instructions' : 'report',
-      'day': instructions ? '' : c.data!['day'],
+      'day': instructions ? '' : day,
       'category': category ?? '',
       'revision': old?['revision'] ?? 0,
       'payload': values,
@@ -110,21 +140,22 @@ class _BookingCarePageState extends State<BookingCarePage>
   }
 
   Future<void> changeDay() async {
-    final day = await showDatePicker(
-      context: context,
+    if (!live || c.busy || c.data == null) return;
+    final day = await showOwnedDatePicker(
       initialDate: DateTime.parse(c.data!['day']),
       firstDate: DateTime(2020),
       lastDate: DateTime.parse(c.data!['today']),
     );
-    if (day != null && mounted) {
+    if (day != null && live) {
       await c.load(day: day.toIso8601String().split('T').first);
     }
   }
 
   Future<void> discard() async {
-    final answer = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
+    if (!live || c.busy) return;
+    final answer = await showOwnedDialog<bool>(
+      builder: (context) => AlertDialog(
+        scrollable: true,
         content: Text(
           lt(
             'Faqat qayta yuborish qoralamasi tozalanadi. Serverda saqlangan yozuv o‘chmaydi. Keyin holat yangilanadi.',
@@ -144,7 +175,7 @@ class _BookingCarePageState extends State<BookingCarePage>
         ],
       ),
     );
-    if (answer == true) await c.discard();
+    if (answer == true && live) await c.discard();
   }
 
   Widget event(CareJson item) {
@@ -180,6 +211,7 @@ class _BookingCarePageState extends State<BookingCarePage>
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: c,
     builder: (context, _) {
+      if (!c.live) return bookingSourceExpired();
       final data = c.data,
           locked = c.busy || c.pending != null || c.error != null || !c.live;
       return Scaffold(
@@ -408,6 +440,7 @@ class _CareEditorState extends State<_CareEditor> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
     title: Text(
       widget.instructions
           ? lt(

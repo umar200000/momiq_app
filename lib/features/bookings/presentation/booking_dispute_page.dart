@@ -1,3 +1,4 @@
+import 'booking_source_boundary.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -9,7 +10,7 @@ import '../../wallet/data/receipt_image.dart';
 import '../data/booking_dispute_controller.dart';
 import 'bookings_page.dart' show bookingTime, bookingMoney;
 
-class BookingDisputePage extends StatefulWidget {
+class BookingDisputePage extends StatelessWidget {
   const BookingDisputePage({
     super.key,
     required this.api,
@@ -20,17 +21,45 @@ class BookingDisputePage extends StatefulWidget {
   final String id;
   final BookingDisputeController? controller;
   @override
-  State<BookingDisputePage> createState() => _BookingDisputePageState();
+  Widget build(BuildContext context) => BookingSourceBoundary(
+    api: api,
+    valid:
+        controller == null ||
+        (identical(controller!.api, api) &&
+            controller!.id == id &&
+            controller!.live),
+    child: _BookingDisputePage(
+      key: ValueKey((api, id, controller)),
+      api: api,
+      id: id,
+      controller: controller,
+    ),
+  );
 }
 
-class _BookingDisputePageState extends State<BookingDisputePage>
-    with WidgetsBindingObserver {
+class _BookingDisputePage extends StatefulWidget {
+  const _BookingDisputePage({
+    super.key,
+    required this.api,
+    required this.id,
+    this.controller,
+  });
+  final CustomerApi api;
+  final String id;
+  final BookingDisputeController? controller;
+  @override
+  State<_BookingDisputePage> createState() => _BookingDisputePageState();
+}
+
+class _BookingDisputePageState extends State<_BookingDisputePage>
+    with WidgetsBindingObserver, BookingOwnedDialogs<_BookingDisputePage> {
   late final c =
       widget.controller ?? BookingDisputeController(widget.api, widget.id);
   final text = TextEditingController();
   String? image;
   bool picking = false;
   Timer? timer;
+  bool get live => mounted && c.live;
   @override
   void initState() {
     super.initState();
@@ -42,7 +71,9 @@ class _BookingDisputePageState extends State<BookingDisputePage>
   void startTimer() {
     timer?.cancel();
     timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted && !picking) c.load();
+      if (live && !picking && (ModalRoute.of(context)?.isCurrent ?? true)) {
+        c.load();
+      }
     });
   }
 
@@ -57,8 +88,9 @@ class _BookingDisputePageState extends State<BookingDisputePage>
   }
 
   Future<void> load() async {
+    if (!live) return;
     await c.load();
-    if (!mounted) return;
+    if (!live) return;
     if (c.pending != null) {
       setState(() {
         text.text = c.pending!['text'];
@@ -77,7 +109,7 @@ class _BookingDisputePageState extends State<BookingDisputePage>
   }
 
   void notice(String value) {
-    if (mounted) {
+    if (live) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(value)));
@@ -85,6 +117,7 @@ class _BookingDisputePageState extends State<BookingDisputePage>
   }
 
   Future<void> pick() async {
+    if (!live || picking || c.busy || c.pending != null) return;
     setState(() => picking = true);
     try {
       final file = await ImagePicker().pickImage(
@@ -93,13 +126,15 @@ class _BookingDisputePageState extends State<BookingDisputePage>
         maxHeight: 2400,
         requestFullMetadata: false,
       );
-      if (file != null) {
+      if (file != null && live) {
         if (await file.length() > 3 * 1024 * 1024) {
           throw const FormatException('size');
         }
+        if (!live) return;
         final bytes = await file.readAsBytes();
+        if (!live) return;
         await validateReceiptImage(bytes);
-        if (mounted && c.live) setState(() => image = base64Encode(bytes));
+        if (live && c.live) setState(() => image = base64Encode(bytes));
       }
     } catch (_) {
       notice(
@@ -110,11 +145,12 @@ class _BookingDisputePageState extends State<BookingDisputePage>
         ),
       );
     } finally {
-      if (mounted) setState(() => picking = false);
+      if (live) setState(() => picking = false);
     }
   }
 
   Future<void> send() async {
+    if (!live || picking || c.busy) return;
     if (c.pending == null && text.text.trim().isEmpty) {
       notice(
         lt(
@@ -126,9 +162,9 @@ class _BookingDisputePageState extends State<BookingDisputePage>
       return;
     }
     if (c.pending == null && c.data?['case'] == null) {
-      final confirmed = await showDialog<bool>(
-        context: context,
+      final confirmed = await showOwnedDialog<bool>(
         builder: (context) => AlertDialog(
+          scrollable: true,
           title: Text(
             lt('Nizo ochilsinmi?', 'Open a dispute?', 'Открыть спор?'),
           ),
@@ -151,10 +187,10 @@ class _BookingDisputePageState extends State<BookingDisputePage>
           ],
         ),
       );
-      if (confirmed != true || !mounted || !c.live) return;
+      if (confirmed != true || !live || !c.live) return;
     }
     final sent = await c.send(text.text, image);
-    if (mounted && sent) {
+    if (live && sent) {
       setState(() {
         text.clear();
         image = null;
@@ -166,6 +202,7 @@ class _BookingDisputePageState extends State<BookingDisputePage>
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: c,
     builder: (context, _) {
+      if (!c.live) return bookingSourceExpired();
       final data = c.data, caseData = data?['case'];
       final allowed =
           data?['canReportNoShow'] == true ||

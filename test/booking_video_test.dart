@@ -66,7 +66,14 @@ class FakeUpload extends VideoUpload {
     if (fail || cancelled) throw StateError('TEST response lost');
     final query = Uri.parse(path).queryParameters;
     return {
-      'id': 'saved',
+      'id': 'a' * 32,
+      'bookingId': Uri.parse(path).path.split('/')[2],
+      'requestId': query['requestId'],
+      'durationMs': 10000,
+      'bytes': 1000,
+      'width': 128,
+      'height': 96,
+      'created': '2026-10-29T00:00:00Z',
       'petId': query['petId'],
       'day': query['day'],
       'slot': query['slot'],
@@ -86,7 +93,12 @@ class ExplanationApi extends VideoApi {
     if (method == 'GET') return super.request(method, path, body);
     sent.add(Map.of(body!));
     if (loseResponse) throw StateError('TEST response lost');
-    return {'ok': true};
+    return {
+      'ok': true,
+      'bookingId': path.split('/')[2],
+      ...body,
+      'created': '2026-10-29T00:00:00Z',
+    };
   }
 }
 

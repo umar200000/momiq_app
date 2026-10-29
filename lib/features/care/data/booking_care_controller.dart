@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../../chat/data/conversation_controller.dart' show chatRequestId;
 import '../../customer/data/customer_api.dart';
 import '../../wallet/data/wallet_draft_storage.dart';
+import 'booking_care_data.dart';
 
 typedef CareJson = Map<String, dynamic>;
 
@@ -40,12 +41,9 @@ class BookingCareController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        pending = await storage.read();
+        final saved = await storage.read();
         check();
-        if (pending != null &&
-            (pending!['requestId'] is! String || pending!['payload'] is! Map)) {
-          throw const FormatException('Invalid saved care request');
-        }
+        pending = careDraft(saved);
         _restored = true;
       }
       final result = await api.request(
@@ -53,7 +51,7 @@ class BookingCareController extends ChangeNotifier {
         '$path${day == null ? '' : '?day=${Uri.encodeQueryComponent(day)}'}',
       );
       check();
-      data = result;
+      data = careOverview(result, bookingId, day: day);
     } catch (e) {
       if (live) error = e;
     } finally {
@@ -64,21 +62,30 @@ class BookingCareController extends ChangeNotifier {
 
   Future<bool> save(CareJson values) async {
     if (!live || busy || data == null || !_restored) return false;
+    if (pending == null &&
+        (data![values['kind'] == 'instructions'
+                    ? 'canEditInstructions'
+                    : 'canReport'] !=
+                true ||
+            !(data!['pets'] as List).any((p) => p['id'] == values['petId']))) {
+      return false;
+    }
     busy = true;
     error = null;
     changed();
     try {
-      pending ??= {...values, 'requestId': chatRequestId()};
+      pending ??= careDraft({...values, 'requestId': chatRequestId()});
       await storage.write(pending!);
       check();
-      await api.request('POST', path, pending);
+      final response = await api.request('POST', path, pending);
       check();
+      careAcknowledgement(response, bookingId, pending!);
       await storage.clear();
       check();
       pending = null;
       final result = await api.request('GET', '$path?day=${data!['day']}');
       check();
-      data = result;
+      data = careOverview(result, bookingId, day: data!['day']);
       history.clear();
       historyLoaded = false;
       historyCursor = null;
@@ -121,13 +128,14 @@ class BookingCareController extends ChangeNotifier {
         '$path/history${historyCursor == null ? '' : '?before=$historyCursor'}',
       );
       check();
+      final validated = careHistory(result, before: historyCursor);
       final ids = history.map((e) => e['id']).toSet();
       history.addAll(
-        (result['items'] as List)
+        (validated['items'] as List)
             .map((e) => CareJson.from(e))
             .where((e) => ids.add(e['id'])),
       );
-      historyCursor = result['nextCursor'];
+      historyCursor = validated['nextCursor'];
       historyLoaded = true;
     } catch (e) {
       if (live) error = e;
