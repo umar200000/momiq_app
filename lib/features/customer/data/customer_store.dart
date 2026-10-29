@@ -93,6 +93,16 @@ class CustomerStore extends ChangeNotifier {
   bool _disposed = false;
   CustomerApi? api;
   bool _syncing = false;
+  int _accountGeneration = 0;
+  Future<void>? _loading;
+  bool get _current =>
+      !_disposed && _sessionVersion == CustomerApi.sessionVersion;
+  void _requireCurrent() {
+    if (!_current) throw StateError('Sessiya tugagan');
+  }
+
+  bool _acceptRead(int generation) =>
+      _current && !busy && generation == _accountGeneration;
   String? syncError;
   bool get remote => api != null;
   int? get revision => _data['_revision'] as int?;
@@ -113,27 +123,30 @@ class CustomerStore extends ChangeNotifier {
     if (data.containsKey('_revision')) '_revision': data['_revision'],
   };
   Future<void> refreshRemote() async {
-    if (api == null || busy || _syncing || _disposed) return;
+    if (api == null || busy || _syncing || !_current) return;
+    final generation = _accountGeneration;
     _syncing = true;
     try {
       final account = await api!.request('GET', '/me');
+      if (!_acceptRead(generation)) return;
       final messages = await api!.request('GET', '/messages');
-      if (_disposed || busy) return;
-      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
-      _data.addAll(Map<String, dynamic>.from(account['account']));
+      if (!_acceptRead(generation)) return;
       await CustomerApi.rememberAccount(
         Map<String, dynamic>.from(account['account']),
+        isCurrent: () => _acceptRead(generation),
       );
+      if (!_acceptRead(generation)) return;
+      _data.addAll(Map<String, dynamic>.from(account['account']));
       _data['messages'] = messages['messages'];
       if (AppLanguage.current.value != _data['language']) {
         await AppLanguage.select(_data['language'] ?? 'uz');
       }
-      syncError = null;
+      if (_acceptRead(generation)) syncError = null;
     } catch (e) {
-      if (!_disposed) syncError = e.toString();
+      if (_acceptRead(generation)) syncError = e.toString();
     } finally {
       _syncing = false;
-      if (!_disposed) notifyListeners();
+      if (_acceptRead(generation)) notifyListeners();
     }
   }
 
@@ -283,9 +296,7 @@ class CustomerStore extends ChangeNotifier {
     bool archived, {
     int? expectedRevision,
   }) async {
-    if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
-      throw StateError('Sessiya tugagan');
-    }
+    _requireCurrent();
     if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
     final pet = allPets.where((p) => p['id'] == id).firstOrNull;
     if (pet == null) throw StateError('Hayvon topilmadi');
@@ -297,6 +308,7 @@ class CustomerStore extends ChangeNotifier {
       throw CustomerApiException('Profil o‘zgargan. Qayta yuklang.', 409);
     }
     busy = true;
+    _accountGeneration++;
     notifyListeners();
     try {
       final result = await api!.request('POST', '/me/pets/archive', {
@@ -304,68 +316,88 @@ class CustomerStore extends ChangeNotifier {
         'archived': archived,
         '_revision': expectedRevision,
       });
-      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
-        throw StateError('Sessiya tugagan');
-      }
-      _data.addAll(Map<String, dynamic>.from(result['account']));
-      await CustomerApi.rememberAccount(_account(_data));
+      _requireCurrent();
+      final next = {..._data, ...Map<String, dynamic>.from(result['account'])};
+      await CustomerApi.rememberAccount(
+        _account(next),
+        isCurrent: () => _current,
+      );
+      _requireCurrent();
       // Server remains authoritative if local cache is unavailable.
-      await (await preferences()).setString(_cacheKey, jsonEncode(_data));
+      final prefs = await preferences();
+      _requireCurrent();
+      await prefs.setString(_cacheKey, jsonEncode(next));
+      _requireCurrent();
+      _data = next;
     } finally {
       busy = false;
-      if (!_disposed) notifyListeners();
+      if (_current) notifyListeners();
     }
   }
 
   List<String> get favorites => List<String>.from(_data['favorites'] as List);
   CJson get notifications =>
       Map<String, dynamic>.from(_data['notifications'] as Map);
-  Future<void> load() async {
-    if (loaded) return;
-    api ??= await CustomerApi.restore();
-    final raw = (await preferences()).getString(_cacheKey);
-    _data = raw == null
+  Future<void> load() {
+    _requireCurrent();
+    if (loaded) return Future.value();
+    return _loading ??= _load().whenComplete(() => _loading = null);
+  }
+
+  Future<void> _load() async {
+    final client = api ?? await CustomerApi.restore();
+    _requireCurrent();
+    api = client;
+    if (api == null && CustomerApi.enabled) {
+      throw CustomerApiException('Hisobingizga qayta kiring.', 401);
+    }
+    final prefs = await preferences();
+    _requireCurrent();
+    final raw = prefs.getString(_cacheKey);
+    final next = raw == null
         ? _emptyAccount()
         : Map<String, dynamic>.from(jsonDecode(raw) as Map);
-    final legacyDemo = (_data['bookings'] as List? ?? []).any(
+    final legacyDemo = (next['bookings'] as List? ?? []).any(
       (b) => b['sample'] == true,
     );
-    _data['bookings'] = <CJson>[];
+    next['bookings'] = <CJson>[];
     if (api == null) {
-      _data['messages'] = <CJson>[];
-      _data['favorites'] = <String>[];
+      next['messages'] = <CJson>[];
+      next['favorites'] = <String>[];
       if (legacyDemo &&
-          _data['profile']['first'] == 'Madina' &&
-          _data['profile']['last'] == 'Karimova') {
-        _data['profile'] = {'first': '', 'last': '', 'photo': null};
+          next['profile']['first'] == 'Madina' &&
+          next['profile']['last'] == 'Karimova') {
+        next['profile'] = {'first': '', 'last': '', 'photo': null};
       }
     }
-    _data['pets'] =
-        <CJson>[]; // Never restore pets from an earlier app session.
+    next['pets'] = <CJson>[]; // Never restore pets from an earlier app session.
     if (api != null) {
       final account = await api!.request('GET', '/me');
+      _requireCurrent();
       final messages = await api!.request('GET', '/messages');
-      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
-      _data.addAll(Map<String, dynamic>.from(account['account']));
+      _requireCurrent();
+      next.addAll(Map<String, dynamic>.from(account['account']));
       await CustomerApi.rememberAccount(
         Map<String, dynamic>.from(account['account']),
+        isCurrent: () => _current,
       );
-      _data['messages'] = messages['messages'];
-      if (AppLanguage.current.value != _data['language']) {
-        await AppLanguage.select(_data['language'] ?? 'uz');
+      _requireCurrent();
+      next['messages'] = messages['messages'];
+      if (AppLanguage.current.value != next['language']) {
+        await AppLanguage.select(next['language'] ?? 'uz');
       }
     }
+    _requireCurrent();
+    _data = next;
     loaded = true;
-    if (!_disposed) notifyListeners();
+    notifyListeners();
   }
 
   Future<void> update(
     void Function(CJson next) change, {
     int? expectedRevision,
   }) async {
-    if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
-      throw StateError('Sessiya tugagan');
-    }
+    _requireCurrent();
     if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
     if (api != null &&
         expectedRevision != null &&
@@ -376,6 +408,7 @@ class CustomerStore extends ChangeNotifier {
       );
     }
     busy = true;
+    _accountGeneration++;
     if (!_disposed) notifyListeners();
     try {
       final next = Map<String, dynamic>.from(
@@ -388,17 +421,24 @@ class CustomerStore extends ChangeNotifier {
         final saved = await api!.request('PUT', '/me', _account(next));
         next.addAll(Map<String, dynamic>.from(saved['account']));
       }
-      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
-        throw StateError('Sessiya tugagan');
+      _requireCurrent();
+      if (api != null) {
+        await CustomerApi.rememberAccount(
+          _account(next),
+          isCurrent: () => _current,
+        );
       }
-      if (api != null) await CustomerApi.rememberAccount(_account(next));
-      if (!await (await preferences()).setString(_cacheKey, jsonEncode(next))) {
+      _requireCurrent();
+      final prefs = await preferences();
+      _requireCurrent();
+      if (!await prefs.setString(_cacheKey, jsonEncode(next))) {
         throw StateError('Saqlanmadi');
       }
+      _requireCurrent();
       _data = next;
     } finally {
       busy = false;
-      if (!_disposed) notifyListeners();
+      if (_current) notifyListeners();
     }
   }
 
@@ -411,18 +451,28 @@ class CustomerStore extends ChangeNotifier {
     CJson value, {
     int? expectedRevision,
   }) async {
+    _requireCurrent();
     if (['messages', 'support'].contains(key) && api == null) {
       throw StateError('Xabar yuborish uchun hisobingizga kiring.');
     }
     if (key == 'messages' && api != null) {
-      final result = await api!.request('POST', '/messages', {
-        'sitter': value['sitter'],
-        'text': value['text'] ?? '',
-        'image': value['image'],
-        'requestId': value['id'],
-      });
-      _data['messages'] = result['messages'];
-      if (!_disposed) notifyListeners();
+      if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
+      busy = true;
+      _accountGeneration++;
+      notifyListeners();
+      try {
+        final result = await api!.request('POST', '/messages', {
+          'sitter': value['sitter'],
+          'text': value['text'] ?? '',
+          'image': value['image'],
+          'requestId': value['id'],
+        });
+        _requireCurrent();
+        _data['messages'] = result['messages'];
+      } finally {
+        busy = false;
+        if (_current) notifyListeners();
+      }
       return;
     }
     if (key == 'pets' && api == null) {

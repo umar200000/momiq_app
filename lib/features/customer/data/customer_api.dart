@@ -81,12 +81,19 @@ class CustomerApi {
     return account;
   }
 
-  static Future<void> rememberAccount(Map<String, dynamic> account) async {
+  static Future<void> rememberAccount(
+    Map<String, dynamic> account, {
+    bool Function()? isCurrent,
+  }) async {
     final current = active;
     final version = sessionVersion;
-    if (current == null) return;
+    if (current == null || isCurrent?.call() == false) return;
     final prefs = await SharedPreferences.getInstance();
-    if (!identical(active, current) || version != sessionVersion) return;
+    if (!identical(active, current) ||
+        version != sessionVersion ||
+        isCurrent?.call() == false) {
+      return;
+    }
     if (!await prefs.setString('momiq.api.account', jsonEncode(account))) {
       throw StateError('Profil saqlanmadi');
     }
@@ -142,10 +149,23 @@ class CustomerApi {
     return Map<String, dynamic>.from(data['account']);
   }
 
-  static Future<CustomerApi?> restore() async {
+  static Future<CustomerApi?>? _restoring;
+  static Future<void>? _clearing;
+  static Future<CustomerApi?> restore() {
+    final clearing = _clearing;
+    if (clearing != null) return clearing.then((_) => restore());
+    if (active != null) return Future.value(active);
+    return _restoring ??= _restore().whenComplete(() => _restoring = null);
+  }
+
+  static Future<CustomerApi?> _restore() async {
     if (active != null) return active;
+    final version = sessionVersion;
+    bool current() => version == sessionVersion && active == null;
     final prefs = await SharedPreferences.getInstance();
-    final credential = await SessionVault.read();
+    if (!current()) return active;
+    final credential = await SessionVault.read(isCurrent: current);
+    if (!current()) return active;
     final savedScope = prefs.getString('momiq.api.scope');
     if ((credential != null &&
             credential['scope'] != AppEnvironment.current.sessionScope) ||
@@ -171,10 +191,14 @@ class CustomerApi {
       return null;
     }
     await prefs.remove('momiq.api.token');
+    if (!current()) return active;
     return active = CustomerApi(credential['token']!, credential['userId']!);
   }
 
-  static Future<void> clearLocal() async {
+  static Future<void> clearLocal() =>
+      _clearing ??= _clearLocal().whenComplete(() => _clearing = null);
+
+  static Future<void> _clearLocal() async {
     sessionVersion++;
     active = null;
     CustomerPetSession.current.clear();
@@ -201,10 +225,15 @@ class CustomerApi {
   }
 
   static Future<void> logout({bool allDevices = false}) async {
+    final version = sessionVersion;
     final current = active ?? await restore();
+    bool ownsSession() =>
+        version == sessionVersion && identical(active, current);
+    if (!ownsSession()) throw StateError('Sessiya o‘zgargan');
     if (allDevices && current != null) {
       // An offline request must not claim that other devices were signed out.
       await current.request('POST', '/auth/logout-all', {});
+      if (!ownsSession()) throw StateError('Sessiya o‘zgargan');
       await clearLocal();
       return;
     }
@@ -213,6 +242,7 @@ class CustomerApi {
     } catch (_) {
       // Offline logout still clears this device. Server sessions expire normally.
     } finally {
+      if (!ownsSession()) throw StateError('Sessiya o‘zgargan');
       await clearLocal();
     }
   }

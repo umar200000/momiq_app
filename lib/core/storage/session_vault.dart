@@ -20,8 +20,9 @@ class SessionVault {
     value: jsonEncode({'token': token, 'userId': userId, 'scope': scope}),
   );
 
-  static Future<Map<String, String>?> read() async {
+  static Future<Map<String, String>?> read({bool Function()? isCurrent}) async {
     final raw = await storage.read(key: key);
+    if (isCurrent?.call() == false) return null;
     if (raw == null) return null;
     try {
       final data = Map<String, String>.from(jsonDecode(raw) as Map);

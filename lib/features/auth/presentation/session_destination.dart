@@ -38,13 +38,22 @@ Future<Widget> restoreDestination() async {
     return const SessionRecoveryPage(environmentMismatch: false);
   }
   if (api == null) return const RoleSelectionPage();
+  final version = CustomerApi.sessionVersion;
+  bool current() =>
+      identical(CustomerApi.active, api) &&
+      version == CustomerApi.sessionVersion;
+  const retry = SessionRecoveryPage(environmentMismatch: false);
   final customer = await CustomerApi.customerRole();
+  if (!current()) return retry;
   try {
     final response = await api.request('GET', '/me');
+    if (!current()) return retry;
     final account = Map<String, dynamic>.from(response['account']);
-    await CustomerApi.rememberAccount(account);
+    await CustomerApi.rememberAccount(account, isCurrent: current);
+    if (!current()) return retry;
     return accountDestination(account, customer: customer);
   } on CustomerApiException catch (e) {
+    if (!current()) return retry;
     if (e.status == 401 || e.status == 403) {
       await CustomerApi.clearLocal();
       return const RoleSelectionPage();
@@ -53,9 +62,11 @@ Future<Widget> restoreDestination() async {
   } catch (_) {
     // TLS/transport failures also keep the cached session.
   }
+  if (!current()) return retry;
   final raw = (await SharedPreferences.getInstance()).getString(
     'momiq.api.account',
   );
+  if (!current()) return retry;
   if (raw != null) {
     try {
       return accountDestination(
