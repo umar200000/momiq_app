@@ -21,6 +21,53 @@ String supportError() => lt(
   'Не удалось загрузить или отправить. Повторите.',
 );
 
+String supportTargetLabel(String kind) => kind == 'review'
+    ? lt('Sharhga shikoyat', 'Report review', 'Пожаловаться на отзыв')
+    : lt(
+        'E’lon yoki profilga shikoyat',
+        'Report listing or profile',
+        'Пожаловаться на объявление или профиль',
+      );
+
+class PublicContentReportButton extends StatefulWidget {
+  const PublicContentReportButton({
+    super.key,
+    required this.api,
+    required this.target,
+  });
+  final CustomerApi? api;
+  final Map<String, String> target;
+  @override
+  State<PublicContentReportButton> createState() =>
+      _PublicContentReportButtonState();
+}
+
+class _PublicContentReportButtonState extends State<PublicContentReportButton> {
+  final session = CustomerApi.sessionVersion;
+  bool get live =>
+      session == CustomerApi.sessionVersion &&
+      widget.api != null &&
+      widget.api!.userId.isNotEmpty &&
+      (CustomerApi.active == null || identical(CustomerApi.active, widget.api));
+  @override
+  Widget build(BuildContext context) => TextButton.icon(
+    onPressed: !live
+        ? null
+        : () {
+            if (!live) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    SupportThreadPage(api: widget.api!, target: widget.target),
+              ),
+            );
+          },
+    icon: const Icon(Icons.flag_outlined),
+    label: Text(supportTargetLabel(widget.target['kind']!)),
+  );
+}
+
 class SupportPage extends StatefulWidget {
   const SupportPage({super.key, this.api});
   final CustomerApi? api;
@@ -97,6 +144,7 @@ class _SupportPageState extends State<SupportPage> {
       title: Text(lt('Yordam murojaatlari', 'Support requests', 'Обращения')),
       actions: [
         IconButton(
+          tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
           onPressed: busy ? null : load,
           icon: const Icon(Icons.refresh),
         ),
@@ -166,16 +214,20 @@ class SupportThreadPage extends StatefulWidget {
     this.id,
     this.bookingId,
     this.controller,
+    this.target,
   });
   final CustomerApi api;
   final String? id, bookingId;
   final SupportController? controller;
+  final Map<String, String>? target;
   @override
   State<SupportThreadPage> createState() => _SupportThreadPageState();
 }
 
 class _SupportThreadPageState extends State<SupportThreadPage> {
-  late final c = widget.controller ?? SupportController(widget.api, widget.id);
+  late final c =
+      widget.controller ??
+      SupportController(widget.api, widget.id, target: widget.target);
   final message = TextEditingController(), subject = TextEditingController();
   String? image;
   String topic = 'general';
@@ -184,6 +236,10 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
   void initState() {
     super.initState();
     if (widget.bookingId != null) topic = 'booking';
+    if (widget.target != null) {
+      topic = 'safety';
+      subject.text = supportTargetLabel(widget.target!['kind']!);
+    }
     load();
   }
 
@@ -247,7 +303,7 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
 
   Future<void> send() async {
     if (c.pending == null &&
-        ((message.text.trim().isEmpty && image == null) ||
+        ((message.text.trim().isEmpty && (image == null || c.target != null)) ||
             (widget.id == null && subject.text.trim().isEmpty))) {
       return;
     }
@@ -280,6 +336,7 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
     listenable: c,
     builder: (context, _) {
       final ticket = c.data?['ticket'];
+      final target = c.pending?['target'] ?? c.data?['target'] ?? c.target;
       final enabled =
           c.live &&
           !c.busy &&
@@ -295,6 +352,7 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
           ),
           actions: [
             IconButton(
+              tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
               onPressed: c.busy ? null : load,
               icon: const Icon(Icons.refresh),
             ),
@@ -306,6 +364,19 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
             if (c.busy) const LinearProgressIndicator(),
             if (c.error != null) Text(supportError()),
             if (ticket != null) Text(supportState(ticket['status'])),
+            if (target != null) ...[
+              Text(
+                '${supportTargetLabel(target['kind'])} · #${target['id']}',
+                key: const ValueKey('supportTarget'),
+              ),
+              Text(
+                lt(
+                  'Sababini yozing. Yordam xizmati ko‘rib chiqadi; shikoyatning o‘zi kontentni yashirmaydi. Rasmdagi muammo bo‘lsa, rasmni ham biriktiring.',
+                  'Describe the reason. Support will review it; submitting a report does not hide content. Attach an image if the issue concerns a photo.',
+                  'Опишите причину. Поддержка рассмотрит обращение; жалоба не скрывает контент автоматически. Если проблема в фото, приложите изображение.',
+                ),
+              ),
+            ],
             if (widget.id == null) ...[
               TextField(
                 key: const ValueKey('supportSubject'),
@@ -317,6 +388,9 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
                 ),
               ),
               DropdownButtonFormField<String>(
+                isExpanded: true,
+                isDense: false,
+                itemHeight: null,
                 initialValue: topic,
                 items: [
                   for (final entry in <String, String>{
@@ -394,7 +468,9 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
               minLines: 3,
               maxLines: 6,
               decoration: InputDecoration(
-                labelText: lt('Xabar', 'Message', 'Сообщение'),
+                labelText: target == null
+                    ? lt('Xabar', 'Message', 'Сообщение')
+                    : lt('Shikoyat sababi', 'Report reason', 'Причина жалобы'),
               ),
             ),
             if (image != null)

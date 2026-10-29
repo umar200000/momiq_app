@@ -4,6 +4,7 @@ import '../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'customer_availability.dart';
 import 'customer_reviews.dart';
+import '../../support/support_page.dart';
 import 'customer_home_design.dart';
 import 'package:flutter/material.dart';
 import '../../listings/data/listing_store.dart' show CareLocation;
@@ -773,6 +774,11 @@ class SitterDetailPage extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         CustomerReviewsSection(store: store, sitter: sitter),
+        if (store.remote)
+          PublicContentReportButton(
+            api: store.api,
+            target: {'kind': 'listing', 'id': sitter['id']},
+          ),
       ],
     ),
   );

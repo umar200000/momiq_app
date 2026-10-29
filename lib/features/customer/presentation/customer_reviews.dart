@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/customer_api.dart';
 import 'customer_widgets.dart';
+import '../../support/support_page.dart';
 
 /// Only the server's published, non-TEST aggregate counts toward reputation.
 String customerReviewSummary(CustomerStore store, CJson sitter) {
@@ -68,6 +69,7 @@ class _CustomerSitterReviewsPageState extends State<CustomerSitterReviewsPage> {
   int count = 0;
   num rating = 0;
   final session = CustomerApi.sessionVersion;
+  bool get live => mounted && session == CustomerApi.sessionVersion;
   @override
   void initState() {
     super.initState();
@@ -75,7 +77,7 @@ class _CustomerSitterReviewsPageState extends State<CustomerSitterReviewsPage> {
   }
 
   Future<void> load({bool more = false}) async {
-    if (busy || (more && cursor == null)) return;
+    if (!live || busy || (more && cursor == null)) return;
     setState(() {
       busy = true;
       failed = false;
@@ -85,7 +87,7 @@ class _CustomerSitterReviewsPageState extends State<CustomerSitterReviewsPage> {
         'GET',
         '/sitters/${Uri.encodeComponent(widget.sitter['id'])}/reviews${more ? '?before=$cursor' : ''}',
       );
-      if (!mounted || session != CustomerApi.sessionVersion) return;
+      if (!live) return;
       setState(() {
         if (!more) items.clear();
         final ids = items.map((r) => r['id']).toSet();
@@ -100,9 +102,9 @@ class _CustomerSitterReviewsPageState extends State<CustomerSitterReviewsPage> {
         loaded = true;
       });
     } catch (_) {
-      if (mounted) setState(() => failed = true);
+      if (live) setState(() => failed = true);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (live) setState(() => busy = false);
     }
   }
 
@@ -112,6 +114,7 @@ class _CustomerSitterReviewsPageState extends State<CustomerSitterReviewsPage> {
       title: Text(lt('Mijozlar fikri', 'Customer reviews', 'Отзывы клиентов')),
       actions: [
         IconButton(
+          tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
           onPressed: busy ? null : () => load(),
           icon: const Icon(Icons.refresh),
         ),
@@ -171,6 +174,10 @@ class _CustomerSitterReviewsPageState extends State<CustomerSitterReviewsPage> {
                     ),
                   if ((review['text'] as String).isNotEmpty)
                     Text(review['text']),
+                  PublicContentReportButton(
+                    api: api,
+                    target: {'kind': 'review', 'id': review['id']},
+                  ),
                 ],
               ),
             ),

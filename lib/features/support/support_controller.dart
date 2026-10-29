@@ -6,13 +6,25 @@ import '../wallet/data/wallet_draft_storage.dart';
 typedef SupportJson = Map<String, dynamic>;
 
 class SupportController extends ChangeNotifier {
-  SupportController(this.api, this.id, {WalletDraftStorage? storage})
-    : storage =
-          storage ??
-          EncryptedWalletDraftStorage(
-            owner: api.userId,
-            scope: '${api.baseUrl}/support/${id ?? 'new'}',
-          );
+  SupportController(
+    this.api,
+    this.id, {
+    WalletDraftStorage? storage,
+    Map<String, String>? target,
+  }) : target = target == null ? null : Map.unmodifiable(target),
+       storage =
+           storage ??
+           EncryptedWalletDraftStorage(
+             owner: api.userId,
+             scope: draftScope(api, id, target),
+           );
+  static String draftScope(
+    CustomerApi api,
+    String? id,
+    Map<String, String>? target,
+  ) =>
+      '${api.baseUrl}/support/${id ?? 'new'}${id == null && target != null ? '/${target['kind']}/${Uri.encodeComponent(target['id']!)}' : ''}';
+  final Map<String, String>? target;
   final CustomerApi api;
   final String? id;
   final WalletDraftStorage storage;
@@ -86,6 +98,7 @@ class SupportController extends ChangeNotifier {
           'subject': subject.trim(),
           'topic': topic,
           'bookingId': bookingId,
+          if (target != null) 'target': target,
         },
       };
       await storage.write(pending!);
