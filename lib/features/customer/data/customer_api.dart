@@ -83,9 +83,10 @@ class CustomerApi {
 
   static Future<void> rememberAccount(Map<String, dynamic> account) async {
     final current = active;
+    final version = sessionVersion;
     if (current == null) return;
     final prefs = await SharedPreferences.getInstance();
-    if (!identical(active, current)) return;
+    if (!identical(active, current) || version != sessionVersion) return;
     if (!await prefs.setString('momiq.api.account', jsonEncode(account))) {
       throw StateError('Profil saqlanmadi');
     }

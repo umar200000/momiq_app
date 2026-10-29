@@ -44,22 +44,44 @@ class _SitterHomePageState extends State<SitterHomePage> {
   late String _firstName = widget.firstName;
   late String _lastName = widget.lastName;
   Uint8List? _profileAvatar;
+  CustomerApi? _profileApi;
+  late final int _profileSession;
+  int _profileLoad = 0;
+  bool get _profileCurrent =>
+      mounted &&
+      _profileSession == CustomerApi.sessionVersion &&
+      identical(_profileApi, CustomerApi.active);
   @override
   void initState() {
     super.initState();
+    _profileSession = CustomerApi.sessionVersion;
+    _profileApi = CustomerApi.active;
     _profileAvatar = widget.avatar;
     _loadProfile();
   }
 
   Future<void> _loadProfile() async {
-    final api = await CustomerApi.restore();
-    if (api != null) {
-      try {
+    if (!_profileCurrent) return;
+    final load = ++_profileLoad;
+    bool current() => _profileCurrent && load == _profileLoad;
+    try {
+      final api = await CustomerApi.restore();
+      if (!mounted ||
+          _profileSession != CustomerApi.sessionVersion ||
+          load != _profileLoad ||
+          (_profileApi != null && !identical(_profileApi, api)) ||
+          !identical(api, CustomerApi.active)) {
+        return;
+      }
+      _profileApi = api;
+      if (api != null) {
         final response = await api.request('GET', '/me');
+        if (!current()) return;
         final account = Map<String, dynamic>.from(response['account']);
         await CustomerApi.rememberAccount(account);
+        if (!current()) return;
         await AppLanguage.select(account['language'] ?? 'uz');
-        if (!mounted) return;
+        if (!current()) return;
         final profile = account['profile'];
         setState(() {
           _firstName = profile['first'] ?? '';
@@ -68,25 +90,26 @@ class _SitterHomePageState extends State<SitterHomePage> {
               ? null
               : base64Decode(profile['photo']);
         });
-      } catch (_) {
-        // Keep the last server-backed view; local mock values cannot replace it.
+        return;
       }
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    final photo = prefs.getString('mock.profile.avatar');
-    Uint8List? bytes;
-    try {
-      if (photo != null) bytes = base64Decode(photo);
+      if (CustomerApi.enabled) return;
+      final prefs = await SharedPreferences.getInstance();
+      if (!current()) return;
+      final photo = prefs.getString('mock.profile.avatar');
+      Uint8List? bytes;
+      try {
+        if (photo != null) bytes = base64Decode(photo);
+      } catch (_) {
+        bytes = null;
+      }
+      setState(() {
+        _firstName = prefs.getString('mock.profile.first') ?? widget.firstName;
+        _lastName = prefs.getString('mock.profile.last') ?? widget.lastName;
+        _profileAvatar = bytes ?? widget.avatar;
+      });
     } catch (_) {
-      bytes = null;
+      // Keep the current view; late responses and mock data cannot replace it.
     }
-    setState(() {
-      _firstName = prefs.getString('mock.profile.first') ?? widget.firstName;
-      _lastName = prefs.getString('mock.profile.last') ?? widget.lastName;
-      _profileAvatar = bytes ?? widget.avatar;
-    });
   }
 
   Future<void> _openProfileSection(int section) async {

@@ -33,6 +33,12 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   final _message = TextEditingController();
   Uint8List? _photo;
   Map<String, dynamic>? _loadedAccount;
+  CustomerApi? _api;
+  late final int _sessionVersion;
+  bool get _current =>
+      mounted &&
+      _sessionVersion == CustomerApi.sessionVersion &&
+      identical(_api, CustomerApi.active);
   bool _loadFailed = false;
   bool _loading = true,
       _saving = false,
@@ -56,11 +62,14 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   @override
   void initState() {
     super.initState();
+    _sessionVersion = CustomerApi.sessionVersion;
+    _api = CustomerApi.active;
     _photo = widget.avatar;
     _load();
   }
 
   Future<void> _load() async {
+    if (!_current) return;
     if (mounted) {
       setState(() {
         _loading = true;
@@ -69,9 +78,18 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     }
     try {
       final p = await SharedPreferences.getInstance();
+      if (!_current) return;
       final api = await CustomerApi.restore();
+      if (!mounted ||
+          _sessionVersion != CustomerApi.sessionVersion ||
+          (_api != null && !identical(_api, api)) ||
+          !identical(api, CustomerApi.active)) {
+        return;
+      }
+      _api = api;
       if (api != null && [0, 1, 3, 5].contains(widget.section)) {
         final response = await api.request('GET', '/me');
+        if (!_current) return;
         final account = Map<String, dynamic>.from(response['account']);
         _loadedAccount = account;
         final profile = account['profile'];
@@ -98,10 +116,16 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
           _end = TimeOfDay(hour: end ~/ 60, minute: end % 60);
         }
         await AppLanguage.select(account['language'] ?? 'uz');
-        if (mounted) setState(() => _loading = false);
+        if (_current) setState(() => _loading = false);
         return;
       }
 
+      if (api != null) {
+        if (_current) setState(() => _loading = false);
+        return;
+      }
+      if (CustomerApi.enabled) throw StateError('Hisobingizga qayta kiring');
+      if (!_current) return;
       _years.text = p.getString('mock.profile.years') ?? '';
       _about.text = p.getString('mock.profile.about') ?? '';
       final days = p.getStringList('mock.profile.days');
@@ -116,6 +140,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       _start = TimeOfDay(hour: a ~/ 60, minute: a % 60);
       _end = TimeOfDay(hour: b ~/ 60, minute: b % 60);
     } catch (_) {
+      if (!_current) return;
       _loadFailed = true;
       if (mounted) {
         _notice(
@@ -127,14 +152,20 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
         );
       }
     }
-    if (mounted) setState(() => _loading = false);
+    if (_current) setState(() => _loading = false);
   }
 
   void _notice(String value) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(value)));
   Future<void> _save() async {
-    if (_saving || !(_form.currentState?.validate() ?? true)) return;
+    if (!_current ||
+        _loading ||
+        _loadFailed ||
+        _saving ||
+        !(_form.currentState?.validate() ?? true)) {
+      return;
+    }
     if (widget.section == 1 &&
         _hoursEnabled &&
         _start.hour * 60 + _start.minute >= _end.hour * 60 + _end.minute) {
@@ -159,7 +190,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     }
     setState(() => _saving = true);
     try {
-      final api = await CustomerApi.restore();
+      final api = _api;
       if (api != null) {
         if (_loadedAccount == null) {
           throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
@@ -196,13 +227,15 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
           };
         }
         final saved = await api.request('PUT', '/me', account);
+        if (!_current) return;
         _loadedAccount = Map<String, dynamic>.from(saved['account']);
         await CustomerApi.rememberAccount(_loadedAccount!);
-        if (mounted) Navigator.pop(context, true);
+        if (mounted && _current) Navigator.pop(context, true);
         return;
       }
       if (CustomerApi.enabled) throw StateError('Hisobingizga qayta kiring');
       final p = await SharedPreferences.getInstance();
+      if (!_current) return;
       final results = <bool>[];
       if (widget.section == 0) {
         results.add(
@@ -248,10 +281,10 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
         results.add(await p.setBool('mock.notify.care', _care));
       }
       if (results.any((ok) => !ok)) throw StateError('Save failed');
-      if (!mounted) return;
+      if (!mounted || !_current) return;
       Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) {
+      if (_current) {
         _notice(
           e is CustomerApiException
               ? e.message
@@ -263,15 +296,15 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
         );
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (_current) setState(() => _saving = false);
     }
   }
 
   Future<void> _selectLanguage(String value) async {
-    if (_saving) return;
+    if (!_current || _loading || _loadFailed || _saving) return;
     setState(() => _saving = true);
     try {
-      final api = await CustomerApi.restore();
+      final api = _api;
       if (api != null) {
         if (_loadedAccount == null) {
           throw StateError('Profil yuklanmagan');
@@ -280,31 +313,34 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
           ..._loadedAccount!,
           'language': value,
         });
+        if (!_current) return;
         _loadedAccount = Map<String, dynamic>.from(saved['account']);
         await CustomerApi.rememberAccount(_loadedAccount!);
       } else if (CustomerApi.enabled) {
         throw StateError('Hisobingizga qayta kiring');
       }
+      if (!_current) return;
       await AppLanguage.select(value);
     } catch (e) {
-      if (mounted) _notice(e.toString());
+      if (_current) _notice(e.toString());
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (_current) setState(() => _saving = false);
     }
   }
 
   Future<void> _pickPhoto() async {
+    if (!_current || _loading || _saving) return;
     try {
       final image = await ImagePicker().pickImage(
         source: ImageSource.gallery,
         maxWidth: 800,
         imageQuality: 80,
       );
-      if (image == null) return;
+      if (!_current || image == null) return;
       final bytes = await image.readAsBytes();
-      if (mounted) setState(() => _photo = bytes);
+      if (_current) setState(() => _photo = bytes);
     } catch (_) {
-      if (mounted) {
+      if (_current) {
         _notice(
           tr(
             'Rasm ochilmadi.',

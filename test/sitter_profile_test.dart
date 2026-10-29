@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,15 +28,20 @@ class ProfileApi extends CustomerApi {
   };
   Map<String, dynamic>? saved;
   bool failWrite = false;
+  Completer<void>? readGate, writeGate;
+  int writes = 0;
   @override
   Future<Map<String, dynamic>> request(
     String method,
     String path, [
     Map<String, dynamic>? body,
   ]) async {
+    if (method == 'GET') await readGate?.future;
     if (method == 'PUT') {
+      writes++;
       if (failWrite) throw CustomerApiException('Conflict: reload', 409);
       saved = body;
+      await writeGate?.future;
       account = {...body!, '_revision': 8};
     }
     return {'account': account};
@@ -44,12 +51,14 @@ class ProfileApi extends CustomerApi {
 void main() {
   setUp(() {
     CustomerApi.active = null;
+    CustomerApi.sessionVersion = 0;
     SharedPreferences.setMockInitialValues({});
     AppLanguage.current.value = 'uz';
   });
   tearDown(() {
     AppLanguage.current.value = 'uz';
     CustomerApi.active = null;
+    CustomerApi.sessionVersion = 0;
   });
   Future<void> open(WidgetTester tester, int section) async {
     await tester.pumpWidget(
@@ -79,6 +88,129 @@ void main() {
     await tester.tap(button);
     await tester.pumpAndSettle();
   }
+
+  testWidgets('a disposed profile discards delayed load and global language', (
+    tester,
+  ) async {
+    final api = ProfileApi()..readGate = Completer<void>();
+    api.account['language'] = 'ru';
+    CustomerApi.active = api;
+    await tester.pumpWidget(
+      AppLanguage(
+        child: const MaterialApp(
+          home: SitterProfilePage(
+            section: 0,
+            firstName: 'Old',
+            lastName: 'Account',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpWidget(const MaterialApp(home: Text('New route')));
+    api.readGate!.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(AppLanguage.current.value, 'uz');
+    expect(find.text('New route'), findsOneWidget);
+  });
+
+  testWidgets('session replacement discards delayed profile load', (
+    tester,
+  ) async {
+    final api = ProfileApi()..readGate = Completer<void>();
+    api.account['language'] = 'ru';
+    CustomerApi.active = api;
+    await tester.pumpWidget(
+      AppLanguage(
+        child: const MaterialApp(
+          home: SitterProfilePage(
+            section: 0,
+            firstName: 'Old',
+            lastName: 'Account',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    CustomerApi.active = ProfileApi();
+    api.readGate!.complete();
+    await tester.pump();
+    expect(find.text('Server'), findsNothing);
+    expect(AppLanguage.current.value, 'uz');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'old profile and language forms never write into a replacement account',
+    (tester) async {
+      for (final section in [0, 5]) {
+        final old = ProfileApi(), next = ProfileApi();
+        CustomerApi.active = old;
+        await open(tester, section);
+        CustomerApi.active = next;
+        if (section == 0) {
+          await save(tester);
+        } else {
+          await tester.tap(find.byKey(const ValueKey('language-ru')));
+          await tester.pumpAndSettle();
+        }
+        expect(old.writes, 0);
+        expect(next.writes, 0);
+        expect(AppLanguage.current.value, 'uz');
+      }
+    },
+  );
+
+  testWidgets(
+    'late save cannot cache old account or change replacement language',
+    (tester) async {
+      for (final section in [0, 5]) {
+        final old = ProfileApi()..writeGate = Completer<void>();
+        CustomerApi.active = old;
+        await open(tester, section);
+        final button = find.byKey(
+          ValueKey(section == 0 ? 'saveProfileSection' : 'language-ru'),
+        );
+        if (section == 0) {
+          await tester.scrollUntilVisible(
+            button,
+            250,
+            scrollable: find.byType(Scrollable).first,
+          );
+        }
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+        expect(old.writes, 1);
+        CustomerApi.active = ProfileApi();
+        final prefs = await SharedPreferences.getInstance();
+        final nextCache = jsonEncode({
+          'profile': {'first': 'Next account'},
+        });
+        await prefs.setString('momiq.api.account', nextCache);
+        old.writeGate!.complete();
+        await tester.pump();
+        expect(prefs.getString('momiq.api.account'), nextCache);
+        expect(AppLanguage.current.value, 'uz');
+        expect(find.byType(SitterProfilePage), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      }
+    },
+  );
+
+  testWidgets('role generation invalidates a form even with the same token', (
+    tester,
+  ) async {
+    final api = ProfileApi();
+    CustomerApi.active = api;
+    await open(tester, 0);
+    CustomerApi.sessionVersion++;
+    await save(tester);
+    expect(api.writes, 0);
+  });
 
   testWidgets(
     'closed dates survive reload, explicit removal and failed writes; unset hours stay unset',
