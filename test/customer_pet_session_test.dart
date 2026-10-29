@@ -12,6 +12,17 @@ import 'booking_composer_test.dart' show ComposerApi;
 import 'booking_controller_test.dart' show BookingMemory;
 import 'support/pet_fixtures.dart';
 
+class BookingPetApi extends ComposerApi {
+  BookingPetApi(this.pets);
+  final List<CJson> pets;
+  @override
+  Future<CJson> request(String method, String path, [CJson? body]) async {
+    final result = await super.request(method, path, body);
+    if (path == '/me') result['account']['pets'] = pets;
+    return result;
+  }
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
   test(
@@ -189,9 +200,10 @@ void main() {
       );
       await s.load();
       await seedTestPets(s);
-      final api = ComposerApi();
+      final api = BookingPetApi(s.list('pets'));
       s.api =
           api; // Booking composer and account use the same authenticated source.
+      await s.refreshRemote();
       await t.pumpWidget(
         MaterialApp(
           home: BookingRequestPage(
