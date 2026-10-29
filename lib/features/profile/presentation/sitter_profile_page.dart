@@ -733,9 +733,9 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                       ),
                       Text(
                         tr(
-                          'Push xabarlar hali ulanmagan.',
-                          'Push notifications are not connected yet.',
-                          'Push-уведомления пока не подключены.',
+                          'Bu sozlamalar kelajakdagi push xabarlari uchun saqlanadi. Hozir telefoningizga push yuborilmaydi. Ilova ichidagi buyurtma, chat, parvarish va to‘lov xabarlari tarixi bu tugmalar bilan o‘chmaydi.',
+                          'These preferences are saved for future push notifications. No push is sent to your phone yet. These switches do not remove booking, chat, care or payment notices from the in-app history.',
+                          'Эти настройки сохраняются для будущих push-уведомлений. Сейчас push на телефон не отправляются. Эти переключатели не удаляют уведомления о заказах, чате, уходе и платежах из истории в приложении.',
                         ),
                       ),
                     ],

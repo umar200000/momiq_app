@@ -42,6 +42,16 @@ jobs:
           python3 -m unittest discover -s tool -p 'test_*.py' -q
           flutter pub deps --json > pub-deps.json
           python3 tool/audit_pub.py pub-deps.json --output pub-audit.json
+      - name: Collect resolved Pub license evidence
+        run: python3 tool/license_inventory.py pub-deps.json --output ci-artifacts/pub-licenses
+      - name: Retain Pub license evidence for seven days
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pub-licenses-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-artifacts/pub-licenses/
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false
       - run: flutter analyze
       - run: flutter test
       - name: Build Android debug for ARM64
