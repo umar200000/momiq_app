@@ -34,6 +34,26 @@ class CustomerApi {
       const bool.fromEnvironment('MOMIQ_API_ENABLED', defaultValue: true);
   static CustomerApi? active;
   static int sessionVersion = 0;
+  // Credentials/cache cleanup cannot race a still-running platform write.
+  static Future<void>? _storageWrites;
+  static Future<T> _sessionStorage<T>(Future<T> Function() action) {
+    final previous = _storageWrites;
+    final result = previous == null
+        ? Future<T>.sync(action)
+        : previous.then((_) => action());
+    late final Future<void> tail;
+    void release() {
+      if (identical(_storageWrites, tail)) _storageWrites = null;
+    }
+
+    tail = result.then<void>(
+      (_) => release(),
+      onError: (Object _, StackTrace _) => release(),
+    );
+    _storageWrites = tail;
+    return result;
+  }
+
   static bool hasProfile(Map<String, dynamic> account, {bool customer = true}) {
     final profile = account['profile'] as Map? ?? {};
     return '${profile['first'] ?? ''}'.trim().isNotEmpty &&
@@ -67,17 +87,28 @@ class CustomerApi {
       throw StateError('Rol javobi mos emas');
     }
     final account = Map<String, dynamic>.from(response['account']);
-    final prefs = await SharedPreferences.getInstance();
-    if (!identical(active, api) || version != sessionVersion) {
-      throw StateError('Sessiya o‘zgargan');
-    }
-    if (!await prefs.setString('momiq.api.account', jsonEncode(account)) ||
-        !await prefs.setString('momiq.api.role', role)) {
-      throw StateError('Rol saqlanmadi');
-    }
-    // Same person, token and wallet drafts; invalidate outgoing page stores.
-    sessionVersion++;
-    ListingStore.instance.resetSession();
+    await _sessionStorage(() async {
+      void check() {
+        if (!identical(active, api) || version != sessionVersion) {
+          throw StateError('Sessiya o‘zgargan');
+        }
+      }
+
+      check();
+      final prefs = await SharedPreferences.getInstance();
+      check();
+      if (!await prefs.setString('momiq.api.account', jsonEncode(account))) {
+        throw StateError('Rol saqlanmadi');
+      }
+      check();
+      if (!await prefs.setString('momiq.api.role', role)) {
+        throw StateError('Rol saqlanmadi');
+      }
+      check();
+      // Same person, token and wallet drafts; invalidate outgoing page stores.
+      sessionVersion++;
+      ListingStore.instance.resetSession();
+    });
     return account;
   }
 
@@ -88,65 +119,137 @@ class CustomerApi {
     final current = active;
     final version = sessionVersion;
     if (current == null || isCurrent?.call() == false) return;
-    final prefs = await SharedPreferences.getInstance();
-    if (!identical(active, current) ||
-        version != sessionVersion ||
-        isCurrent?.call() == false) {
-      return;
-    }
-    if (!await prefs.setString('momiq.api.account', jsonEncode(account))) {
-      throw StateError('Profil saqlanmadi');
-    }
+    await _sessionStorage(() async {
+      bool valid() =>
+          identical(active, current) &&
+          version == sessionVersion &&
+          isCurrent?.call() != false;
+      if (!valid()) return;
+      final prefs = await SharedPreferences.getInstance();
+      if (!valid()) return;
+      if (!await prefs.setString('momiq.api.account', jsonEncode(account))) {
+        throw StateError('Profil saqlanmadi');
+      }
+    });
   }
 
   final String token, userId, baseUrl;
+  static bool _loggingIn = false;
+  static Future<Map<String, dynamic>>? _loginCommit;
   static Future<Map<String, dynamic>> login(
     String phone,
     String code, {
     bool customer = true,
+    bool Function()? isCurrent,
   }) async {
-    // A replacement build must not overwrite another environment's local data.
-    await restore();
-    final anonymous = CustomerApi('', '');
-    AppEnvironment.current.validate();
-    AppEnvironment.current.validateHealth(
-      await anonymous.request('GET', '/health'),
-    );
-    final data = await anonymous.request('POST', '/auth/login', {
-      'phone': phone,
-      'code': code,
-      'role': customer ? 'customer' : 'sitter',
-    });
-    final prefs = await SharedPreferences.getInstance();
-    if (!await prefs.setString('momiq.api.user', data['userId']) ||
-        !await prefs.setString(
-          'momiq.api.role',
-          customer ? 'customer' : 'sitter',
-        ) ||
-        !await prefs.setString(
-          'momiq.api.account',
-          jsonEncode(data['account']),
-        ) ||
-        !await prefs.setString(
-          'momiq.api.scope',
-          AppEnvironment.current.sessionScope,
-        )) {
-      await clearLocal();
-      throw StateError('Sessiya saqlanmadi');
-    }
+    if (_loggingIn) throw StateError('Kirish allaqachon tekshirilmoqda');
+    _loggingIn = true;
     try {
-      await SessionVault.save(
-        token: data['token'],
-        userId: data['userId'],
-        scope: AppEnvironment.current.sessionScope,
+      final version = sessionVersion;
+      // A replacement build must not overwrite another environment's local data.
+      final original = await restore();
+      void check() {
+        if (version != sessionVersion ||
+            !identical(active, original) ||
+            isCurrent?.call() == false) {
+          throw StateError('Sessiya o‘zgargan');
+        }
+      }
+
+      check();
+      final anonymous = CustomerApi('', '');
+      AppEnvironment.current.validate();
+      AppEnvironment.current.validateHealth(
+        await anonymous.request('GET', '/health'),
       );
-      await prefs.remove('momiq.api.token');
+      check();
+      final data = await anonymous.request('POST', '/auth/login', {
+        'phone': phone,
+        'code': code,
+        'role': customer ? 'customer' : 'sitter',
+      });
+      check();
+      if (data['token'] is! String ||
+          (data['token'] as String).isEmpty ||
+          data['userId'] is! String ||
+          (data['userId'] as String).isEmpty ||
+          data['account'] is! Map) {
+        throw const FormatException('Invalid login response');
+      }
+      final account = Map<String, dynamic>.from(data['account']);
+      final committing = _saveLogin(data, account, customer, check, isCurrent);
+      _loginCommit = committing;
+      try {
+        return await committing;
+      } finally {
+        if (identical(_loginCommit, committing)) _loginCommit = null;
+      }
+    } finally {
+      _loggingIn = false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> _saveLogin(
+    Map<String, dynamic> data,
+    Map<String, dynamic> account,
+    bool customer,
+    void Function() checkOriginal,
+    bool Function()? isCurrent,
+  ) async {
+    int? claimedVersion;
+    try {
+      return await _sessionStorage(() async {
+        checkOriginal();
+        final prefs = await SharedPreferences.getInstance();
+        checkOriginal();
+        claimedVersion = ++sessionVersion;
+        active = null;
+        CustomerPetSession.current.clear();
+        ListingStore.instance.resetSession();
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+        void check() {
+          if (claimedVersion != sessionVersion ||
+              active != null ||
+              isCurrent?.call() == false) {
+            throw StateError('Sessiya o‘zgargan');
+          }
+        }
+
+        for (final entry in <String, String>{
+          'momiq.api.user': data['userId'],
+          'momiq.api.role': customer ? 'customer' : 'sitter',
+          'momiq.api.account': jsonEncode(account),
+          'momiq.api.scope': AppEnvironment.current.sessionScope,
+        }.entries) {
+          check();
+          if (!await prefs.setString(entry.key, entry.value)) {
+            throw StateError('Sessiya saqlanmadi');
+          }
+          check();
+        }
+        await SessionVault.save(
+          token: data['token'],
+          userId: data['userId'],
+          scope: AppEnvironment.current.sessionScope,
+        );
+        check();
+        if (!await prefs.remove('momiq.api.token')) {
+          throw StateError('Sessiya saqlanmadi');
+        }
+        check();
+        active = CustomerApi(data['token'], data['userId']);
+        return account;
+      });
     } catch (_) {
-      await clearLocal();
+      // Cleanup queues after the failed write, never inside its own queue slot.
+      if (claimedVersion != null &&
+          claimedVersion == sessionVersion &&
+          active == null) {
+        await clearLocal();
+      }
       rethrow;
     }
-    active = CustomerApi(data['token'], data['userId']);
-    return Map<String, dynamic>.from(data['account']);
   }
 
   static Future<CustomerApi?>? _restoring;
@@ -154,6 +257,13 @@ class CustomerApi {
   static Future<CustomerApi?> restore() {
     final clearing = _clearing;
     if (clearing != null) return clearing.then((_) => restore());
+    final committing = _loginCommit;
+    if (committing != null) {
+      return committing.then(
+        (_) => restore(),
+        onError: (Object _) => restore(),
+      );
+    }
     if (active != null) return Future.value(active);
     return _restoring ??= _restore().whenComplete(() => _restoring = null);
   }
@@ -205,23 +315,25 @@ class CustomerApi {
     ListingStore.instance.resetSession();
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
-    await SessionVault.clear();
-    await EncryptedWalletDraftStorage.clearAll(
-      removeFiles: !Platform.environment.containsKey('FLUTTER_TEST'),
-    );
-    final prefs = await SharedPreferences.getInstance();
-    for (final key in prefs.getKeys().toList()) {
-      if (key.startsWith('momiq.') || key.startsWith('mock.')) {
-        if (!await prefs.remove(key)) {
-          throw StateError('Mahalliy ma’lumotlar tozalanmadi');
+    await _sessionStorage(() async {
+      await SessionVault.clear();
+      await EncryptedWalletDraftStorage.clearAll(
+        removeFiles: !Platform.environment.containsKey('FLUTTER_TEST'),
+      );
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys().toList()) {
+        if (key.startsWith('momiq.') || key.startsWith('mock.')) {
+          if (!await prefs.remove(key)) {
+            throw StateError('Mahalliy ma’lumotlar tozalanmadi');
+          }
         }
       }
-    }
-    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-      final directory = await getApplicationSupportDirectory();
-      final videos = Directory('${directory.path}/care_videos');
-      if (await videos.exists()) await videos.delete(recursive: true);
-    }
+      if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+        final directory = await getApplicationSupportDirectory();
+        final videos = Directory('${directory.path}/care_videos');
+        if (await videos.exists()) await videos.delete(recursive: true);
+      }
+    });
   }
 
   static Future<void> logout({bool allDevices = false}) async {

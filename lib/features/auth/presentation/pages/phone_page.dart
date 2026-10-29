@@ -257,6 +257,7 @@ class _OtpPageState extends State<OtpPage> {
                 widget.phone,
                 _code.text,
                 customer: widget.customer,
+                isCurrent: () => mounted,
               );
       } catch (e) {
         if (mounted) setState(() => _error = e.toString());
@@ -272,8 +273,14 @@ class _OtpPageState extends State<OtpPage> {
       _verified = true;
       _error = null;
     });
+    final verifiedSession = CustomerApi.sessionVersion;
+    final verifiedApi = CustomerApi.active;
     _nextPage = Timer(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
+      if (!mounted ||
+          verifiedSession != CustomerApi.sessionVersion ||
+          !identical(verifiedApi, CustomerApi.active)) {
+        return;
+      }
       if (_account != null) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute<void>(
