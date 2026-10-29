@@ -1,3 +1,4 @@
+import 'booking_source_boundary.dart';
 import '../../support/support_page.dart';
 import 'booking_dispute_page.dart';
 import '../../customer/presentation/pet_safety.dart';
@@ -36,15 +37,44 @@ String bookingTime(String value) {
   return '${pad(d.day)}.${pad(d.month)}.${d.year} ${pad(d.hour)}:${pad(d.minute)} (UTC+5)';
 }
 
-class BookingInbox extends StatefulWidget {
+class BookingInbox extends StatelessWidget {
   const BookingInbox({super.key, this.api, this.conversationId});
   final CustomerApi? api;
   final String? conversationId;
   @override
-  State<BookingInbox> createState() => _BookingInboxState();
+  Widget build(BuildContext context) {
+    final source = api ?? CustomerApi.active;
+    if (source == null) {
+      return Text(
+        lt(
+          'Buyurtmalar uchun hisobingizga kiring.',
+          'Sign in to see bookings.',
+          'Войдите для просмотра заказов.',
+        ),
+      );
+    }
+    return BookingSourceBoundary(
+      api: source,
+      valid: true,
+      expired: bookingSourceNotice(),
+      child: _BookingInbox(
+        key: ValueKey((source, conversationId)),
+        api: source,
+        conversationId: conversationId,
+      ),
+    );
+  }
 }
 
-class _BookingInboxState extends State<BookingInbox> {
+class _BookingInbox extends StatefulWidget {
+  const _BookingInbox({super.key, this.api, this.conversationId});
+  final CustomerApi? api;
+  final String? conversationId;
+  @override
+  State<_BookingInbox> createState() => _BookingInboxState();
+}
+
+class _BookingInboxState extends State<_BookingInbox> {
   BookingInboxController? controller;
   final _search = TextEditingController();
   @override
@@ -81,120 +111,142 @@ class _BookingInboxState extends State<BookingInbox> {
     }
     return ListenableBuilder(
       listenable: c,
-      builder: (context, _) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            key: const ValueKey('bookingSearch'),
-            controller: _search,
-            maxLength: 80,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (value) => c.filters(query: value),
-            decoration: InputDecoration(
-              counterText: '',
-              labelText: lt(
-                'Ism, hayvon yoki buyurtma raqami',
-                'Name, pet or booking ID',
-                'Имя, питомец или номер заказа',
-              ),
-              suffixIcon: IconButton(
-                tooltip: lt('Qidirish', 'Search', 'Поиск'),
-                onPressed: () => c.filters(query: _search.text),
-                icon: const Icon(Icons.search),
-              ),
-            ),
-          ),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final bucket in ['all', 'pending', 'ongoing', 'history'])
-                ChoiceChip(
-                  key: ValueKey('bookingBucket-$bucket'),
-                  label: Text(switch (bucket) {
-                    'pending' => lt('Kutilayotgan', 'Pending', 'Ожидающие'),
-                    'ongoing' => lt('Davom etayotgan', 'Ongoing', 'Текущие'),
-                    'history' => lt('Tarix', 'History', 'История'),
-                    _ => lt('Barchasi', 'All', 'Все'),
-                  }),
-                  selected: c.bucket == bucket,
-                  onSelected: (_) =>
-                      c.filters(bucket: bucket, query: _search.text),
-                ),
-              if (c.query.isNotEmpty || c.bucket != 'all')
-                TextButton(
-                  onPressed: () {
-                    _search.clear();
-                    c.filters(bucket: 'all', query: '');
-                  },
-                  child: Text(lt('Tozalash', 'Clear', 'Сбросить')),
-                ),
-            ],
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: c.loading ? null : () => c.load(),
-              icon: const Icon(Icons.refresh),
-              label: Text(lt('Yangilash', 'Refresh', 'Обновить')),
-            ),
-          ),
-          if (c.loading) const LinearProgressIndicator(),
-          if (c.error != null)
-            Text(c.error.toString(), key: const ValueKey('bookingInboxError')),
-          if (!c.loading && c.error == null && c.items.isEmpty)
-            Text(
-              lt(
-                'Hozircha buyurtmalar yo‘q',
-                'No bookings yet',
-                'Заказов пока нет',
-              ),
-            ),
-          for (final item in c.items)
-            Card(
-              child: ListTile(
-                key: ValueKey('booking-${item['id']}'),
-                leading: const Icon(Icons.pets),
-                title: Text(bookingStateLabel(item['status'])),
-                subtitle: Text(
-                  [
-                    '#${(item['id'] as String).substring(0, 8)}',
-                    if (item['peerName'] != null)
-                      '${item['peerName']} · ${bookingServiceLabel(item['service'])}',
-                    if (item['startsAt'] != null) bookingTime(item['startsAt']),
-                    if (item['pets'] is List)
-                      (item['pets'] as List)
-                          .map((p) => p['name'])
-                          .where((name) => name != null && name != '')
-                          .join(', '),
-                    if (item['serviceTotalMinor'] is int)
-                      bookingMoney(item['serviceTotalMinor']),
-                  ].where((s) => s.isNotEmpty).join('\n'),
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          BookingDetailPage(api: c.api, id: item['id']),
+      builder: (context, _) => !c.live
+          ? bookingSourceNotice()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  key: const ValueKey('bookingSearch'),
+                  controller: _search,
+                  maxLength: 80,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (value) => c.filters(query: value),
+                  decoration: InputDecoration(
+                    counterText: '',
+                    labelText: lt(
+                      'Ism, hayvon yoki buyurtma raqami',
+                      'Name, pet or booking ID',
+                      'Имя, питомец или номер заказа',
                     ),
-                  );
-                  if (mounted) await c.load();
-                },
-              ),
+                    suffixIcon: IconButton(
+                      tooltip: lt('Qidirish', 'Search', 'Поиск'),
+                      onPressed: () => c.filters(query: _search.text),
+                      icon: const Icon(Icons.search),
+                    ),
+                  ),
+                ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final bucket in [
+                      'all',
+                      'pending',
+                      'ongoing',
+                      'history',
+                    ])
+                      ChoiceChip(
+                        key: ValueKey('bookingBucket-$bucket'),
+                        label: Text(switch (bucket) {
+                          'pending' => lt(
+                            'Kutilayotgan',
+                            'Pending',
+                            'Ожидающие',
+                          ),
+                          'ongoing' => lt(
+                            'Davom etayotgan',
+                            'Ongoing',
+                            'Текущие',
+                          ),
+                          'history' => lt('Tarix', 'History', 'История'),
+                          _ => lt('Barchasi', 'All', 'Все'),
+                        }),
+                        selected: c.bucket == bucket,
+                        onSelected: (_) =>
+                            c.filters(bucket: bucket, query: _search.text),
+                      ),
+                    if (c.query.isNotEmpty || c.bucket != 'all')
+                      TextButton(
+                        onPressed: () {
+                          _search.clear();
+                          c.filters(bucket: 'all', query: '');
+                        },
+                        child: Text(lt('Tozalash', 'Clear', 'Сбросить')),
+                      ),
+                  ],
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: c.loading ? null : () => c.load(),
+                    icon: const Icon(Icons.refresh),
+                    label: Text(lt('Yangilash', 'Refresh', 'Обновить')),
+                  ),
+                ),
+                if (c.loading) const LinearProgressIndicator(),
+                if (c.error != null)
+                  Text(
+                    c.error.toString(),
+                    key: const ValueKey('bookingInboxError'),
+                  ),
+                if (!c.loading && c.error == null && c.items.isEmpty)
+                  Text(
+                    lt(
+                      'Hozircha buyurtmalar yo‘q',
+                      'No bookings yet',
+                      'Заказов пока нет',
+                    ),
+                  ),
+                for (final item in c.items)
+                  Card(
+                    child: ListTile(
+                      key: ValueKey('booking-${item['id']}'),
+                      leading: const Icon(Icons.pets),
+                      title: Text(bookingStateLabel(item['status'])),
+                      subtitle: Text(
+                        [
+                          '#${(item['id'] as String).substring(0, 8)}',
+                          if (item['peerName'] != null)
+                            '${item['peerName']} · ${bookingServiceLabel(item['service'])}',
+                          if (item['startsAt'] != null)
+                            bookingTime(item['startsAt']),
+                          if (item['pets'] is List)
+                            (item['pets'] as List)
+                                .map((p) => p['name'])
+                                .where((name) => name != null && name != '')
+                                .join(', '),
+                          if (item['serviceTotalMinor'] is int)
+                            bookingMoney(item['serviceTotalMinor']),
+                        ].where((s) => s.isNotEmpty).join('\n'),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () async {
+                        if (!mounted || !c.live) return;
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                BookingDetailPage(api: c.api, id: item['id']),
+                          ),
+                        );
+                        if (mounted && c.live) await c.load();
+                      },
+                    ),
+                  ),
+                if (c.cursor != null)
+                  TextButton(
+                    onPressed: c.loading ? null : () => c.load(more: true),
+                    child: Text(
+                      lt('Yana yuklash', 'Load more', 'Загрузить ещё'),
+                    ),
+                  ),
+              ],
             ),
-          if (c.cursor != null)
-            TextButton(
-              onPressed: c.loading ? null : () => c.load(more: true),
-              child: Text(lt('Yana yuklash', 'Load more', 'Загрузить ещё')),
-            ),
-        ],
-      ),
     );
   }
 }
 
-class BookingDetailPage extends StatefulWidget {
+class BookingDetailPage extends StatelessWidget {
   const BookingDetailPage({
     super.key,
     required this.api,
@@ -205,13 +257,49 @@ class BookingDetailPage extends StatefulWidget {
   final String id;
   final BookingController? controller;
   @override
-  State<BookingDetailPage> createState() => _BookingDetailPageState();
+  Widget build(BuildContext context) => BookingSourceBoundary(
+    api: api,
+    valid:
+        controller == null ||
+        (identical(controller!.api, api) &&
+            controller!.id == id &&
+            controller!.live),
+    child: _BookingDetailPage(
+      key: ValueKey((api, id, controller)),
+      api: api,
+      id: id,
+      controller: controller,
+    ),
+  );
 }
 
-class _BookingDetailPageState extends State<BookingDetailPage> {
+class _BookingDetailPage extends StatefulWidget {
+  const _BookingDetailPage({
+    super.key,
+    required this.api,
+    required this.id,
+    this.controller,
+  });
+  final CustomerApi api;
+  final String id;
+  final BookingController? controller;
+  @override
+  State<_BookingDetailPage> createState() => _BookingDetailPageState();
+}
+
+class _BookingDetailPageState extends State<_BookingDetailPage>
+    with BookingOwnedDialogs<_BookingDetailPage> {
+  bool get live => mounted && c.live;
+
+  Future<T?> navigate<T>(Route<T> route) async {
+    if (!live || !(ModalRoute.of(context)?.isCurrent ?? true)) return null;
+    return Navigator.of(context).push(route);
+  }
+
+  bool confirming = false;
   bool _openingChat = false;
   Future<void> openChat() async {
-    if (_openingChat || !c.live) return;
+    if (_openingChat || !live) return;
     setState(() => _openingChat = true);
     try {
       final chat = await c.api.request(
@@ -219,22 +307,21 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
         '/bookings/${widget.id}/conversation',
         {},
       );
-      if (!mounted || !c.live) return;
-      await Navigator.push(
-        context,
+      if (!mounted || !live) return;
+      await navigate(
         MaterialPageRoute(
           builder: (_) =>
               ConversationPage(api: c.api, conversationId: chat['id']),
         ),
       );
     } catch (error) {
-      if (mounted && c.live) {
+      if (mounted && live) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error.toString())));
       }
     } finally {
-      if (mounted) setState(() => _openingChat = false);
+      if (live) setState(() => _openingChat = false);
     }
   }
 
@@ -249,20 +336,26 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
 
   @override
   void dispose() {
-    for (final controller in _dialogControllers) {
-      controller.dispose();
-    }
-    c.dispose();
+    if (widget.controller == null) c.dispose();
     super.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final controller in _dialogControllers) {
+        controller.dispose();
+      }
+    });
   }
 
   Future<void> act(String action) async {
+    if (!live || confirming || c.sending || c.loading || c.booking == null) {
+      return;
+    }
+    confirming = true;
     final reason = TextEditingController();
     _dialogControllers.add(reason);
     final price = c.booking!['snapshot']['price'];
-    final confirmed = await showDialog<bool>(
-      context: context,
+    final confirmed = await showOwnedDialog<bool>(
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(
           action == 'accept'
               ? lt('Buyurtmani qabul qilish', 'Accept booking', 'Принять заказ')
@@ -342,9 +435,11 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
         ],
       ),
     );
+    confirming = false;
+    if (!mounted || !live) return;
     final text = reason.text;
     // Keep the controller alive through the dialog's reverse transition.
-    if (confirmed == true && mounted) {
+    if (confirmed == true && mounted && live) {
       if (['reject', 'cancel'].contains(action) && text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -360,9 +455,11 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
   }
 
   Future<void> discard() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
+    if (!live || confirming || c.sending || c.loading) return;
+    confirming = true;
+    final confirmed = await showOwnedDialog<bool>(
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(
           lt(
             'Saqlangan urinishni tozalash',
@@ -389,11 +486,12 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
         ],
       ),
     );
-    if (confirmed == true && mounted) {
+    confirming = false;
+    if (confirmed == true && mounted && live) {
       try {
         await c.discardUncertainAction();
       } catch (e) {
-        if (mounted) {
+        if (mounted && live) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text(e.toString())));
@@ -407,6 +505,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
     listenable: c,
     builder: (context, _) {
       context.dependOnInheritedWidgetOfExactType<AppLanguage>();
+      if (!c.live) return bookingSourceExpired();
       final b = c.booking, s = b?['snapshot'], p = s?['price'];
       final locked = c.loading || c.sending || c.pending != null;
       return Scaffold(
@@ -439,9 +538,9 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
               Text(bookingServiceLabel(p['service'])),
               TextButton(
                 key: const ValueKey('bookingAmendmentPolicy'),
-                onPressed: () => showDialog<void>(
-                  context: context,
+                onPressed: () => showOwnedDialog<void>(
                   builder: (context) => AlertDialog(
+                    scrollable: true,
                     title: Text(
                       lt(
                         'O‘zgartirish va uzaytirish',
@@ -489,7 +588,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                 key: const ValueKey('bookingSupport'),
                 onPressed: locked
                     ? null
-                    : () => Navigator.of(context).push(
+                    : () => navigate(
                         MaterialPageRoute<void>(
                           builder: (_) => SupportThreadPage(
                             api: c.api,
@@ -517,7 +616,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                   onPressed: locked
                       ? null
                       : () async {
-                          await Navigator.of(context).push(
+                          await navigate(
                             MaterialPageRoute<void>(
                               builder: (_) =>
                                   BookingDisputePage(api: c.api, id: widget.id),
@@ -539,7 +638,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                   key: const ValueKey('bookingReview'),
                   onPressed: locked
                       ? null
-                      : () => Navigator.of(context).push(
+                      : () => navigate(
                           MaterialPageRoute<void>(
                             builder: (_) => BookingReviewPage(
                               api: c.api,
@@ -563,7 +662,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
                   key: const ValueKey('bookingCare'),
                   onPressed: locked
                       ? null
-                      : () => Navigator.of(context).push(
+                      : () => navigate(
                           MaterialPageRoute<void>(
                             builder: (_) => BookingCarePage(
                               api: c.api,

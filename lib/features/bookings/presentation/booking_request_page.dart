@@ -1,3 +1,4 @@
+import 'booking_source_boundary.dart';
 import 'dart:convert';
 import '../../../core/localization/app_language.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +10,7 @@ import '../../onboarding/data/profile_photo_source.dart';
 import '../data/booking_composer.dart';
 import 'bookings_page.dart';
 
-class BookingRequestPage extends StatefulWidget {
+class BookingRequestPage extends StatelessWidget {
   const BookingRequestPage({
     super.key,
     required this.store,
@@ -24,10 +25,55 @@ class BookingRequestPage extends StatefulWidget {
   final ProfilePhotoSource? photoSource;
   final Widget Function(String id)? detailBuilder;
   @override
-  State<BookingRequestPage> createState() => _BookingRequestPageState();
+  Widget build(BuildContext context) {
+    final api = store.api;
+    if (api == null) return bookingSourceExpired();
+    return BookingSourceBoundary(
+      api: api,
+      valid:
+          composer == null ||
+          (identical(composer!.api, api) &&
+              composer!.listingId == sitter['id'] &&
+              composer!.live),
+      child: _BookingRequestPage(
+        key: ValueKey((store, api, sitter['id'], composer, photoSource)),
+        store: store,
+        sitter: sitter,
+        composer: composer,
+        photoSource: photoSource,
+        detailBuilder: detailBuilder,
+      ),
+    );
+  }
 }
 
-class _BookingRequestPageState extends State<BookingRequestPage> {
+class _BookingRequestPage extends StatefulWidget {
+  const _BookingRequestPage({
+    super.key,
+    required this.store,
+    required this.sitter,
+    this.composer,
+    this.photoSource,
+    this.detailBuilder,
+  });
+  final CustomerStore store;
+  final CJson sitter;
+  final BookingComposer? composer;
+  final ProfilePhotoSource? photoSource;
+  final Widget Function(String id)? detailBuilder;
+  @override
+  State<_BookingRequestPage> createState() => _BookingRequestPageState();
+}
+
+class _BookingRequestPageState extends State<_BookingRequestPage>
+    with BookingOwnedDialogs<_BookingRequestPage> {
+  bool get live => mounted && c.live && identical(widget.store.api, c.api);
+
+  Future<T?> navigate<T>(Route<T> route) async {
+    if (!live || !(ModalRoute.of(context)?.isCurrent ?? true)) return null;
+    return Navigator.of(context).push(route);
+  }
+
   late final c =
       widget.composer ??
       BookingComposer(widget.store.api!, widget.sitter['id']);
@@ -50,8 +96,9 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
   }
 
   Future<void> initialize() async {
+    if (!live) return;
     await c.load();
-    if (!mounted || !c.ready) return;
+    if (!live || !c.ready) return;
     final d = c.draft;
     pets.addAll((d['petIds'] as List? ?? []).cast<String>());
     if (d['startsAt'] is String) start = DateTime.tryParse(d['startsAt']);
@@ -64,7 +111,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
       final removed = pets.any((id) => !eligibleIds.contains(id));
       pets.retainAll(eligibleIds);
       if (removed) await c.saveDraft(fields());
-      if (!mounted) return;
+      if (!live) return;
     }
     if (c.quote != null || c.pending != null) step = 3;
     setState(() {});
@@ -72,7 +119,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
 
   @override
   void dispose() {
-    c.dispose();
+    if (widget.composer == null) c.dispose();
     instructions.dispose();
     super.dispose();
   }
@@ -92,26 +139,26 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
   void notice(String text) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   Future<void> pickTime(bool from) async {
+    if (!live || c.busy || picking || c.pending != null) return;
     final now = DateTime.now().toUtc().add(const Duration(hours: 5));
     final old =
         (from ? start : end)?.toUtc().add(const Duration(hours: 5)) ?? now;
-    final day = await showDatePicker(
-      context: context,
+    final day = await showOwnedDatePicker(
       initialDate: old.isBefore(now) ? now : old,
       firstDate: DateTime(now.year, now.month, now.day),
       lastDate: DateTime(now.year + 1, now.month, now.day),
     );
-    if (day == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
-      helpText: lt('Toshkent vaqti', 'Tashkent time', 'Время Ташкента'),
-      builder: (context, child) => MediaQuery(
+    if (day == null || !live) return;
+    final time = await showOwnedDialog<TimeOfDay>(
+      builder: (context) => MediaQuery(
         data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child!,
+        child: TimePickerDialog(
+          initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
+          helpText: lt('Toshkent vaqti', 'Tashkent time', 'Время Ташкента'),
+        ),
       ),
     );
-    if (time == null || !mounted) return;
+    if (time == null || !live) return;
     final value = DateTime.utc(
       day.year,
       day.month,
@@ -129,11 +176,10 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
   }
 
   Future<void> pickPassport(String id) async {
-    if (picking || c.busy || c.pending != null) return;
+    if (!live || picking || c.busy || c.pending != null) return;
     setState(() => picking = true);
     try {
-      final source = await showModalBottomSheet<ImageSource>(
-        context: context,
+      final source = await showOwnedSheet<ImageSource>(
         builder: (context) => SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -150,25 +196,28 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
           ),
         ),
       );
-      if (source == null) return;
+      if (source == null || !live) return;
       final bytes = await photos.pickProfile(source: source);
-      if (bytes != null && mounted) {
+      if (bytes != null && live) {
         if (bytes.length > 3 * 1024 * 1024) {
           throw StateError('Rasm 3 MB dan kichik bo‘lishi kerak');
         }
         setState(() => passports[id] = base64Encode(bytes));
       }
     } catch (e) {
-      if (mounted) notice(e.toString());
+      if (live) notice(e.toString());
     } finally {
-      if (mounted) setState(() => picking = false);
+      if (live) setState(() => picking = false);
     }
   }
 
   Future<void> next() async {
-    if (c.busy || picking || !c.ready) return;
+    if (!live || c.busy || picking || !c.ready) return;
     if (c.pending != null || step == 3) {
-      if (await c.submit() && mounted) {
+      if (await c.submit() &&
+          mounted &&
+          live &&
+          (ModalRoute.of(context)?.isCurrent ?? true)) {
         await Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -218,15 +267,16 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
       );
       return;
     }
-    if (!await c.saveDraft(fields()) || !mounted) return;
+    if (!await c.saveDraft(fields()) || !live) return;
     if (step == 2 && !await c.getQuote()) return;
-    if (mounted) setState(() => step++);
+    if (live) setState(() => step++);
   }
 
   Future<void> clearAttempt() async {
-    final confirm = await showDialog<bool>(
-      context: context,
+    if (!live || c.busy || picking) return;
+    final confirm = await showOwnedDialog<bool>(
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(
           lt('Yangi taklif olish', 'Get a new quote', 'Получить новый расчёт'),
         ),
@@ -249,12 +299,12 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
         ],
       ),
     );
-    if (confirm != true || !mounted) return;
+    if (confirm != true || !live) return;
     try {
       await c.clearAttempt();
-      if (mounted) setState(() => step = 2);
+      if (live) setState(() => step = 2);
     } catch (e) {
-      if (mounted) notice(e.toString());
+      if (live) notice(e.toString());
     }
   }
 
@@ -263,6 +313,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
     listenable: c,
     builder: (context, _) {
       context.dependOnInheritedWidgetOfExactType<AppLanguage>();
+      if (!live) return bookingSourceExpired();
       final frozen = c.busy || picking || c.pending != null;
       final quote = c.quote?['snapshot'];
       return Scaffold(
@@ -302,8 +353,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                     onPressed: frozen
                         ? null
                         : () async {
-                            await Navigator.push(
-                              context,
+                            await navigate(
                               MaterialPageRoute(
                                 builder: (_) => CustomerPetForm(
                                   store: widget.store,
@@ -314,7 +364,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                                 ),
                               ),
                             );
-                            if (mounted) setState(() {});
+                            if (live) setState(() {});
                           },
                   ),
                   value: pets.contains(pet['id']),
@@ -330,8 +380,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                 onPressed: frozen
                     ? null
                     : () async {
-                        await Navigator.push(
-                          context,
+                        await navigate(
                           MaterialPageRoute(
                             builder: (_) => CustomerPetForm(
                               store: widget.store,
@@ -341,7 +390,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                             ),
                           ),
                         );
-                        if (mounted) setState(() {});
+                        if (live) setState(() {});
                       },
                 child: Text(
                   lt('Hayvon qo‘shish', 'Add pet', 'Добавить питомца'),
@@ -384,8 +433,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                   onPressed: frozen
                       ? null
                       : () async {
-                          final address = await Navigator.push<CJson>(
-                            context,
+                          final address = await navigate<CJson>(
                             MaterialPageRoute(
                               builder: (_) => CustomerAddressesPage(
                                 store: widget.store,
@@ -393,7 +441,7 @@ class _BookingRequestPageState extends State<BookingRequestPage> {
                               ),
                             ),
                           );
-                          if (address != null && mounted) {
+                          if (address != null && live) {
                             setState(() => addressId = address['id']);
                           }
                         },

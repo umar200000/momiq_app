@@ -53,8 +53,9 @@ class BookingComposer extends ChangeNotifier {
           throw const FormatException('Buyurtma qoralamasi noto‘g‘ri');
         }
       }
-      policy = await api.request('GET', '/bookings/policy');
+      final loadedPolicy = await api.request('GET', '/bookings/policy');
       check();
+      policy = loadedPolicy;
       if (policy['version'] != 'elapsed-24h-v1') {
         throw const FormatException(
           'Sana siyosati mos emas; ilovani yangilang',
@@ -62,7 +63,7 @@ class BookingComposer extends ChangeNotifier {
       }
       ready = true;
     } catch (e) {
-      error = e;
+      if (live) error = e;
     } finally {
       busy = false;
       changed();
@@ -82,7 +83,7 @@ class BookingComposer extends ChangeNotifier {
       check();
       return true;
     } catch (e) {
-      error = e;
+      if (live) error = e;
       return false;
     } finally {
       busy = false;
@@ -99,16 +100,17 @@ class BookingComposer extends ChangeNotifier {
       quote = null;
       await persist();
       check();
-      quote = await api.request('POST', '/bookings/quotes', {
+      final loadedQuote = await api.request('POST', '/bookings/quotes', {
         'listingId': listingId,
         ...draft,
       });
       check();
+      quote = loadedQuote;
       await persist();
       check();
       return true;
     } catch (e) {
-      error = e;
+      if (live) error = e;
       return false;
     } finally {
       busy = false;
@@ -117,9 +119,15 @@ class BookingComposer extends ChangeNotifier {
   }
 
   Future<bool> submit() async {
-    if (!live || busy || !ready || (quote == null && pending == null)) {
+    if (!live ||
+        busy ||
+        !ready ||
+        (quote == null && pending == null && result == null)) {
       return false;
     }
+    // A covered form may still be mounted after a confirmed creation. Reopening
+    // its result must never manufacture a second request for the same form.
+    if (result != null && pending == null) return true;
     busy = true;
     error = null;
     changed();
@@ -135,7 +143,7 @@ class BookingComposer extends ChangeNotifier {
       pending = null;
       return true;
     } catch (e) {
-      error = e;
+      if (live) error = e;
       return false;
     } finally {
       busy = false;

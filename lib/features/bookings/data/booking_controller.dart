@@ -62,7 +62,7 @@ class BookingController extends ChangeNotifier {
       booking = result;
       ready = true;
     } catch (e) {
-      error = e;
+      if (live) error = e;
     } finally {
       loading = false;
       changed();
@@ -106,7 +106,7 @@ class BookingController extends ChangeNotifier {
       pending = null;
       return true;
     } catch (e) {
-      error = e;
+      if (live) error = e;
       return false;
     } finally {
       sending = false;
@@ -116,9 +116,20 @@ class BookingController extends ChangeNotifier {
 
   Future<void> discardUncertainAction() async {
     if (!live || sending || loading) return;
-    await storage.clear();
-    check();
-    pending = null;
+    loading = true;
+    error = null;
+    changed();
+    try {
+      await storage.clear();
+      check();
+      pending = null;
+    } catch (e) {
+      if (live) error = e;
+      rethrow;
+    } finally {
+      loading = false;
+      changed();
+    }
     await load();
   }
 
