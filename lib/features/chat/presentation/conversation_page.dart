@@ -1,3 +1,4 @@
+import '../../media/presentation/private_api_image.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -707,50 +708,15 @@ class _ConversationPageState extends State<ConversationPage>
   }
 }
 
-class _ChatImage extends StatefulWidget {
+class _ChatImage extends StatelessWidget {
   const _ChatImage({super.key, required this.api, required this.path});
   final CustomerApi api;
   final String path;
   @override
-  State<_ChatImage> createState() => _ChatImageState();
-}
-
-class _ChatImageState extends State<_ChatImage> {
-  String? _image;
-  bool _busy = false, _failed = false;
-  Future<void> _load() async {
-    setState(() => _busy = true);
-    try {
-      final result = await widget.api.request('GET', widget.path);
-      if (mounted) {
-        setState(() {
-          _image = result['image'];
-          _failed = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => _image == null
-      ? TextButton.icon(
-          onPressed: _busy ? null : _load,
-          icon: const Icon(Icons.image),
-          label: Text(
-            _failed
-                ? chatRetry()
-                : lt('Rasmni ochish', 'Open image', 'Открыть фото'),
-          ),
-        )
-      : Image.memory(
-          base64Decode(_image!),
-          height: 180,
-          width: 220,
-          fit: BoxFit.contain,
-          errorBuilder: (_, _, _) => Text(chatFailure()),
-        );
+  Widget build(BuildContext context) => PrivateApiImage(
+    api: api,
+    path: path,
+    width: 220,
+    label: lt('Rasmni ochish', 'Open image', 'Открыть фото'),
+  );
 }

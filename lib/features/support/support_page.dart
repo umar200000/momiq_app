@@ -1,3 +1,4 @@
+import '../media/presentation/private_api_image.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -547,45 +548,15 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
   );
 }
 
-class SupportImage extends StatefulWidget {
+class SupportImage extends StatelessWidget {
   const SupportImage({super.key, required this.api, required this.path});
   final CustomerApi api;
   final String path;
   @override
-  State<SupportImage> createState() => _SupportImageState();
-}
-
-class _SupportImageState extends State<SupportImage> {
-  String? image;
-  bool busy = false;
-  final session = CustomerApi.sessionVersion;
-  Future<void> load() async {
-    setState(() => busy = true);
-    try {
-      final result = await widget.api.request('GET', widget.path);
-      if (mounted && session == CustomerApi.sessionVersion) {
-        setState(() => image = result['image']);
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(supportError())));
-      }
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => image == null
-      ? TextButton(
-          onPressed: busy ? null : load,
-          child: Text(lt('Rasmni ochish', 'Open image', 'Открыть фото')),
-        )
-      : Image.memory(
-          base64Decode(image!),
-          height: 200,
-          errorBuilder: (_, _, _) => Text(supportError()),
-        );
+  Widget build(BuildContext context) => PrivateApiImage(
+    api: api,
+    path: path,
+    height: 200,
+    label: lt('Rasmni ochish', 'Open image', 'Открыть фото'),
+  );
 }

@@ -1,7 +1,7 @@
 import '../../support/support_page.dart';
 import 'booking_dispute_page.dart';
 import '../../customer/presentation/pet_safety.dart';
-import 'dart:convert';
+import '../../media/presentation/private_api_image.dart';
 import 'package:flutter/material.dart';
 import '../../care/presentation/booking_care_page.dart';
 import '../../reviews/presentation/booking_review_page.dart';
@@ -732,7 +732,7 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
   );
 }
 
-class BookingAnimalImage extends StatefulWidget {
+class BookingAnimalImage extends StatelessWidget {
   const BookingAnimalImage({
     super.key,
     required this.api,
@@ -743,50 +743,11 @@ class BookingAnimalImage extends StatefulWidget {
   final CustomerApi api;
   final String bookingId, petId, kind;
   @override
-  State<BookingAnimalImage> createState() => _BookingAnimalImageState();
-}
-
-class _BookingAnimalImageState extends State<BookingAnimalImage> {
-  final int session = CustomerApi.sessionVersion;
-  String? image, error;
-  bool busy = false;
-  Future<void> load() async {
-    if (busy || session != CustomerApi.sessionVersion) return;
-    setState(() {
-      busy = true;
-      error = null;
-    });
-    try {
-      final result = await widget.api.request(
-        'GET',
-        '/bookings/${widget.bookingId}/pets/${Uri.encodeComponent(widget.petId)}/${widget.kind}',
-      );
-      if (mounted && session == CustomerApi.sessionVersion) {
-        setState(() => image = result['image']);
-      }
-    } catch (e) {
-      if (mounted) setState(() => error = e.toString());
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      if (image != null)
-        Image.memory(base64Decode(image!), height: 180, fit: BoxFit.contain),
-      if (error != null) Text(error!),
-      if (image == null)
-        TextButton(
-          onPressed: busy ? null : load,
-          child: Text(
-            widget.kind == 'photo'
-                ? lt('Hayvon rasmini ko‘rish', 'View pet photo', 'Фото питомца')
-                : lt('Pasportni ko‘rish', 'View passport', 'Паспорт питомца'),
-          ),
-        ),
-      if (busy) const LinearProgressIndicator(),
-    ],
+  Widget build(BuildContext context) => PrivateApiImage(
+    api: api,
+    path: '/bookings/$bookingId/pets/${Uri.encodeComponent(petId)}/$kind',
+    label: kind == 'photo'
+        ? lt('Hayvon rasmini ko‘rish', 'View pet photo', 'Фото питомца')
+        : lt('Pasportni ko‘rish', 'View passport', 'Паспорт питомца'),
   );
 }
