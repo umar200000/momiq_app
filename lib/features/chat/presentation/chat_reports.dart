@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../data/conversation_controller.dart';
+import '../data/conversation_data.dart';
+import '../../customer/presentation/customer_session_boundary.dart';
+
+String chatSessionExpired() => lt(
+  'Sessiya o‘zgardi. Suhbatni qayta oching.',
+  'The session changed. Reopen the conversation.',
+  'Сессия изменилась. Откройте переписку заново.',
+);
 
 String reportStatus(String status) => switch (status) {
   'removed' => lt('Xabar yashirildi', 'Message hidden', 'Сообщение скрыто'),
@@ -13,7 +21,7 @@ String reportStatus(String status) => switch (status) {
   _ => lt('Ko‘rib chiqilmoqda', 'Under review', 'На рассмотрении'),
 };
 
-class ChatReportDialog extends StatefulWidget {
+class ChatReportDialog extends StatelessWidget {
   const ChatReportDialog({
     super.key,
     required this.api,
@@ -23,32 +31,76 @@ class ChatReportDialog extends StatefulWidget {
   final CustomerApi api;
   final String conversationId, messageId;
   @override
-  State<ChatReportDialog> createState() => _ChatReportDialogState();
+  Widget build(BuildContext context) => CustomerSessionBoundary(
+    api: api,
+    expired: AlertDialog(
+      scrollable: true,
+      content: Text(chatSessionExpired()),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(lt('Yopish', 'Close', 'Закрыть')),
+        ),
+      ],
+    ),
+    child: _BoundChatReportDialog(
+      key: ValueKey((api, conversationId, messageId)),
+      api: api,
+      conversationId: conversationId,
+      messageId: messageId,
+    ),
+  );
 }
 
-class _ChatReportDialogState extends State<ChatReportDialog> {
+class _BoundChatReportDialog extends StatefulWidget {
+  const _BoundChatReportDialog({
+    super.key,
+    required this.api,
+    required this.conversationId,
+    required this.messageId,
+  });
+  final CustomerApi api;
+  final String conversationId, messageId;
+  @override
+  State<_BoundChatReportDialog> createState() => _ChatReportDialogState();
+}
+
+class _ChatReportDialogState extends State<_BoundChatReportDialog> {
   final _reason = TextEditingController();
+  final _session = CustomerApi.sessionVersion;
+  bool get _live => mounted && _session == CustomerApi.sessionVersion;
   final _requestId = chatRequestId();
   String? _error;
   bool _busy = false;
   String? _submittedReason;
   Future<void> _submit() async {
-    if (_busy || _reason.text.trim().isEmpty) return;
+    if (!_live || _busy || _reason.text.trim().isEmpty) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     _submittedReason ??= _reason.text.trim();
     try {
-      await widget.api
+      final response = await widget.api
           .request('POST', '/conversations/${widget.conversationId}/reports', {
             'messageId': widget.messageId,
             'reason': _submittedReason,
             'requestId': _requestId,
           });
-      if (mounted) Navigator.pop(context, true);
+      if (!_live) return;
+      chatReport(
+        response,
+        messageId: widget.messageId,
+        reason: _submittedReason,
+      );
+      if (mounted && _live) {
+        final route = ModalRoute.of(context);
+        if (route != null && route.isActive) {
+          route.navigator?.removeRoute(route, true);
+        }
+      }
     } catch (_) {
-      if (mounted) {
+      if (_live) {
         setState(
           () => _error = lt(
             'Murojaat tasdiqlanmadi. Qayta urinib ko‘ring yoki murojaatlar tarixini tekshiring.',
@@ -58,7 +110,7 @@ class _ChatReportDialogState extends State<ChatReportDialog> {
         );
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (_live) setState(() => _busy = false);
     }
   }
 
@@ -70,8 +122,9 @@ class _ChatReportDialogState extends State<ChatReportDialog> {
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !_busy,
+    canPop: !_busy || !_live,
     child: AlertDialog(
+      scrollable: true,
       title: Text(
         lt(
           'Xabar ustidan shikoyat',
@@ -120,7 +173,7 @@ class _ChatReportDialogState extends State<ChatReportDialog> {
   );
 }
 
-class ChatReportsPage extends StatefulWidget {
+class ChatReportsPage extends StatelessWidget {
   const ChatReportsPage({
     super.key,
     required this.api,
@@ -129,11 +182,33 @@ class ChatReportsPage extends StatefulWidget {
   final CustomerApi api;
   final String conversationId;
   @override
-  State<ChatReportsPage> createState() => _ChatReportsPageState();
+  Widget build(BuildContext context) => CustomerSessionBoundary(
+    api: api,
+    expired: Scaffold(body: Center(child: Text(chatSessionExpired()))),
+    child: _BoundChatReportsPage(
+      key: ValueKey((api, conversationId)),
+      api: api,
+      conversationId: conversationId,
+    ),
+  );
 }
 
-class _ChatReportsPageState extends State<ChatReportsPage> {
+class _BoundChatReportsPage extends StatefulWidget {
+  const _BoundChatReportsPage({
+    super.key,
+    required this.api,
+    required this.conversationId,
+  });
+  final CustomerApi api;
+  final String conversationId;
+  @override
+  State<_BoundChatReportsPage> createState() => _ChatReportsPageState();
+}
+
+class _ChatReportsPageState extends State<_BoundChatReportsPage> {
   final _items = <ChatJson>[];
+  final _session = CustomerApi.sessionVersion;
+  bool get _live => mounted && _session == CustomerApi.sessionVersion;
   bool _busy = false, _failed = false;
   String? _cursor;
   @override
@@ -143,26 +218,28 @@ class _ChatReportsPageState extends State<ChatReportsPage> {
   }
 
   Future<void> _load({bool more = false}) async {
-    if (_busy) return;
+    if (!_live || _busy || (more && _cursor == null)) return;
     setState(() {
       _busy = true;
       _failed = false;
     });
     try {
-      final page = await widget.api.request(
+      final before = more ? _cursor : null;
+      final response = await widget.api.request(
         'GET',
         '/conversations/${widget.conversationId}/reports${more ? '?before=$_cursor' : ''}',
       );
-      if (!mounted) return;
+      if (!_live) return;
+      final page = chatReportPage(response, before: before);
       setState(() {
         if (!more) _items.clear();
         _items.addAll((page['items'] as List).map((r) => ChatJson.from(r)));
         _cursor = page['nextCursor'];
       });
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (_live) setState(() => _failed = true);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (_live) setState(() => _busy = false);
     }
   }
 
@@ -172,6 +249,7 @@ class _ChatReportsPageState extends State<ChatReportsPage> {
       title: Text(lt('Murojaatlarim', 'My reports', 'Мои обращения')),
       actions: [
         IconButton(
+          tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
           onPressed: _busy ? null : _load,
           icon: const Icon(Icons.refresh),
         ),

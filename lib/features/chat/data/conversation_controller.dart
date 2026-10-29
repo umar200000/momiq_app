@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'conversation_data.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -34,6 +35,8 @@ class ConversationController extends ChangeNotifier {
   final _redacted = <String>{};
   int _readAcknowledged = 0, _deliveryAcknowledged = 0;
   bool _receiving = false;
+  int _summaryGeneration = 0;
+  bool _blocking = false, _discarding = false;
   bool get live => !_dead && _session == CustomerApi.sessionVersion;
   String get path => '/conversations/$id';
 
@@ -46,7 +49,7 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    if (loading || ready) return;
+    if (!live || loading || ready) return;
     loading = true;
     error = null;
     changed();
@@ -57,8 +60,9 @@ class ConversationController extends ChangeNotifier {
           (pending!['requestId'] is! String || pending!['text'] is! String)) {
         throw const FormatException('Invalid saved outbox');
       }
-      final page = await api.request('GET', '$path/messages');
+      final response = await api.request('GET', '$path/messages');
       check();
+      final page = chatPage(response, id: id);
       merge(page);
       _advance(page);
       _changeCursor = page['changeCursor'] ?? '0';
@@ -66,15 +70,17 @@ class ConversationController extends ChangeNotifier {
       ready = true;
       unawaited(_receivedFetched());
     } catch (e) {
-      error = e;
+      if (live) error = e;
     } finally {
       loading = false;
       changed();
     }
   }
 
-  void merge(ChatJson page) {
-    conversation = ChatJson.from(page['conversation']);
+  void merge(ChatJson page, {bool updateSummary = true}) {
+    if (!live) return;
+    page = chatPage(page, id: id);
+    if (updateSummary) conversation = ChatJson.from(page['conversation']);
     _redacted.addAll((page['redactedIds'] as List? ?? []).cast<String>());
     final byId = {for (final item in messages) item['id']: item};
     for (final item in page['items'] as List) {
@@ -108,12 +114,23 @@ class ConversationController extends ChangeNotifier {
     error = null;
     changed();
     try {
+      final generation = _summaryGeneration;
+      final before = older ? messages.first['id'] as String : null;
+      final after = older ? null : readCursor;
+      final changes = older ? null : _changeCursor;
       final cursor = older
           ? 'before=${messages.first['id']}'
           : 'after=$readCursor&changesAfter=$_changeCursor';
-      final page = await api.request('GET', '$path/messages?$cursor');
+      final response = await api.request('GET', '$path/messages?$cursor');
       check();
-      merge(page);
+      final page = chatPage(
+        response,
+        id: id,
+        before: before,
+        after: after,
+        changesAfter: changes,
+      );
+      merge(page, updateSummary: generation == _summaryGeneration);
       if (!older) {
         _advance(page);
         _changeCursor = page['changeCursor'] ?? _changeCursor;
@@ -121,7 +138,7 @@ class ConversationController extends ChangeNotifier {
       if (older) more = page['hasMore'] == true;
       unawaited(_receivedFetched());
     } catch (e) {
-      error = e;
+      if (live) error = e;
     } finally {
       loading = false;
       changed();
@@ -129,7 +146,7 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<bool> send(String text, String? image) async {
-    if (!live || !ready || sending) return false;
+    if (!live || !ready || sending || _discarding || _blocking) return false;
     sending = true;
     error = null;
     changed();
@@ -146,8 +163,9 @@ class ConversationController extends ChangeNotifier {
       // the same content and key; a failed local write never performs a POST.
       await storage.write(pending!);
       check();
-      final result = await api.request('POST', '$path/messages', pending);
+      final response = await api.request('POST', '$path/messages', pending);
       check();
+      final result = chatMessage(response, requestId: pending!['requestId']);
       if (result['hidden'] == true) _redacted.add(result['id'] as String);
       if (_redacted.contains(result['id'])) {
         result['hidden'] = true;
@@ -167,7 +185,7 @@ class ConversationController extends ChangeNotifier {
       pending = null;
       return true;
     } catch (e) {
-      error = e;
+      if (live) error = e;
       return false;
     } finally {
       sending = false;
@@ -187,7 +205,12 @@ class ConversationController extends ChangeNotifier {
     if (last <= _deliveryAcknowledged) return;
     _receiving = true;
     try {
-      await api.request('POST', '$path/received', {'throughId': '$last'});
+      final result = await api.request('POST', '$path/received', {
+        'throughId': '$last',
+      });
+      if (result['ok'] != true) {
+        throw const FormatException('Delivery not confirmed');
+      }
       if (live) _deliveryAcknowledged = last;
     } catch (_) {
       // Receipt failure cannot turn a fetched message into a send failure.
@@ -198,13 +221,21 @@ class ConversationController extends ChangeNotifier {
   }
 
   Future<void> readThrough(String id) async {
-    if (!live || _reading || !ready || int.parse(id) <= _readAcknowledged) {
+    if (!live ||
+        _reading ||
+        !ready ||
+        !chatNumber(id) ||
+        !messages.any((m) => m['id'] == id) ||
+        int.parse(id) <= _readAcknowledged) {
       return;
     }
     _reading = true;
     try {
-      await api.request('POST', '$path/read', {'throughId': id});
-      _readAcknowledged = int.parse(id);
+      final result = await api.request('POST', '$path/read', {'throughId': id});
+      if (result['ok'] != true) {
+        throw const FormatException('Read not confirmed');
+      }
+      if (live) _readAcknowledged = int.parse(id);
     } catch (_) {
       /* A later visible poll retries; never mark a future message. */
     } finally {
@@ -214,22 +245,42 @@ class ConversationController extends ChangeNotifier {
 
   Future<void> setBlocked(bool value) async {
     check();
-    final result = await api.request('POST', '$path/block', {
-      'blocked': value,
-      'revision': conversation!['blockRevision'],
-    });
-    check();
-    conversation = result;
-    changed();
+    if (!ready || _blocking || sending || _discarding) return;
+    _blocking = true;
+    _summaryGeneration++;
+    final revision = conversation!['blockRevision'] as int;
+    try {
+      final response = await api.request('POST', '$path/block', {
+        'blocked': value,
+        'revision': revision,
+      });
+      check();
+      final result = chatSummary(response, id: id);
+      if (result['blockRevision'] != revision + 1 ||
+          result['blockedByMe'] != value) {
+        throw const FormatException('Block not confirmed');
+      }
+      conversation = result;
+      changed();
+    } finally {
+      _summaryGeneration++;
+      _blocking = false;
+    }
   }
 
   Future<void> discardPending() async {
-    if (sending) return;
-    await storage.clear();
     check();
-    pending = null;
-    error = null;
-    changed();
+    if (sending || loading || _discarding || _blocking) return;
+    _discarding = true;
+    try {
+      await storage.clear();
+      check();
+      pending = null;
+      error = null;
+      changed();
+    } finally {
+      _discarding = false;
+    }
   }
 
   @override

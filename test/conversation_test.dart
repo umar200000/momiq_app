@@ -48,6 +48,7 @@ class ChatApi extends CustomerApi {
   final reads = <String>[];
   final deliveries = <String>[];
   bool failDelivery = false;
+  String identity = 'a' * 32;
   String peerDelivered = '0', peerRead = '0';
   bool loseResponse = false;
   bool paginated = false;
@@ -56,7 +57,7 @@ class ChatApi extends CustomerApi {
   final redactions = <String>[];
   Completer<void>? postGate;
   ChatJson get summary => {
-    'id': 'chat',
+    'id': identity,
     'peerName': 'TEST sitter',
     'service': 'boarding',
     'myRole': 'customer',
@@ -71,6 +72,7 @@ class ChatApi extends CustomerApi {
   @override
   Future<ChatJson> request(String method, String path, [ChatJson? body]) async {
     paths.add('$method $path');
+    if (path.startsWith('/conversations/')) identity = path.split('/')[2];
     if (path.endsWith('/received')) {
       deliveries.add(body!['throughId']);
       if (failDelivery) throw StateError('receipt unavailable');
@@ -144,7 +146,15 @@ class ReportApi extends CustomerApi {
   Future<ChatJson> request(String method, String path, [ChatJson? body]) async {
     posts.add(Map.of(body!));
     if (posts.length == 1) throw CustomerApiException('Lost response');
-    return {'id': '1', 'status': 'open'};
+    return {
+      'id': '1',
+      'messageId': body['messageId'],
+      'status': 'open',
+      'revision': 0,
+      'reason': body['reason'],
+      'created': '2026-10-29T00:00:00Z',
+      'reviewReason': null,
+    };
   }
 }
 
@@ -155,7 +165,7 @@ void main() {
       final api = ChatApi()
         ..paginated = true
         ..items.addAll(List.generate(65, (i) => msg(i + 1)));
-      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
       addTearDown(chat.dispose);
       await chat.initialize();
       expect(
@@ -191,7 +201,7 @@ void main() {
       final api = ChatApi()
         ..items.addAll([msg(1), msg(2, mine: true)])
         ..failDelivery = true;
-      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
       addTearDown(chat.dispose);
       await chat.initialize();
       await Future<void>.delayed(Duration.zero);
@@ -220,7 +230,7 @@ void main() {
     final api = ChatApi()
       ..items.add(msg(1, mine: true))
       ..peerDelivered = '1';
-    final chat = ConversationController(api, 'chat', storage: ChatDraft());
+    final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
     await t.pumpWidget(MaterialApp(home: ConversationPage(controller: chat)));
     await t.pumpAndSettle();
     expect(find.textContaining('Yetkazildi'), findsOneWidget);
@@ -237,7 +247,7 @@ void main() {
     'moderation delta removes loaded content without advancing message cursor',
     () async {
       final api = ChatApi()..items.add(msg(1, text: 'private old text'));
-      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
       await chat.initialize();
       api.redactions.add('1');
       await chat.refresh();
@@ -249,6 +259,9 @@ void main() {
       chat.merge({
         'conversation': api.summary,
         'items': [msg(1, text: 'stale text')],
+        'redactedIds': <String>[],
+        'changeCursor': '1',
+        'hasMore': false,
       });
       expect(chat.messages.single['text'], '');
       await chat.refresh();
@@ -261,7 +274,7 @@ void main() {
     () async {
       final api = ChatApi()..loseResponse = true;
       final storage = ChatDraft();
-      final chat = ConversationController(api, 'chat', storage: storage);
+      final chat = ConversationController(api, 'a' * 32, storage: storage);
       await chat.initialize();
       await chat.send('already accepted', null);
       await chat.setBlocked(true);
@@ -289,7 +302,7 @@ void main() {
                   context: context,
                   builder: (_) => ChatReportDialog(
                     api: api,
-                    conversationId: 'chat',
+                    conversationId: 'a' * 32,
                     messageId: '1',
                   ),
                 ),
@@ -326,13 +339,13 @@ void main() {
     () async {
       final api = ChatApi()..loseResponse = true;
       final storage = ChatDraft();
-      final first = ConversationController(api, 'chat', storage: storage);
+      final first = ConversationController(api, 'a' * 32, storage: storage);
       await first.initialize();
       expect(await first.send('original', null), false);
       expect(api.items.length, 1);
       final request = storage.value!['requestId'];
       first.dispose();
-      final restored = ConversationController(api, 'chat', storage: storage);
+      final restored = ConversationController(api, 'a' * 32, storage: storage);
       await restored.initialize();
       expect(restored.pending!['text'], 'original');
       expect(await restored.send('accidental replacement', null), true);
@@ -349,7 +362,7 @@ void main() {
     () async {
       final api = ChatApi();
       final storage = ChatDraft()..failWrite = true;
-      final chat = ConversationController(api, 'chat', storage: storage);
+      final chat = ConversationController(api, 'a' * 32, storage: storage);
       await chat.initialize();
       expect(await chat.send('hello', null), false);
       expect(api.posts, isEmpty);
@@ -368,7 +381,7 @@ void main() {
     'local send never advances delta past unseen incoming message',
     () async {
       final api = ChatApi()..items.add(msg(8));
-      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
       await chat.initialize();
       api.items.add(msg(9, text: 'arrived during send'));
       expect(await chat.send('reply', null), true);
@@ -376,7 +389,9 @@ void main() {
       await chat.refresh();
       expect(
         api.paths,
-        contains('GET /conversations/chat/messages?after=8&changesAfter=0'),
+        contains(
+          'GET /conversations/${'a' * 32}/messages?after=8&changesAfter=0',
+        ),
       );
       expect(chat.messages.map((m) => m['id']), ['8', '9', '10']);
       expect(chat.readCursor, '10');
@@ -385,7 +400,7 @@ void main() {
   );
   test('double tap sends once and expired session cannot send', () async {
     final api = ChatApi()..postGate = Completer<void>();
-    final chat = ConversationController(api, 'chat', storage: ChatDraft());
+    final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
     await chat.initialize();
     final first = chat.send('hello', null);
     await Future<void>.delayed(Duration.zero);
@@ -401,7 +416,7 @@ void main() {
     'background and covered route do not poll; resume fetches delta',
     (tester) async {
       final api = ChatApi()..items.add(msg(1));
-      final chat = ConversationController(api, 'chat', storage: ChatDraft());
+      final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
       await tester.pumpWidget(
         MaterialApp(home: ConversationPage(controller: chat)),
       );
@@ -427,7 +442,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         api.paths,
-        contains('GET /conversations/chat/messages?after=1&changesAfter=0'),
+        contains(
+          'GET /conversations/${'a' * 32}/messages?after=1&changesAfter=0',
+        ),
       );
       final navigator = tester.state<NavigatorState>(find.byType(Navigator));
       unawaited(
@@ -449,7 +466,7 @@ void main() {
     tester,
   ) async {
     final api = ChatApi()..loseResponse = true;
-    final chat = ConversationController(api, 'chat', storage: ChatDraft());
+    final chat = ConversationController(api, 'a' * 32, storage: ChatDraft());
     await tester.pumpWidget(
       MaterialApp(home: ConversationPage(controller: chat)),
     );

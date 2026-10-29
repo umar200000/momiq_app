@@ -9,6 +9,7 @@ import '../wallet/data/receipt_image.dart';
 import 'support_controller.dart';
 import 'support_resolution.dart';
 import 'support_data.dart';
+import '../customer/presentation/customer_session_boundary.dart';
 
 String supportState(String value) => switch (value) {
   'waiting_user' => lt(
@@ -100,8 +101,11 @@ class SupportPage extends StatelessWidget {
   const SupportPage({super.key, this.api});
   final CustomerApi? api;
   @override
-  Widget build(BuildContext context) =>
-      _BoundSupportPage(key: ObjectKey(api), api: api);
+  Widget build(BuildContext context) => CustomerSessionBoundary(
+    api: api,
+    expired: _supportSessionExpired(),
+    child: _BoundSupportPage(key: ObjectKey(api), api: api),
+  );
 }
 
 class _BoundSupportPage extends StatefulWidget {
@@ -263,22 +267,26 @@ class SupportThreadPage extends StatelessWidget {
   final SupportController? controller;
   final Map<String, String>? target;
   @override
-  Widget build(BuildContext context) => _BoundSupportThreadPage(
-    key: ValueKey((
-      api,
-      id,
-      bookingId,
-      controller,
-      target?['kind'],
-      target?['id'],
-      target?['purpose'],
-      target?['revision'],
-    )),
+  Widget build(BuildContext context) => CustomerSessionBoundary(
     api: api,
-    id: id,
-    bookingId: bookingId,
-    controller: controller,
-    target: target,
+    expired: _supportSessionExpired(),
+    child: _BoundSupportThreadPage(
+      key: ValueKey((
+        api,
+        id,
+        bookingId,
+        controller,
+        target?['kind'],
+        target?['id'],
+        target?['purpose'],
+        target?['revision'],
+      )),
+      api: api,
+      id: id,
+      bookingId: bookingId,
+      controller: controller,
+      target: target,
+    ),
   );
 }
 

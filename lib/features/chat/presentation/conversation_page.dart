@@ -9,7 +9,9 @@ import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../wallet/data/receipt_image.dart';
 import '../data/conversation_controller.dart';
+import '../data/conversation_data.dart';
 import 'chat_reports.dart';
+import '../../customer/presentation/customer_session_boundary.dart';
 
 String chatService(String? service) => switch (service) {
   'boarding' => lt('Uyda qarash', 'Boarding', 'Передержка'),
@@ -37,14 +39,25 @@ Future<void> openConversation(
 }
 
 /// Embedded in the active tab; disposing it or covering the route stops polling.
-class ConversationInbox extends StatefulWidget {
+class ConversationInbox extends StatelessWidget {
   const ConversationInbox({super.key, this.api});
   final CustomerApi? api;
   @override
-  State<ConversationInbox> createState() => _ConversationInboxState();
+  Widget build(BuildContext context) => CustomerSessionBoundary(
+    api: api,
+    expired: Text(chatSessionExpired()),
+    child: _BoundConversationInbox(key: ObjectKey(api), api: api),
+  );
 }
 
-class _ConversationInboxState extends State<ConversationInbox>
+class _BoundConversationInbox extends StatefulWidget {
+  const _BoundConversationInbox({super.key, this.api});
+  final CustomerApi? api;
+  @override
+  State<_BoundConversationInbox> createState() => _ConversationInboxState();
+}
+
+class _ConversationInboxState extends State<_BoundConversationInbox>
     with WidgetsBindingObserver {
   CustomerApi? _api;
   final _items = <ChatJson>[];
@@ -52,8 +65,9 @@ class _ConversationInboxState extends State<ConversationInbox>
   bool _busy = false, _failed = false, _foreground = true;
   final int _session = CustomerApi.sessionVersion;
   Timer? _timer;
+  bool get _live => mounted && _session == CustomerApi.sessionVersion;
   bool get _visible =>
-      mounted &&
+      _live &&
       _foreground &&
       (ModalRoute.of(context)?.isCurrent ?? true) &&
       _session == CustomerApi.sessionVersion;
@@ -74,17 +88,20 @@ class _ConversationInboxState extends State<ConversationInbox>
   }
 
   Future<void> _load({bool more = false, bool quiet = false}) async {
-    if (_busy || (more && _cursor == null)) return;
+    if (!_live || _busy || (more && _cursor == null)) return;
     _busy = true;
     if (!quiet) setState(() => _failed = false);
     try {
       _api ??= widget.api ?? await CustomerApi.restore();
+      if (!_live) return;
       if (_api == null) throw StateError('Sign in');
-      final result = await _api!.request(
+      final before = more ? _cursor : null;
+      final response = await _api!.request(
         'GET',
         '/conversations${more ? '?before=${Uri.encodeQueryComponent(_cursor!)}' : ''}',
       );
-      if (!mounted || _session != CustomerApi.sessionVersion) return;
+      if (!_live) return;
+      final result = chatInbox(response, before: before);
       setState(() {
         // Auto-refresh only the first page. Preserve older loaded conversations
         // until an explicit refresh, and deduplicate moved/new threads.
@@ -106,9 +123,9 @@ class _ConversationInboxState extends State<ConversationInbox>
         _failed = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (_live) setState(() => _failed = true);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (_live) setState(() => _busy = false);
     }
   }
 
@@ -160,13 +177,15 @@ class _ConversationInboxState extends State<ConversationInbox>
               ? Badge(label: Text('${item['unreadCount']}'))
               : const Icon(Icons.chevron_right),
           onTap: () async {
+            if (!_live || _api == null) return;
+            final source = _api!;
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) =>
-                    ConversationPage(conversationId: item['id'], api: _api),
+                    ConversationPage(conversationId: item['id'], api: source),
               ),
             );
-            if (mounted) _load();
+            if (_live) _load();
           },
         ),
       if (_cursor != null)
@@ -178,7 +197,7 @@ class _ConversationInboxState extends State<ConversationInbox>
   );
 }
 
-class ConversationPage extends StatefulWidget {
+class ConversationPage extends StatelessWidget {
   const ConversationPage({
     super.key,
     this.conversationId,
@@ -192,12 +211,70 @@ class ConversationPage extends StatefulWidget {
   final CustomerApi? api;
   final ConversationController? controller;
   @override
-  State<ConversationPage> createState() => _ConversationPageState();
+  Widget build(BuildContext context) => CustomerSessionBoundary(
+    api: api ?? controller?.api,
+    expired: Scaffold(
+      appBar: AppBar(title: Text(lt('Suhbat', 'Conversation', 'Переписка'))),
+      body: Center(child: Text(chatSessionExpired())),
+    ),
+    child: _BoundConversationPage(
+      key: ValueKey((api, conversationId, listingId, controller)),
+      api: api,
+      conversationId: conversationId,
+      listingId: listingId,
+      controller: controller,
+    ),
+  );
 }
 
-class _ConversationPageState extends State<ConversationPage>
+class _BoundConversationPage extends StatefulWidget {
+  const _BoundConversationPage({
+    super.key,
+    this.api,
+    this.conversationId,
+    this.listingId,
+    this.controller,
+  });
+  final CustomerApi? api;
+  final String? conversationId, listingId;
+  final ConversationController? controller;
+  @override
+  State<_BoundConversationPage> createState() => _ConversationPageState();
+}
+
+class _ConversationPageState extends State<_BoundConversationPage>
     with WidgetsBindingObserver {
   ConversationController? _chat;
+  final _session = CustomerApi.sessionVersion;
+  bool get _live =>
+      mounted &&
+      _session == CustomerApi.sessionVersion &&
+      (_chat == null || _chat!.live);
+  DialogRoute<bool>? _dialog;
+  void _closeDialog() {
+    final dialog = _dialog;
+    _dialog = null;
+    if (dialog == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navigator = dialog.navigator;
+      if (navigator != null && navigator.mounted && dialog.isActive) {
+        navigator.removeRoute(dialog);
+      }
+    });
+  }
+
+  Future<bool?> _showDialog(WidgetBuilder builder) async {
+    if (!_live || _dialog != null) return null;
+    final dialog = DialogRoute<bool>(context: context, builder: builder);
+    _dialog = dialog;
+    final result = await Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(dialog);
+    if (identical(_dialog, dialog)) _dialog = null;
+    return _live ? result : null;
+  }
+
   final _text = TextEditingController();
   final _scroll = ScrollController();
   String? _image;
@@ -205,7 +282,7 @@ class _ConversationPageState extends State<ConversationPage>
   bool _actionBusy = false;
   Timer? _timer;
   bool get _visible =>
-      mounted && _foreground && (ModalRoute.of(context)?.isCurrent ?? true);
+      _live && _foreground && (ModalRoute.of(context)?.isCurrent ?? true);
   bool get _atBottom => !_scroll.hasClients || _scroll.offset < 70;
   @override
   void initState() {
@@ -225,7 +302,7 @@ class _ConversationPageState extends State<ConversationPage>
   }
 
   Future<void> _start() async {
-    if (_starting) return;
+    if (!_live || _starting) return;
     setState(() {
       _starting = true;
       _failed = false;
@@ -233,9 +310,17 @@ class _ConversationPageState extends State<ConversationPage>
     try {
       if (_chat == null) {
         if (widget.controller != null) {
-          _chat = widget.controller;
+          final candidate = widget.controller!;
+          if (!candidate.live ||
+              (widget.api != null && !identical(candidate.api, widget.api)) ||
+              (widget.conversationId != null &&
+                  candidate.id != widget.conversationId)) {
+            throw StateError('Mismatched conversation');
+          }
+          _chat = candidate;
         } else {
           final api = widget.api ?? await CustomerApi.restore();
+          if (!_live) return;
           if (api == null) throw StateError('Sign in');
           final id =
               widget.conversationId ??
@@ -243,30 +328,34 @@ class _ConversationPageState extends State<ConversationPage>
                     'listingId': widget.listingId,
                   }))['id']
                   as String;
-          if (!mounted) return;
+          if (!_live) return;
+          if (!chatIdentity(id)) {
+            throw const FormatException('Invalid conversation');
+          }
           _chat = ConversationController(api, id);
         }
         _chat!.addListener(_changed);
       }
       await _chat!.initialize();
-      if (!mounted) return;
+      if (!_live) return;
       _text.text = _chat!.pending?['text'] ?? _text.text;
       _image = _chat!.pending?['image'] ?? _image;
       WidgetsBinding.instance.addPostFrameCallback((_) => _readVisible());
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (_live) setState(() => _failed = true);
     } finally {
-      if (mounted) setState(() => _starting = false);
+      if (_live) setState(() => _starting = false);
     }
   }
 
   void _changed() {
-    if (mounted) setState(() {});
+    if (_live) setState(() {});
   }
 
   Future<void> _poll() async {
-    if (_chat == null || !_chat!.ready) return;
+    if (!_live || _chat == null || !_chat!.ready) return;
     await _chat!.refresh();
+    if (!_live) return;
     WidgetsBinding.instance.addPostFrameCallback((_) => _readVisible());
   }
 
@@ -281,9 +370,9 @@ class _ConversationPageState extends State<ConversationPage>
 
   Future<void> _send() async {
     final chat = _chat;
-    if (chat == null) return;
+    if (!_live || chat == null || _picking || _actionBusy) return;
     if (await chat.send(_text.text, _image)) {
-      if (!mounted) return;
+      if (!_live) return;
       setState(() {
         _text.clear();
         _image = null;
@@ -294,6 +383,13 @@ class _ConversationPageState extends State<ConversationPage>
   }
 
   Future<void> _pick() async {
+    if (!_live ||
+        _picking ||
+        _actionBusy ||
+        _chat?.sending == true ||
+        _chat?.pending != null) {
+      return;
+    }
     setState(() => _picking = true);
     try {
       final file = await ImagePicker().pickImage(
@@ -304,11 +400,15 @@ class _ConversationPageState extends State<ConversationPage>
         requestFullMetadata: false,
       );
       if (file == null) return;
+      if (await file.length() > 3 * 1024 * 1024) {
+        throw const FormatException('size');
+      }
+      if (!_live) return;
       final bytes = await file.readAsBytes();
       await validateReceiptImage(bytes);
-      if (mounted) setState(() => _image = base64Encode(bytes));
+      if (_live) setState(() => _image = base64Encode(bytes));
     } catch (_) {
-      if (mounted) {
+      if (mounted && _live) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -322,13 +422,13 @@ class _ConversationPageState extends State<ConversationPage>
         );
       }
     } finally {
-      if (mounted) setState(() => _picking = false);
+      if (_live) setState(() => _picking = false);
     }
   }
 
   Future<void> _menu(String action) async {
     final chat = _chat;
-    if (chat == null || _actionBusy) return;
+    if (!_live || chat == null || _actionBusy || _dialog != null) return;
     if (action == 'bookings') {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -375,9 +475,9 @@ class _ConversationPageState extends State<ConversationPage>
             'Unblock user',
             'Разблокировать пользователя',
           );
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
+    final confirmed = await _showDialog(
+      (context) => AlertDialog(
+        scrollable: true,
         title: Text(title),
         content: Text(
           discard
@@ -404,12 +504,12 @@ class _ConversationPageState extends State<ConversationPage>
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || !_live) return;
     setState(() => _actionBusy = true);
     try {
       if (discard) {
         await chat.discardPending();
-        if (mounted) {
+        if (mounted && _live) {
           setState(() {
             _text.clear();
             _image = null;
@@ -419,19 +519,20 @@ class _ConversationPageState extends State<ConversationPage>
         await chat.setBlocked(block);
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && _live) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(chatFailure())));
       }
-      await chat.refresh();
+      if (_live) await chat.refresh();
     } finally {
-      if (mounted) setState(() => _actionBusy = false);
+      if (_live) setState(() => _actionBusy = false);
     }
   }
 
   @override
   void dispose() {
+    _closeDialog();
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _chat?.removeListener(_changed);
@@ -443,6 +544,10 @@ class _ConversationPageState extends State<ConversationPage>
 
   @override
   Widget build(BuildContext context) {
+    if (!_live) {
+      _closeDialog();
+      return Scaffold(body: Center(child: Text(chatSessionExpired())));
+    }
     final chat = _chat;
     final pending = chat?.pending != null;
     final disabled =
@@ -607,9 +712,8 @@ class _ConversationPageState extends State<ConversationPage>
                             ),
                             if (!mine && m['hidden'] != true)
                               TextButton.icon(
-                                onPressed: () => showDialog<bool>(
-                                  context: context,
-                                  builder: (_) => ChatReportDialog(
+                                onPressed: () => _showDialog(
+                                  (_) => ChatReportDialog(
                                     api: chat!.api,
                                     conversationId: chat.id,
                                     messageId: m['id'],
