@@ -94,7 +94,34 @@ class ListingStore extends ChangeNotifier {
   ListingStore({Future<SharedPreferences> Function()? preferences, this.api})
     : _preferences = preferences ?? SharedPreferences.getInstance;
   static final instance = ListingStore();
+  int _epoch = 0;
+  int _boundSession = CustomerApi.sessionVersion;
+  bool _disposed = false;
+  bool Function() _scope() {
+    final epoch = _epoch, version = CustomerApi.sessionVersion;
+    return () =>
+        !_disposed &&
+        epoch == _epoch &&
+        version == _boundSession &&
+        version == CustomerApi.sessionVersion;
+  }
+
+  void _check(bool Function() current) {
+    if (!current()) throw const ListingException(ListingProblem.storage);
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _epoch++;
+    super.dispose();
+  }
+
   void resetSession() {
+    if (_disposed) return;
+    _epoch++;
+    busy = false;
+    _boundSession = CustomerApi.sessionVersion;
     _listings = {};
     _housing = HousingType.apartment;
     _loaded = false;
@@ -127,32 +154,37 @@ class ListingStore extends ChangeNotifier {
   ServiceListing? operator [](ServiceType type) => _listings[type];
 
   Future<void> load({bool refresh = false}) {
+    final current = _scope();
+    _check(current);
     if (refresh && !busy) _loaded = false;
     if (_loaded) return Future<void>.value();
-    return _loading ??= _read()
+    if (_loading != null) return _loading!;
+    late final Future<void> operation;
+    operation = _read(current)
         .then((_) {
+          _check(current);
           _loaded = true;
-          _loading = null;
         })
-        .catchError((Object error) {
-          _loading = null;
-          throw error;
+        .whenComplete(() {
+          if (identical(_loading, operation)) _loading = null;
         });
+    return _loading = operation;
   }
 
-  Future<void> _read() async {
-    _prefs = await _preferences();
-    final version = CustomerApi.sessionVersion;
+  Future<void> _read(bool Function() current) async {
+    final prefs = await _preferences();
+    _check(current);
     if (api == null && CustomerApi.enabled) {
-      api = await CustomerApi.restore();
+      final restored = await CustomerApi.restore();
+      _check(current);
+      api = restored;
       if (api == null) throw const ListingException(ListingProblem.storage);
     }
+    _prefs = prefs;
     Map<String, dynamic> json;
     if (api != null) {
       json = await api!.request('GET', '/me/listings');
-      if (version != CustomerApi.sessionVersion) {
-        throw const ListingException(ListingProblem.storage);
-      }
+      _check(current);
       // Legacy drafts belong to the current login (logout clears this key).
       // Keep them editable until the user explicitly saves them to the server.
       final legacy = _prefs!.getString(storageKey);
@@ -232,20 +264,26 @@ class ListingStore extends ChangeNotifier {
   }
 
   Future<void> save(ServiceListing value) async {
+    final current = _scope();
     await load();
+    _check(current);
     final problem = validate(value);
     if (problem != null) throw ListingException(problem);
     await _commit(housing, {..._listings, value.type: value});
   }
 
   Future<void> setActive(ServiceType type, bool active) async {
+    final current = _scope();
     await load();
+    _check(current);
     final value = _listings[type];
     if (value != null) await save(value.withActive(active));
   }
 
   Future<void> archive(ServiceType type) async {
+    final current = _scope();
     await load();
+    _check(current);
     if (busy) throw const ListingException(ListingProblem.busy);
     if (api == null) {
       final item = _listings[type];
@@ -265,6 +303,7 @@ class ListingStore extends ChangeNotifier {
       if (!await _prefs!.setString(storageKey, jsonEncode(saved))) {
         throw const ListingException(ListingProblem.storage);
       }
+      _check(current);
       _apply(saved);
       notifyListeners();
       return;
@@ -272,24 +311,25 @@ class ListingStore extends ChangeNotifier {
     busy = true;
     notifyListeners();
     try {
-      final version = CustomerApi.sessionVersion;
       final saved = await api!.request(
         'POST',
         '/me/listings/${type.name}/archive',
         {'_revision': _revision},
       );
-      if (version != CustomerApi.sessionVersion) {
-        throw const ListingException(ListingProblem.storage);
-      }
+      _check(current);
       _apply(saved);
     } finally {
-      busy = false;
-      notifyListeners();
+      if (current()) {
+        busy = false;
+        notifyListeners();
+      }
     }
   }
 
   Future<void> setHousing(HousingType value) async {
+    final current = _scope();
     await load();
+    _check(current);
     final updated = {..._listings};
     final boarding = updated[ServiceType.boarding];
     if (value == HousingType.apartment &&
@@ -312,6 +352,8 @@ class ListingStore extends ChangeNotifier {
     HousingType housing,
     Map<ServiceType, ServiceListing> values,
   ) async {
+    final current = _scope();
+    _check(current);
     if (busy) throw const ListingException(ListingProblem.busy);
     busy = true;
     notifyListeners();
@@ -322,22 +364,23 @@ class ListingStore extends ChangeNotifier {
         'listings': values.values.map((v) => v.toJson()).toList(),
       };
       if (api != null) {
-        final version = CustomerApi.sessionVersion;
         final saved = await api!.request('PUT', '/me/listings', payload);
-        if (version != CustomerApi.sessionVersion) {
-          throw const ListingException(ListingProblem.storage);
-        }
+        _check(current);
         await _prefs!.remove(storageKey);
+        _check(current);
         _apply(saved);
       } else {
         final saved = await _prefs!.setString(storageKey, jsonEncode(payload));
+        _check(current);
         if (!saved) throw const ListingException(ListingProblem.storage);
         _housing = housing;
         _listings = values;
       }
     } finally {
-      busy = false;
-      notifyListeners();
+      if (current()) {
+        busy = false;
+        notifyListeners();
+      }
     }
   }
 }

@@ -35,15 +35,29 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
   HousingType _housing = ListingStore.instance.housing;
   bool _housingTouched = false;
   bool _submitting = false;
+  final _sessionVersion = CustomerApi.sessionVersion;
+  CustomerApi? _api;
+  Map<String, dynamic>? _account;
+  bool get _live =>
+      mounted &&
+      _sessionVersion == CustomerApi.sessionVersion &&
+      (_api == null || identical(_api, CustomerApi.active));
+  void _requireLive() {
+    if (!_live) throw StateError('Sessiya o‘zgargan');
+  }
+
   late final Future<Map<String, dynamic>?> _initialAccount;
 
   Future<Map<String, dynamic>?> _loadAccount() async {
     try {
       final api = await CustomerApi.restore();
+      _requireLive();
+      _api = api;
+      _requireLive();
       if (api == null) return null;
       final response = await api.request('GET', '/me');
       final account = Map<String, dynamic>.from(response['account']);
-      if (mounted) {
+      if (_live) {
         setState(() {
           final profile = account['profile'] as Map;
           if (_first.text.isEmpty) _first.text = profile['first'] ?? '';
@@ -67,6 +81,8 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
           }
         });
       }
+      if (!_live) return null;
+      _account = account;
       return account;
     } catch (_) {
       // Saving requires a loaded snapshot; never refetch and overwrite a stale form.
@@ -81,7 +97,7 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
     ListingStore.instance
         .load()
         .then((_) {
-          if (mounted && !_housingTouched) {
+          if (_live && !_housingTouched) {
             setState(() => _housing = ListingStore.instance.housing);
           }
         })
@@ -109,7 +125,13 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
   }
 
   Future<void> _pick(bool profile) async {
-    if (_picking || _choosingPhoto || (!profile && _home.length >= 9)) return;
+    if (!_live ||
+        _submitting ||
+        _picking ||
+        _choosingPhoto ||
+        (!profile && _home.length >= 9)) {
+      return;
+    }
     setState(() => _choosingPhoto = true);
     FocusScope.of(context).unfocus();
     try {
@@ -150,14 +172,14 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
           ),
         ),
       );
-      if (!mounted || source == null) return;
+      if (!_live || source == null) return;
       setState(() {
         _choosingPhoto = false;
         _picking = true;
       });
       if (profile) {
         final image = await _photos.pickProfile(source: source);
-        if (mounted && image != null) {
+        if (mounted && _live && image != null) {
           if (image.length > 3 * 1024 * 1024) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -176,12 +198,12 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
         }
       } else {
         final images = await _photos.pickHome(9 - _home.length, source: source);
-        if (mounted) {
+        if (_live) {
           setState(() => _home.addAll(images.take(9 - _home.length)));
         }
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && _live) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -203,7 +225,7 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (!_live || _submitting || _picking || _choosingPhoto) return;
     if (!(_identityForm.currentState?.validate() ?? false)) {
       await Scrollable.ensureVisible(
         _identityForm.currentContext!,
@@ -214,12 +236,14 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
     FocusScope.of(context).unfocus();
     setState(() => _submitting = true);
     try {
-      final api = await CustomerApi.restore();
+      await _initialAccount;
+      _requireLive();
+      final initial = _account;
+      final api = _api;
       if (CustomerApi.enabled && api == null) {
         throw StateError('Hisobingizga qayta kiring');
       }
       if (api != null) {
-        final initial = await _initialAccount;
         if (initial == null) {
           throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
         }
@@ -230,30 +254,42 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
           'photo': _avatar == null ? null : base64Encode(_avatar!),
         };
         account['sitterProfile'] = {
+          ...?initial['sitterProfile'] as Map<String, dynamic>?,
           'years': _years,
           'about': _experience.text.trim(),
           'homePhotos': _home.map(base64Encode).toList(),
           'housing': _housing.name,
         };
         final saved = await api.request('PUT', '/me', account);
-        await CustomerApi.rememberAccount(
-          Map<String, dynamic>.from(saved['account']),
-        );
+        _requireLive();
+        _account = Map<String, dynamic>.from(saved['account']);
+        await CustomerApi.rememberAccount(_account!, isCurrent: () => _live);
+        _requireLive();
+      }
+      await ListingStore.instance.load();
+      _requireLive();
+      if (api != null && !identical(ListingStore.instance.api, api)) {
+        throw StateError('Sessiya o‘zgargan');
       }
       await ListingStore.instance.setHousing(_housing);
-      final prefs = await SharedPreferences.getInstance();
-      if (!await prefs.setString('mock.profile.first', _first.text.trim()) ||
-          !await prefs.setString('mock.profile.last', _last.text.trim())) {
-        throw StateError('Profile save failed');
+      _requireLive();
+      if (api == null) {
+        final prefs = await SharedPreferences.getInstance();
+        _requireLive();
+        if (!await prefs.setString('mock.profile.first', _first.text.trim()) ||
+            !await prefs.setString('mock.profile.last', _last.text.trim())) {
+          throw StateError('Profile save failed');
+        }
+        _requireLive();
+        if (_avatar != null &&
+            !await prefs.setString(
+              'mock.profile.avatar',
+              base64Encode(_avatar!),
+            )) {
+          throw StateError('Photo save failed');
+        }
       }
-      if (_avatar != null &&
-          !await prefs.setString(
-            'mock.profile.avatar',
-            base64Encode(_avatar!),
-          )) {
-        throw StateError('Photo save failed');
-      }
-      if (!mounted) return;
+      if (!mounted || !_live) return;
       // Other profile fields remain optional during the MVP preview.
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
@@ -266,7 +302,7 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
         (_) => false,
       );
     } catch (_) {
-      if (mounted) {
+      if (mounted && _live) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(problemText(ListingProblem.storage))),
         );
