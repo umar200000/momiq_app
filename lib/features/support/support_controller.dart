@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'support_data.dart';
 import '../customer/data/customer_api.dart';
 import '../chat/data/conversation_controller.dart' show chatRequestId;
 import '../wallet/data/wallet_draft_storage.dart';
@@ -53,13 +54,22 @@ class SupportController extends ChangeNotifier {
         check();
         _restored = true;
       }
-      final result = id == null
+      final before = more ? data!['nextCursor'] as String : null;
+      final response = id == null
           ? <String, dynamic>{'ticket': null, 'items': [], 'nextCursor': null}
           : await api.request(
               'GET',
-              '$path${more ? '?before=${data!['nextCursor']}' : ''}',
+              '$path${before != null ? '?before=$before' : ''}',
             );
       check();
+      final result = id == null
+          ? response
+          : supportThread(
+              response,
+              id: id,
+              before: before,
+              minimumRevision: data?['ticket']?['revision'],
+            );
       if (more) {
         final byId = <String, dynamic>{
           for (final m in [...result['items'], ...data!['items']]) m['id']: m,
@@ -103,8 +113,13 @@ class SupportController extends ChangeNotifier {
       };
       await storage.write(pending!);
       check();
-      final result = await api.request('POST', path, pending);
+      final response = await api.request('POST', path, pending);
       check();
+      final result = supportThread(
+        response,
+        id: id,
+        minimumRevision: (pending!['revision'] as int) + 1,
+      );
       data = result;
       await storage.clear();
       check();

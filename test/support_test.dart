@@ -17,6 +17,7 @@ class SupportApi extends CustomerApi {
   SupportJson get ticket => {
     'id': 'a' * 32,
     'subject': 'TEST request',
+    'updated': '2026-10-29',
     'status': 'waiting_user',
     'revision': messages.length,
   };

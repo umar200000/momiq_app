@@ -1,12 +1,14 @@
 import '../media/presentation/private_api_image.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:image_picker/image_picker.dart';
 import '../customer/data/customer_api.dart';
 import '../listings/presentation/listing_style.dart' show lt;
 import '../wallet/data/receipt_image.dart';
 import 'support_controller.dart';
 import 'support_resolution.dart';
+import 'support_data.dart';
 
 String supportState(String value) => switch (value) {
   'waiting_user' => lt(
@@ -78,14 +80,38 @@ class _PublicContentReportButtonState extends State<PublicContentReportButton> {
   );
 }
 
-class SupportPage extends StatefulWidget {
+Widget _supportSessionExpired() => Scaffold(
+  appBar: AppBar(title: Text(lt('Yordam', 'Support', 'Поддержка'))),
+  body: Center(
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Text(
+        lt(
+          'Sessiya o‘zgardi. Yordam bo‘limini qayta oching.',
+          'The session changed. Reopen support.',
+          'Сессия изменилась. Откройте поддержку заново.',
+        ),
+      ),
+    ),
+  ),
+);
+
+class SupportPage extends StatelessWidget {
   const SupportPage({super.key, this.api});
   final CustomerApi? api;
   @override
-  State<SupportPage> createState() => _SupportPageState();
+  Widget build(BuildContext context) =>
+      _BoundSupportPage(key: ObjectKey(api), api: api);
 }
 
-class _SupportPageState extends State<SupportPage> {
+class _BoundSupportPage extends StatefulWidget {
+  const _BoundSupportPage({super.key, this.api});
+  final CustomerApi? api;
+  @override
+  State<_BoundSupportPage> createState() => _SupportPageState();
+}
+
+class _SupportPageState extends State<_BoundSupportPage> {
   CustomerApi? api;
   final items = <SupportJson>[];
   List<SupportJson> legacy = [];
@@ -109,10 +135,13 @@ class _SupportPageState extends State<SupportPage> {
       api ??= widget.api ?? await CustomerApi.restore();
       if (api == null) throw StateError('Sign in');
       if (!live) return;
-      final result = await api!.request(
+      final before = more ? cursor : null;
+      final response = await api!.request(
         'GET',
-        '/support${more ? '?before=$cursor' : ''}',
+        '/support${before != null ? '?before=$before' : ''}',
       );
+      if (!live) return;
+      final result = supportList(response, before: before);
       if (!live) return;
       setState(() {
         if (!more) {
@@ -133,7 +162,7 @@ class _SupportPageState extends State<SupportPage> {
     } catch (_) {
       if (live) setState(() => failed = true);
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (live) setState(() => busy = false);
     }
   }
 
@@ -149,75 +178,78 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(lt('Yordam murojaatlari', 'Support requests', 'Обращения')),
-      actions: [
-        IconButton(
-          tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
-          onPressed: busy ? null : load,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        Text(
-          lt(
-            'Momiq yordam xizmati bilan yozishma. Bu yerda xizmat puli to‘lanmaydi.',
-            'Private conversation with Momiq support. No service payment here.',
-            'Переписка с поддержкой Momiq. Оплата услуги здесь не проводится.',
+  Widget build(BuildContext context) {
+    if (!live) return _supportSessionExpired();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(lt('Yordam murojaatlari', 'Support requests', 'Обращения')),
+        actions: [
+          IconButton(
+            tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
+            onPressed: busy ? null : load,
+            icon: const Icon(Icons.refresh),
           ),
-        ),
-        if (busy) const LinearProgressIndicator(),
-        if (failed) Text(supportError()),
-        FilledButton(
-          key: const ValueKey('newSupport'),
-          onPressed: api == null || busy ? null : () => open(),
-          child: Text(lt('Yangi murojaat', 'New request', 'Новое обращение')),
-        ),
-        if (loaded && items.isEmpty)
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
           Text(
             lt(
-              'Murojaatlar hali yo‘q.',
-              'No requests yet.',
-              'Обращений пока нет.',
+              'Momiq yordam xizmati bilan yozishma. Bu yerda xizmat puli to‘lanmaydi.',
+              'Private conversation with Momiq support. No service payment here.',
+              'Переписка с поддержкой Momiq. Оплата услуги здесь не проводится.',
             ),
           ),
-        if (legacy.isNotEmpty)
-          ExpansionTile(
-            title: Text(
+          if (busy) const LinearProgressIndicator(),
+          if (failed) Text(supportError()),
+          FilledButton(
+            key: const ValueKey('newSupport'),
+            onPressed: api == null || busy ? null : () => open(),
+            child: Text(lt('Yangi murojaat', 'New request', 'Новое обращение')),
+          ),
+          if (loaded && items.isEmpty)
+            Text(
               lt(
-                'Oldingi murojaatlar arxivi',
-                'Previous request archive',
-                'Архив прежних обращений',
+                'Murojaatlar hali yo‘q.',
+                'No requests yet.',
+                'Обращений пока нет.',
               ),
             ),
-            children: [
-              for (final item in legacy)
-                ListTile(title: Text('${item['text'] ?? ''}')),
-            ],
-          ),
-        for (final item in items)
-          ListTile(
-            title: Text(item['subject']),
-            subtitle: Text(
-              '${supportState(item['status'])} · ${item['updated']}',
+          if (legacy.isNotEmpty)
+            ExpansionTile(
+              title: Text(
+                lt(
+                  'Oldingi murojaatlar arxivi',
+                  'Previous request archive',
+                  'Архив прежних обращений',
+                ),
+              ),
+              children: [
+                for (final item in legacy)
+                  ListTile(title: Text('${item['text'] ?? ''}')),
+              ],
             ),
-            onTap: () => open(item['id']),
-          ),
-        if (cursor != null)
-          TextButton(
-            onPressed: busy ? null : () => load(more: true),
-            child: Text(lt('Yana', 'More', 'Ещё')),
-          ),
-      ],
-    ),
-  );
+          for (final item in items)
+            ListTile(
+              title: Text(item['subject']),
+              subtitle: Text(
+                '${supportState(item['status'])} · ${item['updated']}',
+              ),
+              onTap: () => open(item['id']),
+            ),
+          if (cursor != null)
+            TextButton(
+              onPressed: busy ? null : () => load(more: true),
+              child: Text(lt('Yana', 'More', 'Ещё')),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
-class SupportThreadPage extends StatefulWidget {
+class SupportThreadPage extends StatelessWidget {
   const SupportThreadPage({
     super.key,
     required this.api,
@@ -231,10 +263,43 @@ class SupportThreadPage extends StatefulWidget {
   final SupportController? controller;
   final Map<String, String>? target;
   @override
-  State<SupportThreadPage> createState() => _SupportThreadPageState();
+  Widget build(BuildContext context) => _BoundSupportThreadPage(
+    key: ValueKey((
+      api,
+      id,
+      bookingId,
+      controller,
+      target?['kind'],
+      target?['id'],
+      target?['purpose'],
+      target?['revision'],
+    )),
+    api: api,
+    id: id,
+    bookingId: bookingId,
+    controller: controller,
+    target: target,
+  );
 }
 
-class _SupportThreadPageState extends State<SupportThreadPage> {
+class _BoundSupportThreadPage extends StatefulWidget {
+  const _BoundSupportThreadPage({
+    super.key,
+    required this.api,
+    this.id,
+    this.bookingId,
+    this.controller,
+    this.target,
+  });
+  final CustomerApi api;
+  final String? id, bookingId;
+  final SupportController? controller;
+  final Map<String, String>? target;
+  @override
+  State<_BoundSupportThreadPage> createState() => _SupportThreadPageState();
+}
+
+class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
   late final c =
       widget.controller ??
       SupportController(widget.api, widget.id, target: widget.target);
@@ -242,6 +307,12 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
   String? image;
   String topic = 'general';
   bool picking = false;
+  bool get live =>
+      mounted &&
+      c.live &&
+      identical(c.api, widget.api) &&
+      c.id == widget.id &&
+      mapEquals(c.target, widget.target);
   @override
   void initState() {
     super.initState();
@@ -257,8 +328,9 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
   }
 
   Future<void> load() async {
+    if (!live) return;
     await c.load();
-    if (!mounted) return;
+    if (!live) return;
     final p = c.pending;
     if (p != null) {
       setState(() {
@@ -279,6 +351,7 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
   }
 
   Future<void> pick() async {
+    if (!live || picking || c.busy || c.pending != null) return;
     setState(() => picking = true);
     try {
       final file = await ImagePicker().pickImage(
@@ -293,10 +366,10 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
         }
         final bytes = await file.readAsBytes();
         await validateReceiptImage(bytes);
-        if (mounted && c.live) setState(() => image = base64Encode(bytes));
+        if (live) setState(() => image = base64Encode(bytes));
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && live) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -310,11 +383,12 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
         );
       }
     } finally {
-      if (mounted) setState(() => picking = false);
+      if (live) setState(() => picking = false);
     }
   }
 
   Future<void> send() async {
+    if (!live || picking) return;
     if (c.pending == null &&
         ((message.text.trim().isEmpty && (image == null || c.target != null)) ||
             (widget.id == null && subject.text.trim().isEmpty))) {
@@ -327,7 +401,7 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
       topic: topic,
       bookingId: widget.bookingId,
     );
-    if (!mounted || !c.live || !sent) return;
+    if (!mounted || !live || !sent) return;
     if (widget.id == null) {
       final id = c.data!['ticket']['id'] as String;
       Navigator.pushReplacement(
@@ -348,6 +422,7 @@ class _SupportThreadPageState extends State<SupportThreadPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: c,
     builder: (context, _) {
+      if (!live) return _supportSessionExpired();
       final ticket = c.data?['ticket'];
       final target = c.pending?['target'] ?? c.data?['target'] ?? c.target;
       final enabled =
