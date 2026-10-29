@@ -62,3 +62,6 @@ lib/core/config/maps_key.local.dart
 *.recovery-backup
 .local/
 config/*.local.json
+
+# Short-lived CI QA packages
+ci-artifacts/

@@ -114,3 +114,14 @@ Hosted staging/production startup rejects `MOMIQ_API_ENABLED=false`; API-disable
 
 
 Application identity approved on 2026-10-29: Android namespace/applicationId and iOS Runner bundle ID are `net.momiq.app`; iOS test targets use `net.momiq.app.RunnerTests`. Visible name is Momiq, initial version/build is 1.0.0+1, and the existing Momiq paw icon is retained. No Store app previously existed. The new identifier is a separate installation from the old com.example preview; existing preview credentials/drafts are not silently migrated or erased. Signing, Store enrollment and real-device acceptance remain final release work.
+
+
+## CI tekshiruv buildlari
+
+Muvaffaqiyatli Android ARM64 debug va unsigned iOS simulator yig‘ishdan keyin workflow GitHub Actions artifact saqlaydi. Har artifact nomida tekshirilgan checkout SHA va run attempt bor; saqlash muddati 7 kun. Bu store relizi, signing, install yoki productionga chiqarish emas. Fayllar `config/local.json` bilan yig‘ilgan, haqiqiy qurilma qabuli alohida qoladi.
+
+`tool/package_build.py` faqat kutilgan build yo‘lini oladi, mavjud artifact dalilini bosmaydi va `manifest.json`ga checkout SHA, PR source SHA, pubspec versiyasi, lockfile SHA-256, binary hajmi/hashini yozadi. PR uchun checkout odatda GitHub tekshiradigan merge commit; source SHA alohida ko‘rsatiladi. Android APK ARM64 engine va manifest borligini, iOS bundle esa `net.momiq.app` va `iPhoneSimulator` ekanini tekshiradi. iOS `.app` tar.gz ichida executable ruxsatlari va ichki framework linklari bilan saqlanadi. Tashqariga chiqadigan symlink rad etiladi. Bu platforma imzosi yoki antivirus skani o‘rnini bosmaydi.
+
+GitHub run sahifasining Artifacts bo‘limidan fayl va manifestni birga oling; binary SHA-256 manifest bilan mos bo‘lishi kerak. Android debug kaliti va unsigned simulator buildlari store uchun yaroqli emas. Release AAB/archive, signing, crash symbols va pilot yakuniy bosqichda qoladi. Artifact yo‘q bo‘lsa upload bosqichi muvaffaqiyatli deb ko‘rsatilmaydi. Packaging testlari: `python -m unittest discover -s tool -p 'test_*.py' -q`.
+
+Upload action rasmiy [actions/upload-artifact](https://github.com/actions/upload-artifact/tree/cf430e030ddbb5b0abf93d22962f4752f3646cd9) v7.0.2 commitiga pin qilingan; hidden fayllar qo‘shilmaydi, faqat alohida `ci-artifacts` chiqishi yuboriladi.
