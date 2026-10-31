@@ -30,6 +30,22 @@ void main() {
   tearDown(() => CustomerApi.active = null);
 
   test(
+    'fresh install opens public roles without touching a residual keychain record',
+    () async {
+      SharedPreferences.setMockInitialValues({'language': 'uz'});
+      final original = await SessionVault.read();
+      expect(await restoreDestination(), isA<RoleSelectionPage>());
+      expect(await SessionVault.read(), original);
+      expect(CustomerApi.active, isNull);
+      await expectLater(
+        CustomerApi.login('998000000000', '111111'),
+        throwsA(isA<SessionEnvironmentMismatch>()),
+      );
+      expect(await SessionVault.read(), original);
+    },
+  );
+
+  test(
     'wrong-environment restore and new login cannot delete or reuse the saved session',
     () async {
       final before = await SessionVault.read();

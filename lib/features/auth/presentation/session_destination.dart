@@ -30,7 +30,7 @@ Widget accountDestination(
 Future<Widget> restoreDestination() async {
   CustomerApi? api;
   try {
-    api = await CustomerApi.restore();
+    api = await CustomerApi.restoreForStartup();
   } on SessionEnvironmentMismatch {
     return const SessionRecoveryPage(environmentMismatch: true);
   } catch (_) {

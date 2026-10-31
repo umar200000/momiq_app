@@ -6,6 +6,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: flutter-checks-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -57,7 +60,17 @@ jobs:
       - name: Verify hosted private requests with an isolated fake transport
         run: flutter test --no-pub --dart-define-from-file=config/production.json test/hosted_private_transport_test.dart
       - name: Build Android debug for ARM64
-        run: flutter build apk --debug --no-pub --target-platform android-arm64 --dart-define-from-file=config/local.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/android-build.log"
+          for delay in 30 90 0; do
+            if flutter build apk --debug --no-pub --target-platform android-arm64 --dart-define-from-file=config/local.json 2>&1 | tee "$log"; then
+              exit 0
+            fi
+            if [[ "$delay" == 0 ]] || ! grep -q '429.*Too Many Requests' "$log"; then exit 1; fi
+            sleep "$delay"
+          done
       - name: Package Android QA binary and source manifest
         run: python3 tool/package_build.py android
         env:

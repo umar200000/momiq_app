@@ -286,6 +286,23 @@ class CustomerApi {
   }
 
   static Future<CustomerApi?>? _restoring;
+
+  /// Routing to a public screen on a fresh installation needs no Keychain
+  /// access. Login still checks the vault before accepting a replacement.
+  static Future<CustomerApi?> restoreForStartup() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (active == null &&
+        _restoring == null &&
+        _clearing == null &&
+        _loginCommit == null &&
+        !prefs.getKeys().any(
+          (key) => key.startsWith('momiq.') || key.startsWith('mock.'),
+        )) {
+      return null;
+    }
+    return restore();
+  }
+
   static Future<void>? _clearing;
   static Future<CustomerApi?> restore() {
     final clearing = _clearing;
