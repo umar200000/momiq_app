@@ -8,7 +8,7 @@ bool noticeTime(Object? value) =>
     RegExp(r'(?:Z|[+-][0-9]{2}:[0-9]{2})$').hasMatch(value);
 
 /// Parse completely before replacing visible history or its pagination cursor.
-NoticeJson notificationPage(NoticeJson data) {
+NoticeJson notificationPage(NoticeJson data, {String? before}) {
   final items = data['items'],
       count = data['unreadCount'],
       cursor = data['nextCursor'];
@@ -19,11 +19,11 @@ NoticeJson notificationPage(NoticeJson data) {
       (cursor != null && !noticeId(cursor))) {
     throw const FormatException('Invalid notification page');
   }
-  final result = <NoticeJson>[], ids = <String>{};
+  final result = <NoticeJson>[];
+  int? previous = before == null ? null : int.parse(before);
   for (final item in items) {
     if (item is! Map ||
         !noticeId(item['id']) ||
-        !ids.add(item['id']) ||
         item['kind'] is! String ||
         item['targetId'] is! String ||
         item['status'] is! String ||
@@ -32,6 +32,11 @@ NoticeJson notificationPage(NoticeJson data) {
         (item['readAt'] != null && !noticeTime(item['readAt']))) {
       throw const FormatException('Invalid notification');
     }
+    final id = int.parse(item['id'] as String);
+    if (previous != null && id >= previous) {
+      throw const FormatException('Notification page is out of order');
+    }
+    previous = id;
     result.add(NoticeJson.from(item));
   }
   if (cursor != null && (result.isEmpty || cursor != result.last['id'])) {
@@ -41,9 +46,19 @@ NoticeJson notificationPage(NoticeJson data) {
 }
 
 /// Older servers return only ok; the caller retains the legacy estimate then.
-NoticeJson? notificationReceipt(NoticeJson data) {
+NoticeJson? notificationReceipt(
+  NoticeJson data,
+  String id, {
+  required bool allowLegacy,
+}) {
   if (data['ok'] != true) throw const FormatException('Read not confirmed');
-  if (!data.containsKey('readAt') && !data.containsKey('unreadCount')) {
+  final bound = data.containsKey('noticeId');
+  if (bound ? data['noticeId'] != id : !allowLegacy) {
+    throw const FormatException('Wrong notification acknowledgement');
+  }
+  if (!bound &&
+      !data.containsKey('readAt') &&
+      !data.containsKey('unreadCount')) {
     return null;
   }
   if (!noticeTime(data['readAt']) ||

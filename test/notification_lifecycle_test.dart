@@ -7,6 +7,7 @@ import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/notifications/presentation/notifications_page.dart';
 import 'package:momiq_app/features/listings/presentation/listings_panel.dart';
 import 'notifications_test.dart' show NoticeApi;
+import 'package:momiq_app/features/notifications/data/notification_data.dart';
 
 class PendingNotices extends NoticeApi {
   final pending = <Completer<Map<String, dynamic>>>[];
@@ -55,9 +56,35 @@ void main() {
 
   const receipt = {
     'ok': true,
+    'noticeId': '2',
     'readAt': '2026-10-29T09:00:00Z',
     'unreadCount': 7,
   };
+
+  test('hosted read requires the requested ID, pages advance strictly', () {
+    final legacy = Map<String, dynamic>.of(receipt)..remove('noticeId');
+    expect(
+      () => notificationReceipt(legacy, '2', allowLegacy: false),
+      throwsFormatException,
+    );
+    expect(notificationReceipt(legacy, '2', allowLegacy: true), legacy);
+    final api = PendingNotices();
+    for (final ids in [
+      ['2'],
+      ['3'],
+      ['1', '2'],
+      ['1', '1'],
+    ]) {
+      expect(
+        () => notificationPage({
+          ...api.page(),
+          'items': ids.map(api.item).toList(),
+        }, before: '2'),
+        throwsFormatException,
+      );
+    }
+    expect(notificationPage(api.page(), before: '3')['items'], hasLength(1));
+  });
 
   testWidgets(
     'old page error cannot clear new account loading or expose history',
@@ -100,6 +127,11 @@ void main() {
       expect(find.text('O‘qilmagan: 2'), findsOneWidget);
       expect(find.byType(AlertDialog), findsNothing);
       await read(t);
+      api.pending.last.complete({...receipt, 'noticeId': '1'});
+      await t.pumpAndSettle();
+      expect(find.text('O‘qilmagan: 2'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      await read(t);
       api.pending.last.complete(receipt);
       await t.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
@@ -109,7 +141,7 @@ void main() {
       expect(find.byIcon(Icons.drafts_outlined), findsOneWidget);
       await read(t);
       await t.pumpAndSettle();
-      expect(api.requests.where((r) => r.startsWith('POST')).length, 2);
+      expect(api.requests.where((r) => r.startsWith('POST')).length, 3);
     },
   );
 

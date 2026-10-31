@@ -154,9 +154,11 @@ class SupportController extends ChangeNotifier {
           !RegExp(r'^[1-9][0-9]{0,17}$').hasMatch(receipt['messageId'])) {
         throw const FormatException('Support confirmation mismatch');
       }
-      if (pending!['topic'] == 'account_deletion' &&
-          result['ticket']['topic'] != 'account_deletion') {
-        throw const FormatException('Account request confirmation mismatch');
+      if (id == null &&
+          (result['ticket']['topic'] != pending!['topic'] ||
+              result['ticket']['subject'] != pending!['subject'] ||
+              result['ticket']['bookingId'] != pending!['bookingId'])) {
+        throw const FormatException('New ticket confirmation mismatch');
       }
       final original = pending!['target'];
       if (pending!.containsKey('reportVideoId') &&
@@ -166,18 +168,31 @@ class SupportController extends ChangeNotifier {
           'Private video report confirmation mismatch',
         );
       }
-      if (original is Map && original.containsKey('media')) {
+      if (original is Map) {
         final confirmed = result['target'];
-        final media = confirmed?['snapshot']?['media'];
         if (confirmed?['kind'] != original['kind'] ||
             confirmed?['id'] != original['id'] ||
-            media is! Map ||
-            media['slot'] != original['media'] ||
-            media['sha256'] != original['sha256']) {
+            confirmed?['purpose'] != (original['purpose'] ?? 'report')) {
+          throw const FormatException('Reported content confirmation mismatch');
+        }
+        final snapshot = confirmed['snapshot'];
+        if (original['purpose'] == 'appeal' &&
+            (snapshot?['sourceRevision'] is! int ||
+                snapshot['sourceRevision'].toString() !=
+                    original['revision'])) {
+          throw const FormatException(
+            'Appealed decision confirmation mismatch',
+          );
+        }
+        final media = snapshot?['media'];
+        if (media?['slot'] != original['media'] ||
+            media?['sha256'] != original['sha256']) {
           throw const FormatException(
             'Public photo report confirmation mismatch',
           );
         }
+      } else if (id == null && result['target'] != null) {
+        throw const FormatException('Unexpected reported content');
       }
       data = result;
       await storage.clear();

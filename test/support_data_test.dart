@@ -22,6 +22,54 @@ class ContractApi extends SupportApi {
 
 void main() {
   test(
+    'stale appeal decision and foreign ticket cannot consume the original draft',
+    () async {
+      final api = ContractApi(), store = ChatDraft();
+      final c = SupportController(
+        api,
+        null,
+        storage: store,
+        target: {
+          'kind': 'review',
+          'id': '18',
+          'purpose': 'appeal',
+          'revision': '7',
+        },
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      for (final field in [
+        'sourceRevision',
+        'id',
+        'purpose',
+        'bookingId',
+        'topic',
+        'subject',
+      ]) {
+        api.transform = (method, _, data) {
+          if (method == 'POST') {
+            if (field == 'sourceRevision') {
+              data['target']['snapshot'][field] = 8;
+            } else if (field == 'id' || field == 'purpose') {
+              data['target'][field] = field == 'id' ? '19' : 'report';
+            } else {
+              data['ticket'][field] = field == 'bookingId'
+                  ? 'b' * 32
+                  : 'changed';
+            }
+          }
+          return data;
+        };
+        expect(await c.send('Appeal reason', null, subject: 'Decision'), false);
+        expect(store.value, isNotNull);
+      }
+      api.transform = null;
+      expect(await c.send('Edited', null, subject: 'Edited'), true);
+      expect(api.keys, hasLength(1));
+      expect(store.value, isNull);
+    },
+  );
+  test(
     'wrong support receipt preserves the original draft for retry',
     () async {
       final api = ContractApi();

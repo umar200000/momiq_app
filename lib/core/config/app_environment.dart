@@ -19,6 +19,7 @@ class AppEnvironment {
     'wallet-receipts-v1',
     'support-receipts-v1',
     'private-video-report-v1',
+    'notice-read-receipts-v1',
   };
   String get sessionScope => '$name|$apiUrl';
 

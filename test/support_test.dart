@@ -65,7 +65,26 @@ class SupportApi extends CustomerApi {
         .skip(selected.length > 20 ? selected.length - 20 : 0)
         .toList();
     return {
-      'ticket': ticket,
+      'ticket': {
+        ...ticket,
+        if (body?.containsKey('subject') == true) ...{
+          'subject': body!['subject'],
+          'topic': body['topic'],
+          'bookingId': body['bookingId'],
+        },
+      },
+      if (body?['target'] case final Map target)
+        'target': {
+          'kind': target['kind'],
+          'id': target['id'],
+          'purpose': target['purpose'] ?? 'report',
+          'snapshot': {
+            if (target['purpose'] == 'appeal')
+              'sourceRevision': int.parse(target['revision']),
+            if (target.containsKey('media'))
+              'media': {'slot': target['media'], 'sha256': target['sha256']},
+          },
+        },
       if (method == 'POST')
         'acknowledgement': {
           'ticketId': ticket['id'],

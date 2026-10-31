@@ -1,4 +1,5 @@
 import '../data/notification_data.dart';
+import '../../../core/config/app_environment.dart';
 import '../../listings/data/listing_store.dart';
 import '../../support/support_page.dart';
 import 'package:flutter/material.dart';
@@ -123,7 +124,7 @@ class _NotificationsPageState extends State<NotificationsPage>
         '/notifications${more ? '?before=${Uri.encodeQueryComponent(_cursor!)}' : ''}',
       );
       if (!current()) return;
-      final parsed = notificationPage(data);
+      final parsed = notificationPage(data, before: more ? _cursor : null);
       setState(() {
         if (!more) _items.clear();
         final ids = _items.map((e) => e['id']).toSet();
@@ -265,7 +266,11 @@ class _NotificationsPageState extends State<NotificationsPage>
           {},
         );
         if (!current()) return;
-        final receipt = notificationReceipt(response);
+        final receipt = notificationReceipt(
+          response,
+          id,
+          allowLegacy: AppEnvironment.current.name == 'local',
+        );
         setState(() {
           item['readAt'] =
               receipt?['readAt'] ?? DateTime.now().toUtc().toIso8601String();
