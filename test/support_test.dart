@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:momiq_app/main.dart' show bundledFontLicenses;
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/support/support_controller.dart';
 import 'package:momiq_app/features/support/support_page.dart';
@@ -100,6 +101,16 @@ class SupportApi extends CustomerApi {
 }
 
 void main() {
+  test('bundled font notices load offline with both original credits', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final notices = await bundledFontLicenses().toList();
+    expect(notices.map((notice) => notice.packages.single), ['Quicksand', 'Baloo 2']);
+    for (final notice in notices) {
+      final text = notice.paragraphs.map((paragraph) => paragraph.text).join(' ');
+      expect(text, contains('${notice.packages.single} Project Authors'));
+      expect(text, contains('SIL Open Font License, Version 1.1'));
+    }
+  });
   testWidgets('software notices open from Help without a provider request', (
     t,
   ) async {
