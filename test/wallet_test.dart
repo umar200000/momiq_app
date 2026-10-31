@@ -1,3 +1,4 @@
+import 'package:cryptography/cryptography.dart' show Sha256;
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -52,8 +53,23 @@ class WalletApi extends CustomerApi {
     if (method == 'POST') {
       sent.add(Map.from(body!));
       if (fail) throw CustomerApiException('Connection lost');
+      final id = path.endsWith('/amend') ? path.split('/')[3] : 'b' * 32;
+      final revision = body.containsKey('revision')
+          ? (body['revision'] as int) + 1
+          : 0;
+      final hash = await Sha256().hash(base64Decode(body['receipt']));
       return {
-        'topup': {'status': 'pending'},
+        'topup': {'id': id, 'status': 'pending', 'revision': revision},
+        'acknowledgement': {
+          'topupId': id,
+          'requestId': body['requestId'],
+          'evidenceRevision': revision,
+          'amountMinor': body['amountMinor'],
+          'qrVersion': body['qrVersion'],
+          'receiptSha256': hash.bytes
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join(),
+        },
       };
     }
     if (path.endsWith('/topups')) return {'topups': []};

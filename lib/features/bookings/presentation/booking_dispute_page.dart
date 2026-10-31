@@ -53,7 +53,7 @@ class _BookingDisputePage extends StatefulWidget {
 }
 
 class _BookingDisputePageState extends State<_BookingDisputePage>
-    with WidgetsBindingObserver, BookingOwnedDialogs<_BookingDisputePage> {
+    with WidgetsBindingObserver, OwnedDialogs<_BookingDisputePage> {
   late final c =
       widget.controller ?? BookingDisputeController(widget.api, widget.id);
   final text = TextEditingController();

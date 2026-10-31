@@ -1,3 +1,6 @@
+import '../../../core/widgets/owned_dialogs.dart';
+import '../../customer/data/customer_api.dart' show CustomerApi;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
@@ -23,12 +26,31 @@ class PaymentQr extends StatefulWidget {
   State<PaymentQr> createState() => _PaymentQrState();
 }
 
-class _PaymentQrState extends State<PaymentQr> {
+class _PaymentQrState extends State<PaymentQr> with OwnedDialogs<PaymentQr> {
+  final session = CustomerApi.sessionVersion;
+  int generation = 0;
+  bool get live => mounted && session == CustomerApi.sessionVersion;
+
+  @override
+  void didUpdateWidget(PaymentQr oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.version != oldWidget.version ||
+        widget.recipient != oldWidget.recipient ||
+        widget.testOnly != oldWidget.testOnly ||
+        !listEquals(widget.bytes, oldWidget.bytes)) {
+      generation++;
+      dismissOwnedRoutes();
+      _saving = false;
+      _message = null;
+    }
+  }
+
   bool _saving = false;
   String? _message;
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (!live || _saving) return;
+    final source = generation;
     setState(() {
       _saving = true;
       _message = null;
@@ -41,7 +63,7 @@ class _PaymentQrState extends State<PaymentQr> {
       } else {
         await Gal.putImageBytes(widget.bytes, name: name);
       }
-      if (mounted) {
+      if (live && generation == source) {
         setState(
           () => _message = lt(
             'QR galereyaga saqlandi. To‘lovdan oldin oluvchini tekshiring.',
@@ -51,7 +73,7 @@ class _PaymentQrState extends State<PaymentQr> {
         );
       }
     } on GalException catch (error) {
-      if (mounted) {
+      if (live && generation == source) {
         setState(
           () => _message = switch (error.type) {
             GalExceptionType.accessDenied => lt(
@@ -73,7 +95,7 @@ class _PaymentQrState extends State<PaymentQr> {
         );
       }
     } catch (_) {
-      if (mounted) {
+      if (live && generation == source) {
         setState(
           () => _message = lt(
             'QR saqlanmadi. Qayta urinib ko‘ring.',
@@ -83,56 +105,58 @@ class _PaymentQrState extends State<PaymentQr> {
         );
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (live && generation == source) setState(() => _saving = false);
     }
   }
 
-  Future<void> _enlarge() => showDialog<void>(
-    context: context,
-    builder: (context) => Dialog.fullscreen(
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('Paynet Xolis · QR v${widget.version}'),
-          leading: IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: lt('Yopish', 'Close', 'Закрыть'),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(widget.recipient),
+  Future<void> _enlarge() async {
+    if (!live) return;
+    await showOwnedDialog<void>(
+      builder: (context) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text('Paynet Xolis · QR v${widget.version}'),
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: lt('Yopish', 'Close', 'Закрыть'),
+              onPressed: () => Navigator.pop(context),
             ),
-            if (widget.testOnly)
-              Text(
-                lt(
-                  'TEST — haqiqiy to‘lov qilmang',
-                  'TEST — do not pay',
-                  'ТЕСТ — не оплачивайте',
-                ),
-                style: const TextStyle(color: Colors.red),
+          ),
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(widget.recipient),
               ),
-            Expanded(
-              child: InteractiveViewer(
-                minScale: 1,
-                maxScale: 5,
-                child: Center(
-                  child: Image.memory(
-                    widget.bytes,
-                    fit: BoxFit.contain,
-                    semanticLabel: 'Paynet Xolis QR',
-                    errorBuilder: (_, _, _) => const Icon(Icons.broken_image),
+              if (widget.testOnly)
+                Text(
+                  lt(
+                    'TEST — haqiqiy to‘lov qilmang',
+                    'TEST — do not pay',
+                    'ТЕСТ — не оплачивайте',
+                  ),
+                  style: const TextStyle(color: Colors.red),
+                ),
+              Expanded(
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 5,
+                  child: Center(
+                    child: Image.memory(
+                      widget.bytes,
+                      fit: BoxFit.contain,
+                      semanticLabel: 'Paynet Xolis QR',
+                      errorBuilder: (_, _, _) => const Icon(Icons.broken_image),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Column(

@@ -1,3 +1,6 @@
+import 'package:cryptography/cryptography.dart' show Sha256;
+import '../../customer/presentation/customer_session_boundary.dart';
+import '../../../core/widgets/owned_dialogs.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
@@ -30,7 +33,7 @@ int parseWalletAmount(String text) {
 String walletMoney(int minor) =>
     '${minor < 0 ? '-' : ''}${minor.abs() ~/ 100}${minor.abs() % 100 == 0 ? '' : '.${(minor.abs() % 100).toString().padLeft(2, '0')}'} so‘m';
 
-class WalletPage extends StatefulWidget {
+class WalletPage extends StatelessWidget {
   const WalletPage({
     super.key,
     this.api,
@@ -43,10 +46,57 @@ class WalletPage extends StatefulWidget {
   final WalletDraftStorage? draftStorage;
   final String? topupId;
   @override
-  State<WalletPage> createState() => _WalletPageState();
+  Widget build(BuildContext context) {
+    final source = api ?? CustomerApi.active;
+    return CustomerSessionBoundary(
+      api: source,
+      expired: _expiredWallet(),
+      child: _BoundWalletPage(
+        key: ValueKey((source, topupId, draftStorage)),
+        api: source,
+        topupId: topupId,
+        draftStorage: draftStorage,
+        pickReceipt: pickReceipt,
+      ),
+    );
+  }
 }
 
-class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
+Widget _expiredWallet() => Scaffold(
+  appBar: AppBar(),
+  body: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Text(
+      lt(
+        'Sessiya o‘zgardi. Balansni qayta oching.',
+        'The session changed. Reopen your balance.',
+        'Сессия изменилась. Откройте баланс заново.',
+      ),
+    ),
+  ),
+);
+
+class _BoundWalletPage extends StatefulWidget {
+  const _BoundWalletPage({
+    super.key,
+    this.api,
+    this.pickReceipt,
+    this.draftStorage,
+    this.topupId,
+  });
+  final CustomerApi? api;
+  final Future<Uint8List?> Function(ImageSource source)? pickReceipt;
+  final WalletDraftStorage? draftStorage;
+  final String? topupId;
+  @override
+  State<_BoundWalletPage> createState() => _WalletPageState();
+}
+
+class _WalletPageState extends State<_BoundWalletPage>
+    with WidgetsBindingObserver, OwnedDialogs<_BoundWalletPage> {
+  final _session = CustomerApi.sessionVersion;
+  bool get _current => mounted && _session == CustomerApi.sessionVersion;
+  bool _reading = false, _discarding = false;
   CustomerApi? _api;
   Map<String, dynamic>? _wallet;
   Map<String, dynamic>? _paymentConfig;
@@ -61,6 +111,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   Uint8List? _receipt;
   bool _receiptPickPending = false;
   String? _requestId;
+  bool _attemptLocked = false;
   WalletDraftStorage? _draftStorage;
   Timer? _draftTimer;
   bool _paymentStarted = false,
@@ -83,7 +134,9 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _draftTimer?.cancel();
-    if (_paymentStarted) unawaited(_saveDraftSafely());
+    if (_current && _paymentStarted && !_sending && !_discarding) {
+      unawaited(_saveDraftSafely());
+    }
     _amount.dispose();
     _payerReference.dispose();
     super.dispose();
@@ -91,14 +144,19 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed && _paymentStarted) {
+    if (_current &&
+        !_discarding &&
+        state != AppLifecycleState.resumed &&
+        _paymentStarted) {
       _draftTimer?.cancel();
       unawaited(_saveDraftSafely());
     }
   }
 
   Future<void> _persistDraft() async {
-    if (!_paymentStarted ||
+    if (!_current ||
+        _discarding ||
+        !_paymentStarted ||
         _paymentSubmitted ||
         _draftStorage == null ||
         _paymentConfig == null) {
@@ -114,10 +172,11 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       'receipt': _receipt == null ? null : base64Encode(_receipt!),
       'receiptPickPending': _receiptPickPending,
       'requestId': _requestId,
+      'submissionPending': _attemptLocked,
       'config': _paymentConfig,
     };
     await _draftStorage!.write(data);
-    if (mounted) {
+    if (mounted && _current) {
       setState(() {
         _savedDraftRevision = version;
         _draftError = null;
@@ -129,7 +188,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
     try {
       await _persistDraft();
     } catch (_) {
-      if (mounted) {
+      if (mounted && _current) {
         setState(
           () => _draftError = lt(
             'Qoralama saqlanmadi. Ilovani yopishdan oldin qayta urinib ko‘ring.',
@@ -142,6 +201,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   }
 
   void _draftChanged() {
+    if (!_current || _attemptLocked || _discarding) return;
     _requestId = null;
     _draftRevision++;
     _draftTimer?.cancel();
@@ -150,7 +210,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   }
 
   Future<void> _startPayment() async {
-    if (_starting) return;
+    if (!_current || _discarding || _starting) return;
     setState(() => _starting = true);
     try {
       final config = Map<String, dynamic>.from(_paymentConfig!);
@@ -161,7 +221,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         'requestId': null,
         'config': config,
       });
-      if (!mounted) return;
+      if (!mounted || !_current) return;
       setState(() {
         _paymentConfig = config;
         _paymentStarted = true;
@@ -179,14 +239,15 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
       );
     } finally {
-      if (mounted) setState(() => _starting = false);
+      if (mounted && _current) setState(() => _starting = false);
     }
   }
 
   Future<void> _discardDraft() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
+    if (!_current || _discarding || _sending || _picking || _starting) return;
+    final confirmed = await showOwnedDialog<bool>(
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(
           lt('Qoralamani bekor qilish?', 'Discard draft?', 'Удалить черновик?'),
         ),
@@ -209,11 +270,13 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || !_current) return;
+    if (_discarding || _sending || _picking || _starting) return;
+    setState(() => _discarding = true);
     _draftTimer?.cancel();
     try {
       await _draftStorage?.clear();
-      if (!mounted) return;
+      if (!mounted || !_current) return;
       setState(() {
         _paymentStarted = false;
         _draftRestored = true;
@@ -222,26 +285,33 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         _receipt = null;
         _receiptPickPending = false;
         _requestId = null;
+        _attemptLocked = false;
         _accepted = false;
         _amount.clear();
         _payerReference.clear();
         _paidAt = null;
       });
-      await _load();
     } catch (error) {
-      _notice(error.toString());
+      _notice(_walletError(error));
+      return;
+    } finally {
+      if (_current) setState(() => _discarding = false);
     }
+    await _load();
   }
 
   Future<void> _load() async {
-    if (mounted) {
+    if (!_current || _reading || _moreLoading || _discarding) return;
+    _reading = true;
+    if (mounted && _current) {
       setState(() {
         _loading = true;
         _error = null;
       });
     }
     try {
-      _api = widget.api ?? await CustomerApi.restore();
+      _api ??= widget.api ?? await CustomerApi.restore();
+      if (!_current) return;
       if (_api == null) {
         throw CustomerApiException(
           lt(
@@ -260,6 +330,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       if (!_draftRestored) {
         try {
           final draft = await _draftStorage!.read();
+          if (!_current) return;
           if (draft != null) {
             if (draft['formatVersion'] != 1 ||
                 draft['amount'] is! String ||
@@ -277,6 +348,10 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
                 : base64Decode(draft['receipt'] as String);
             _receiptPickPending = draft['receiptPickPending'] == true;
             _requestId = draft['requestId'] as String?;
+            _attemptLocked = draft['submissionPending'] == true;
+            if (_attemptLocked && _requestId == null) {
+              throw const FormatException('Invalid pending request');
+            }
             if (_editing) _editingRevision = draft['topupRevision'] as int;
             _paymentStarted = true;
           }
@@ -293,13 +368,19 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         }
       }
       final wallet = await _api!.request('GET', '/wallet');
+      if (!_current) return;
       final topups = await _api!.request('GET', '/wallet/topups');
+      if (!_current) return;
       if (_editing && !_paymentStarted) {
         final result = await _api!.request(
           'GET',
           '/wallet/topups/${widget.topupId}',
         );
+        if (!_current) return;
         final row = Map<String, dynamic>.from(result['topup']);
+        if (row['id'] != widget.topupId) {
+          throw const FormatException('Wrong top-up');
+        }
         if (row['status'] != 'needs_info' && row['status'] != 'rejected') {
           throw CustomerApiException(
             lt(
@@ -313,6 +394,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           'GET',
           '/wallet/topups/${widget.topupId}/receipt',
         );
+        if (!_current) return;
         if (evidence['revision'] != row['revision']) {
           throw CustomerApiException(
             lt(
@@ -341,7 +423,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         _paymentSubmitted = false;
         await _saveDraftSafely();
       }
-      if (mounted) {
+      if (mounted && _current) {
         setState(() {
           _wallet = wallet;
           _topups = topups['topups'] as List;
@@ -352,14 +434,29 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted && _current) setState(() => _error = _walletError(error));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      _reading = false;
+      if (mounted && _current) setState(() => _loading = false);
     }
   }
 
+  String _walletError(Object error) {
+    if (error is CustomerApiException) return error.message;
+    return lt(
+      'Amal tasdiqlanmadi. Holatni yangilang yoki saqlangan so‘rovni takrorlang.',
+      'Could not confirm the operation. Refresh or retry the saved request.',
+      'Операция не подтверждена. Обновите данные или повторите сохранённый запрос.',
+    );
+  }
+
+  Future<T?> _navigate<T>(Route<T> route) async {
+    if (!_current || ModalRoute.of(context)?.isCurrent != true) return null;
+    return Navigator.of(context).push(route);
+  }
+
   void _notice(String message) {
-    if (mounted) {
+    if (mounted && _current) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
@@ -367,35 +464,42 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   }
 
   Future<void> _more() async {
-    if (_moreLoading || _nextCursor == null) return;
+    if (!_current ||
+        _discarding ||
+        _reading ||
+        _moreLoading ||
+        _nextCursor == null) {
+      return;
+    }
     setState(() => _moreLoading = true);
     try {
       final page = await _api!.request(
         'GET',
         '/wallet/topups?cursor=${Uri.encodeComponent(_nextCursor!)}',
       );
-      if (mounted) {
+      if (mounted && _current) {
         setState(() {
           _topups.addAll(page['topups'] as List);
           _nextCursor = page['nextCursor'] as String?;
         });
       }
     } catch (error) {
-      _notice(error.toString());
+      _notice(_walletError(error));
     } finally {
-      if (mounted) setState(() => _moreLoading = false);
+      if (mounted && _current) setState(() => _moreLoading = false);
     }
   }
 
   Future<void> _pick() async {
-    if (_picking || _sending) return;
+    if (!_current || _discarding || _attemptLocked || _picking || _sending) {
+      return;
+    }
     setState(() => _picking = true);
     var attempted = false;
     var selected = false;
     final wasInterrupted = _receiptPickPending;
     try {
-      final source = await showModalBottomSheet<ImageSource>(
-        context: context,
+      final source = await showOwnedSheet<ImageSource>(
         builder: (context) => SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -428,7 +532,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           ),
         ),
       );
-      if (source == null || !mounted) return;
+      if (source == null || !mounted || !_current) return;
       // Preserve the previous receipt if Android destroys the activity while
       // the external picker is open. Never silently attach another flow's
       // globally cached lost-picker result to a financial request.
@@ -436,7 +540,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       _receiptPickPending = true;
       _draftRevision++;
       await _persistDraft();
-      if (!mounted) return;
+      if (!mounted || !_current) return;
       Uint8List? bytes;
       if (widget.pickReceipt != null) {
         bytes = await widget.pickReceipt!(source);
@@ -448,16 +552,17 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           imageQuality: 95,
           requestFullMetadata: false,
         );
-        if (file != null) {
+        if (_current && file != null) {
           if (await file.length() > 3 * 1024 * 1024) {
             throw const FormatException('size');
           }
+          if (!_current) return;
           bytes = await file.readAsBytes();
         }
       }
-      if (bytes != null) {
+      if (_current && bytes != null) {
         await validateReceiptImage(bytes);
-        if (mounted) {
+        if (mounted && _current) {
           setState(() {
             _receipt = bytes;
             selected = true;
@@ -492,19 +597,22 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
       );
     } finally {
-      if (mounted) {
+      if (mounted && _current) {
         if (attempted) {
           _receiptPickPending = wasInterrupted && !selected;
           _draftRevision++;
           await _saveDraftSafely();
         }
-        if (mounted) setState(() => _picking = false);
+        if (mounted && _current) setState(() => _picking = false);
       }
     }
   }
 
   Future<void> _submit() async {
-    if (_sending ||
+    if (!_current ||
+        _discarding ||
+        _starting ||
+        _sending ||
         _receiptPickPending ||
         _receipt == null ||
         !_accepted ||
@@ -525,13 +633,17 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
           );
         }
         final config = _paymentConfig!;
+        _attemptLocked = true;
         _requestId ??= base64UrlEncode(
           List<int>.generate(18, (_) => Random.secure().nextInt(256)),
         );
         _draftTimer?.cancel();
         _draftRevision++;
         await _persistDraft(); // Stable retry id must survive before sending money evidence.
-        await _api!.request(
+        if (!_current) return;
+        final hash = await Sha256().hash(_receipt!);
+        if (!_current) return;
+        final response = await _api!.request(
           'POST',
           _editing
               ? '/wallet/topups/${widget.topupId}/amend'
@@ -548,23 +660,46 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
             'acceptNonRefundable': true,
           },
         );
+        if (!_current) return;
+        final receipt = response['acknowledgement'], topup = response['topup'];
+        final originalRevision = _editing ? _editingRevision! + 1 : 0;
+        if (topup is! Map ||
+            topup['id'] is! String ||
+            topup['revision'] is! int ||
+            topup['revision'] < originalRevision ||
+            (_editing && topup['id'] != widget.topupId) ||
+            receipt is! Map ||
+            receipt['topupId'] != topup['id'] ||
+            receipt['requestId'] != _requestId ||
+            receipt['evidenceRevision'] != originalRevision ||
+            receipt['amountMinor'] != value ||
+            receipt['qrVersion'] != config['version'] ||
+            receipt['receiptSha256'] !=
+                hash.bytes
+                    .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                    .join()) {
+          throw const FormatException('Invalid receipt confirmation');
+        }
         // Lifecycle/dispose saves must not recreate a successfully submitted draft
         // while its queued clear is still completing.
         _paymentSubmitted = true;
       }
       await _draftStorage!.clear();
-      if (!mounted) return;
+      if (!mounted || !_current) return;
       setState(() {
         _paymentStarted = false;
         _receipt = null;
         _requestId = null;
+        _attemptLocked = false;
         _accepted = false;
         _amount.clear();
         _payerReference.clear();
         _paidAt = null;
       });
       if (_editing) {
-        Navigator.of(context).pop(true);
+        if (ModalRoute.of(context)?.isCurrent == true) {
+          Navigator.of(context).pop(true);
+        }
         return;
       }
       _notice(
@@ -576,26 +711,27 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
       );
       await _load();
     } catch (error) {
-      _notice(error.toString());
+      _notice(_walletError(error));
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted && _current) setState(() => _sending = false);
     }
   }
 
   Future<void> _pickPaymentTime() async {
     final current = DateTime.now();
-    final day = await showDatePicker(
-      context: context,
+    if (!_current || _discarding || _attemptLocked) return;
+    final day = await showOwnedDatePicker(
       initialDate: _paidAt ?? current,
       firstDate: DateTime(2000),
       lastDate: current,
     );
-    if (day == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_paidAt ?? current),
+    if (day == null || !mounted || !_current) return;
+    final time = await showOwnedDialog<TimeOfDay>(
+      builder: (_) => TimePickerDialog(
+        initialTime: TimeOfDay.fromDateTime(_paidAt ?? current),
+      ),
     );
-    if (time == null || !mounted) return;
+    if (time == null || !mounted || !_current) return;
     final value = DateTime(
       day.year,
       day.month,
@@ -630,47 +766,56 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
   };
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(lt('Momiq balansi', 'Momiq balance', 'Баланс Momiq')),
-      actions: [
-        if (_paymentStarted || _draftUnreadable)
-          IconButton(
-            tooltip: lt(
-              'Qoralamani bekor qilish',
-              'Discard draft',
-              'Удалить черновик',
-            ),
-            onPressed: _sending || _picking || _starting ? null : _discardDraft,
-            icon: const Icon(Icons.delete_outline),
-          ),
-        IconButton(
-          tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
-          onPressed: _loading || _sending || _starting ? null : _load,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : _error != null
-        ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!),
-                  FilledButton(
-                    onPressed: _load,
-                    child: Text(lt('Qayta urinish', 'Retry', 'Повторить')),
+  Widget build(BuildContext context) => !_current
+      ? _expiredWallet()
+      : Scaffold(
+          appBar: AppBar(
+            title: Text(lt('Momiq balansi', 'Momiq balance', 'Баланс Momiq')),
+            actions: [
+              if (_paymentStarted || _draftUnreadable)
+                IconButton(
+                  tooltip: lt(
+                    'Qoralamani bekor qilish',
+                    'Discard draft',
+                    'Удалить черновик',
                   ),
-                ],
+                  onPressed: _sending || _picking || _starting
+                      ? null
+                      : _discardDraft,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              IconButton(
+                tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
+                onPressed: _loading || _sending || _starting ? null : _load,
+                icon: const Icon(Icons.refresh),
               ),
-            ),
-          )
-        : ListView(padding: const EdgeInsets.all(20), children: _content()),
-  );
+            ],
+          ),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!),
+                        FilledButton(
+                          onPressed: _load,
+                          child: Text(
+                            lt('Qayta urinish', 'Retry', 'Повторить'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: _content(),
+                ),
+        );
 
   List<Widget> _content() {
     final wallet = _wallet!;
@@ -812,7 +957,11 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         TextField(
           key: const ValueKey('topupAmount'),
           controller: _amount,
-          enabled: !_sending && !_paymentSubmitted,
+          enabled:
+              !_discarding &&
+              !_attemptLocked &&
+              !_sending &&
+              !_paymentSubmitted,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           onChanged: (_) => _draftChanged(),
           decoration: InputDecoration(
@@ -827,7 +976,11 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         TextField(
           key: const ValueKey('topupReference'),
           controller: _payerReference,
-          enabled: !_sending && !_paymentSubmitted,
+          enabled:
+              !_discarding &&
+              !_attemptLocked &&
+              !_sending &&
+              !_paymentSubmitted,
           maxLength: 200,
           onChanged: (_) => _draftChanged(),
           decoration: InputDecoration(
@@ -847,7 +1000,10 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
         OutlinedButton.icon(
           key: const ValueKey('topupPaidAt'),
-          onPressed: _sending || _paymentSubmitted ? null : _pickPaymentTime,
+          onPressed:
+              _discarding || _attemptLocked || _sending || _paymentSubmitted
+              ? null
+              : _pickPaymentTime,
           icon: const Icon(Icons.schedule),
           label: Text(
             _paidAt == null
@@ -861,7 +1017,14 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
         ),
         OutlinedButton.icon(
           key: const ValueKey('pickTopupReceipt'),
-          onPressed: _sending || _picking || _paymentSubmitted ? null : _pick,
+          onPressed:
+              _discarding ||
+                  _attemptLocked ||
+                  _sending ||
+                  _picking ||
+                  _paymentSubmitted
+              ? null
+              : _pick,
           icon: const Icon(Icons.receipt_long),
           label: Text(lt('Chekni tanlash', 'Choose receipt', 'Выбрать чек')),
         ),
@@ -950,7 +1113,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
                 if (row['reviewReason'] != null) row['reviewReason'],
               ].join(' · '),
             ),
-            onTap: () => Navigator.of(context).push(
+            onTap: () => _navigate(
               MaterialPageRoute<void>(
                 builder: (_) =>
                     TopupHistoryPage(api: _api!, topupId: row['id'] as String),
@@ -962,13 +1125,13 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
             TextButton(
               key: ValueKey('amendTopup-${row['id']}'),
               onPressed: () async {
-                final result = await Navigator.of(context).push<bool>(
+                final result = await _navigate<bool>(
                   MaterialPageRoute(
                     builder: (_) =>
                         WalletPage(api: _api, topupId: row['id'] as String),
                   ),
                 );
-                if (mounted && result == true) await _load();
+                if (mounted && _current && result == true) await _load();
               },
               child: Text(
                 lt(
@@ -998,7 +1161,7 @@ class _WalletPageState extends State<WalletPage> with WidgetsBindingObserver {
                   : row['reason'] as String,
             ),
             onTap: row['kind'] == 'topup_correction' && row['topupId'] is String
-                ? () => Navigator.of(context).push(
+                ? () => _navigate(
                     MaterialPageRoute<void>(
                       builder: (_) => TopupHistoryPage(
                         api: _api!,

@@ -48,7 +48,7 @@ class _BookingReviewPage extends StatefulWidget {
 }
 
 class _BookingReviewPageState extends State<_BookingReviewPage>
-    with BookingOwnedDialogs<_BookingReviewPage> {
+    with OwnedDialogs<_BookingReviewPage> {
   late final c =
       widget.controller ??
       BookingReviewController(widget.api, widget.bookingId);

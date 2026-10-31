@@ -66,7 +66,7 @@ class _BookingRequestPage extends StatefulWidget {
 }
 
 class _BookingRequestPageState extends State<_BookingRequestPage>
-    with BookingOwnedDialogs<_BookingRequestPage> {
+    with OwnedDialogs<_BookingRequestPage> {
   bool get live => mounted && c.live && identical(widget.store.api, c.api);
 
   Future<T?> navigate<T>(Route<T> route) async {

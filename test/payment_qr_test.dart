@@ -11,6 +11,42 @@ import 'wallet_test.dart' show png;
 
 void main() {
   testWidgets(
+    'changing the recipient closes its enlarged QR and ignores a late save',
+    (t) async {
+      final gate = Completer<void>();
+      Widget page(int version) => MaterialApp(
+        home: Scaffold(
+          body: PaymentQr(
+            bytes: base64Decode(png),
+            version: version,
+            recipient: 'TEST recipient $version',
+            testOnly: true,
+            saveImage: (_, _) => gate.future,
+          ),
+        ),
+      );
+      await t.pumpWidget(page(1));
+      await t.tap(find.byKey(const ValueKey('savePaymentQr')));
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('enlargePaymentQr')));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 350));
+      expect(find.text('Paynet Xolis · QR v1'), findsOneWidget);
+      await t.pumpWidget(page(2));
+      await t.pumpAndSettle();
+      gate.complete();
+      await t.pumpAndSettle();
+      expect(find.text('Paynet Xolis · QR v1'), findsNothing);
+      expect(find.byKey(const ValueKey('qrSaveResult')), findsNothing);
+      expect(
+        t
+            .widget<OutlinedButton>(find.byKey(const ValueKey('savePaymentQr')))
+            .onPressed,
+        isNotNull,
+      );
+    },
+  );
+  testWidgets(
     'save waits for the gallery, prevents double tap and retains QR version',
     (tester) async {
       final gate = Completer<void>();

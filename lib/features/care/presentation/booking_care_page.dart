@@ -75,7 +75,7 @@ class _BookingCarePage extends StatefulWidget {
 }
 
 class _BookingCarePageState extends State<_BookingCarePage>
-    with WidgetsBindingObserver, BookingOwnedDialogs<_BookingCarePage> {
+    with WidgetsBindingObserver, OwnedDialogs<_BookingCarePage> {
   Timer? timer;
   bool foreground = true;
   late final c =

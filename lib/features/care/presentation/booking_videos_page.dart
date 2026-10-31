@@ -51,7 +51,7 @@ class _BookingVideosPage extends StatefulWidget {
 }
 
 class _BookingVideosPageState extends State<_BookingVideosPage>
-    with WidgetsBindingObserver, BookingOwnedDialogs<_BookingVideosPage> {
+    with WidgetsBindingObserver, OwnedDialogs<_BookingVideosPage> {
   late final c =
       widget.controller ?? BookingVideoController(widget.api, widget.bookingId);
   Timer? timer;
