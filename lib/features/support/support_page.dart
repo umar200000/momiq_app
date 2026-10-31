@@ -603,7 +603,14 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                     : null,
               ),
             ],
-            if (widget.id == null && topic == 'account_deletion')
+            if (widget.id == null && topic == 'account_deletion') ...[
+              Text(
+                lt(
+                  'Yordam xizmati so‘rovingizni ko‘rib chiqadi. Shu vaqt davomida hisobingiz faol qoladi. Hisob o‘chirilganda enaga balansida qolgan pul qaytarilmaydi.',
+                  'Support will review your request. Your account stays active during review. Any unused sitter balance is non-refundable when the account is deleted.',
+                  'Поддержка рассмотрит запрос. Во время рассмотрения аккаунт останется активным. При удалении аккаунта остаток на балансе няни не возвращается.',
+                ),
+              ),
               CheckboxListTile(
                 key: const ValueKey('confirmAccountRequest'),
                 value: confirmAccountRequest,
@@ -617,14 +624,8 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                     'Подтверждаю отправку запроса на удаление моего аккаунта.',
                   ),
                 ),
-                subtitle: Text(
-                  lt(
-                    'Yordam xizmati so‘rovingizni ko‘rib chiqadi. Shu vaqt davomida hisobingiz faol qoladi. Hisob o‘chirilganda enaga balansida qolgan pul qaytarilmaydi.',
-                    'Support will review your request. Your account stays active during review. Any unused sitter balance is non-refundable when the account is deleted.',
-                    'Поддержка рассмотрит запрос. Во время рассмотрения аккаунт останется активным. При удалении аккаунта остаток на балансе няни не возвращается.',
-                  ),
-                ),
               ),
+            ],
             if ((c.pending?['bookingId'] ??
                     widget.bookingId ??
                     ticket?['bookingId']) !=
