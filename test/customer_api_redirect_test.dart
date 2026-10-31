@@ -50,7 +50,50 @@ void main() {
           ),
         );
       }
+      await expectLater(
+        api.videoPoster('/bookings/${'a' * 32}/videos/${'b' * 32}/poster'),
+        throwsA(
+          isA<CustomerApiException>().having((e) => e.status, 'redirect', 302),
+        ),
+      );
       expect(forwarded, 0);
+    },
+  );
+  test(
+    'private poster requires a bounded JPEG from the authenticated media route',
+    () async {
+      final http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => http.close(force: true));
+      final api = CustomerApi(
+        'TEST',
+        'owner',
+        baseUrl: 'http://127.0.0.1:${http.port}',
+      );
+      final path = '/bookings/${'a' * 32}/videos/${'b' * 32}/poster';
+      var calls = 0;
+      http.listen((request) async {
+        expect(request.uri.path, path);
+        expect(
+          request.headers.value(HttpHeaders.authorizationHeader),
+          'Bearer TEST',
+        );
+        request.response.headers.contentType = ContentType('image', 'jpeg');
+        calls++;
+        request.response.add(switch (calls) {
+          1 => [0xff, 0xd8, 0xff, 0xd9],
+          2 => [1, 2, 3, 4],
+          _ => List.filled(2 * 1024 * 1024 + 1, 0),
+        });
+        try {
+          await request.response.close();
+        } on SocketException {
+          /* rejected oversized stream */
+        }
+      });
+      expect(await api.videoPoster(path), [0xff, 0xd8, 0xff, 0xd9]);
+      await expectLater(api.videoPoster(path), throwsFormatException);
+      await expectLater(api.videoPoster(path), throwsFormatException);
+      expect(() => api.videoPoster('/foreign'), throwsArgumentError);
     },
   );
 }

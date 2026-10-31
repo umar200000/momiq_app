@@ -6,6 +6,7 @@ import 'dart:convert';
 import '../../wallet/data/wallet_draft_storage.dart';
 import 'dart:io';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/config/app_environment.dart';
 import '../../../core/storage/session_vault.dart';
@@ -395,7 +396,62 @@ class CustomerApi {
     String method,
     String path, [
     Map<String, dynamic>? body,
-  ]) async {
+  ]) => _http(method, path, body, 'application/json', (response) async {
+    final text = await utf8.decoder.bind(response).join();
+    final data = Map<String, dynamic>.from(jsonDecode(text));
+    if (response.statusCode >= 400) {
+      throw CustomerApiException(
+        data['error'] ?? 'Server xatosi',
+        response.statusCode,
+      );
+    }
+    return data;
+  });
+
+  Future<Uint8List> videoPoster(String path) {
+    if (!RegExp(
+      r'^/bookings/[0-9a-f]{32}/videos/[0-9a-f]{32}/poster$',
+    ).hasMatch(path)) {
+      throw ArgumentError('Invalid poster path');
+    }
+    return _http('GET', path, null, 'image/jpeg', (response) async {
+      if (response.statusCode != 200 ||
+          response.headers.contentType?.mimeType != 'image/jpeg') {
+        throw CustomerApiException(
+          'Video rasmi ochilmadi',
+          response.statusCode,
+        );
+      }
+      const limit = 2 * 1024 * 1024;
+      if (response.contentLength > limit) {
+        throw const FormatException('Poster too large');
+      }
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in response) {
+        if (bytes.length + chunk.length > limit) {
+          throw const FormatException('Poster too large');
+        }
+        bytes.add(chunk);
+      }
+      final data = bytes.takeBytes();
+      if (data.length < 4 ||
+          data[0] != 0xff ||
+          data[1] != 0xd8 ||
+          data[data.length - 2] != 0xff ||
+          data.last != 0xd9) {
+        throw const FormatException('Invalid JPEG poster');
+      }
+      return data;
+    });
+  }
+
+  Future<T> _http<T>(
+    String method,
+    String path,
+    Map<String, dynamic>? body,
+    String accept,
+    Future<T> Function(HttpClientResponse response) decode,
+  ) async {
     final version = sessionVersion;
     if (token.isNotEmpty && AppEnvironment.current.name != 'local') {
       await verifyPrivateDestination();
@@ -411,7 +467,7 @@ class CustomerApi {
           (version != sessionVersion || !identical(active, this))) {
         throw StateError('Sessiya o‘zgargan');
       }
-      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      req.headers.set(HttpHeaders.acceptHeader, accept);
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
@@ -428,18 +484,7 @@ class CustomerApi {
           response.statusCode,
         );
       }
-      final text = await utf8.decoder
-          .bind(response)
-          .join()
-          .timeout(const Duration(seconds: 15));
-      final data = Map<String, dynamic>.from(jsonDecode(text));
-      if (response.statusCode >= 400) {
-        throw CustomerApiException(
-          data['error'] ?? 'Server xatosi',
-          response.statusCode,
-        );
-      }
-      return data;
+      return await decode(response).timeout(const Duration(seconds: 15));
     } on SocketException {
       throw CustomerApiException(
         'Backendga ulanib bo‘lmadi. Internet ulanishini tekshiring.',

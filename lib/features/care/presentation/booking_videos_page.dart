@@ -1,5 +1,6 @@
 import '../../bookings/presentation/booking_source_boundary.dart';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
@@ -637,17 +638,14 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
                                 ),
                                 leading: !available
                                     ? const Icon(Icons.history)
-                                    : Image.network(
-                                        '$url/poster',
-                                        headers: {
-                                          'Authorization':
-                                              'Bearer ${widget.api.token}',
-                                        },
-                                        width: 64,
-                                        height: 48,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, _, _) =>
-                                            const Icon(Icons.movie_outlined),
+                                    : _VideoPoster(
+                                        key: ValueKey((
+                                          widget.api,
+                                          url,
+                                          CustomerApi.sessionVersion,
+                                        )),
+                                        api: widget.api,
+                                        path: "${c.path}/${item['id']}/poster",
                                       ),
                                 trailing: available
                                     ? const Icon(Icons.play_circle_outline)
@@ -675,6 +673,41 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
         );
       },
     ),
+  );
+}
+
+class _VideoPoster extends StatefulWidget {
+  const _VideoPoster({super.key, required this.api, required this.path});
+  final CustomerApi api;
+  final String path;
+  @override
+  State<_VideoPoster> createState() => _VideoPosterState();
+}
+
+class _VideoPosterState extends State<_VideoPoster> {
+  final session = CustomerApi.sessionVersion;
+  late final bytes = Future<Uint8List>.sync(
+    () => widget.api.videoPoster(widget.path),
+  );
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Uint8List>(
+    future: bytes,
+    builder: (_, result) {
+      final image = result.data;
+      if (image == null ||
+          session != CustomerApi.sessionVersion ||
+          (CustomerApi.active != null &&
+              !identical(CustomerApi.active, widget.api))) {
+        return const Icon(Icons.movie_outlined);
+      }
+      return Image.memory(
+        image,
+        width: 64,
+        height: 48,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => const Icon(Icons.movie_outlined),
+      );
+    },
   );
 }
 
