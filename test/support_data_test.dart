@@ -22,6 +22,49 @@ class ContractApi extends SupportApi {
 
 void main() {
   test(
+    'dispute appeal only clears after the exact booking decision is confirmed',
+    () async {
+      final api = ContractApi(), store = ChatDraft(), booking = 'a' * 32;
+      final c = SupportController(
+        api,
+        null,
+        storage: store,
+        target: {
+          'kind': 'dispute_decision',
+          'id': booking,
+          'purpose': 'appeal',
+          'revision': '2',
+        },
+      );
+      addTearDown(c.dispose);
+      await c.load();
+      var revision = 3;
+      api.transform = (method, _, result) {
+        if (method == 'POST')
+          result['disputeAppeal'] = {
+            'eventId': '42',
+            'bookingId': booking,
+            'revision': revision,
+          };
+        return result;
+      };
+      expect(
+        await c.send(
+          'Review this decision',
+          null,
+          topic: 'dispute_appeal',
+          subject: 'TEST appeal',
+          bookingId: booking,
+        ),
+        false,
+      );
+      expect(c.pending!['appealRevision'], 2);
+      revision = 2;
+      expect(await c.send('edited', null), true);
+      expect(api.posts.first, api.posts.last);
+    },
+  );
+  test(
     'stale appeal decision and foreign ticket cannot consume the original draft',
     () async {
       final api = ContractApi(), store = ChatDraft();

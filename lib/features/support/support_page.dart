@@ -108,7 +108,11 @@ class _PublicContentReportButtonState extends State<PublicContentReportButton> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SupportThreadPage(api: api, target: target),
+        builder: (_) => SupportThreadPage(
+          api: api,
+          target: target,
+          bookingId: target['kind'] == 'dispute_decision' ? target['id'] : null,
+        ),
       ),
     );
   }
@@ -405,7 +409,9 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
     super.initState();
     if (widget.bookingId != null) topic = 'booking';
     if (widget.target != null) {
-      topic = 'safety';
+      topic = widget.target!['kind'] == 'dispute_decision'
+          ? 'dispute_appeal'
+          : 'safety';
       subject.text = supportTargetLabel(
         widget.target!['kind']!,
         widget.target!['purpose'],
@@ -514,11 +520,20 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
       if (!live) return _supportSessionExpired();
       final ticket = c.data?['ticket'];
       final video = c.data?['videoReport'];
+      final dispute = c.data?['disputeAppeal'];
       final target =
           c.pending?['target'] ??
           c.data?['target'] ??
           c.target ??
-          (video == null ? null : {'kind': 'booking_video', 'id': video['id']});
+          (dispute != null
+              ? {
+                  'kind': 'dispute_decision',
+                  'purpose': 'appeal',
+                  'id': dispute['bookingId'],
+                }
+              : video == null
+              ? null
+              : {'kind': 'booking_video', 'id': video['id']});
       final enabled =
           c.live &&
           !c.busy &&
@@ -561,7 +576,13 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                   ),
                 ),
               Text(
-                target['kind'] == 'booking_video'
+                target['kind'] == 'dispute_decision'
+                    ? lt(
+                        'Qaysi qarorga nega rozi emasligingizni yozing. Administrator javob beradi. Buyurtma holati va komissiya bu murojaat orqali o‘zgarmaydi.',
+                        'Explain why you disagree with the decision. An administrator will reply. The booking status and commission remain as recorded.',
+                        'Объясните, почему вы не согласны с решением. Ответит администратор. Статус заказа и комиссия сохраняются.',
+                      )
+                    : target['kind'] == 'booking_video'
                     ? lt(
                         'Sababini yozing. Murojaat shu videoga bog‘lanadi. Videoning saqlash muddati avvalgi tartibda davom etadi.',
                         'Describe the issue. The report identifies this video. Its usual retention period applies.',
@@ -590,7 +611,8 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                   labelText: lt('Mavzu', 'Subject', 'Тема'),
                 ),
               ),
-              if (target?['kind'] != 'booking_video')
+              if (target?['kind'] != 'booking_video' &&
+                  target?['kind'] != 'dispute_decision')
                 DropdownButtonFormField<String>(
                   isExpanded: true,
                   isDense: false,

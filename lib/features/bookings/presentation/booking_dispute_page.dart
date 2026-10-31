@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
-import '../../support/support_page.dart' show SupportImage;
+import '../../support/support_page.dart'
+    show SupportImage, PublicContentReportButton;
 import '../../wallet/data/receipt_image.dart';
 import '../data/booking_dispute_controller.dart';
 import 'bookings_page.dart' show bookingTime, bookingMoney;
@@ -322,6 +323,16 @@ class _BookingDisputePageState extends State<_BookingDisputePage>
               if (caseData['status'] == 'resolved')
                 Text(
                   '${lt('Komissiya qaytimi', 'Commission refund', 'Возврат комиссии')}: ${bookingMoney(caseData['refundMinor'])}',
+                ),
+              if (caseData['status'] == 'resolved')
+                PublicContentReportButton(
+                  api: widget.api,
+                  target: {
+                    'kind': 'dispute_decision',
+                    'purpose': 'appeal',
+                    'id': widget.id,
+                    'revision': '${caseData['revision']}',
+                  },
                 ),
             ],
             if (data?['nextCursor'] != null)

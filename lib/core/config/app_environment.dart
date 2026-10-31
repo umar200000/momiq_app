@@ -20,6 +20,7 @@ class AppEnvironment {
     'support-receipts-v1',
     'private-video-report-v1',
     'notice-read-receipts-v1',
+    'dispute-appeal-v1',
   };
   String get sessionScope => '$name|$apiUrl';
 

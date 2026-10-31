@@ -5,6 +5,8 @@ import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/bookings/data/booking_dispute_controller.dart';
 import 'package:momiq_app/features/bookings/presentation/booking_dispute_page.dart';
 import 'conversation_test.dart' show ChatDraft;
+import 'package:momiq_app/features/support/support_page.dart'
+    show SupportThreadPage;
 
 class DisputeApi extends CustomerApi {
   DisputeApi() : super('test', 'owner');
@@ -234,6 +236,23 @@ void main() {
         ),
         findsOneWidget,
       );
+      final appeal = find.text('Qarorni qayta ko‘rib chiqish');
+      await t.scrollUntilVisible(
+        appeal,
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await t.tap(appeal);
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 400));
+      final form = t.widget<SupportThreadPage>(find.byType(SupportThreadPage));
+      expect(form.bookingId, c.id);
+      expect(form.target, {
+        'kind': 'dispute_decision',
+        'purpose': 'appeal',
+        'id': c.id,
+        'revision': '1',
+      });
       await t.pumpWidget(const SizedBox());
       c.dispose();
     },

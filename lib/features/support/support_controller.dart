@@ -131,6 +131,8 @@ class SupportController extends ChangeNotifier {
           'bookingId': bookingId,
           if (target?['kind'] == 'booking_video')
             'reportVideoId': target!['id']
+          else if (target?['kind'] == 'dispute_decision')
+            'appealRevision': int.parse(target!['revision']!)
           else if (target != null)
             'target': target,
         },
@@ -161,6 +163,10 @@ class SupportController extends ChangeNotifier {
         throw const FormatException('New ticket confirmation mismatch');
       }
       final original = pending!['target'];
+      if (pending!.containsKey('appealRevision') &&
+          result['disputeAppeal']?['revision'] != pending!['appealRevision']) {
+        throw const FormatException('Dispute decision confirmation mismatch');
+      }
       if (pending!.containsKey('reportVideoId') &&
           (result['videoReport']?['id'] != pending!['reportVideoId'] ||
               result['ticket']['bookingId'] != pending!['bookingId'])) {

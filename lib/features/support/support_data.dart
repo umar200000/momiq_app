@@ -114,6 +114,19 @@ SupportData supportThread(
     }
   }
   final video = data['videoReport'];
+  final appeal = data['disputeAppeal'];
+  if (ticket['topic'] == 'dispute_appeal' || appeal != null) {
+    if (ticket['topic'] != 'dispute_appeal' ||
+        appeal is! Map ||
+        target != null ||
+        video != null ||
+        !_id(ticket['bookingId']) ||
+        appeal['bookingId'] != ticket['bookingId'] ||
+        !_number(appeal['eventId']) ||
+        appeal['revision'] is! int ||
+        appeal['revision'] < 1)
+      _invalid();
+  }
   if (video != null &&
       (target != null ||
           video is! Map ||
