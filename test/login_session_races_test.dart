@@ -73,6 +73,8 @@ class LoginRequest implements HttpClientRequest {
   @override
   final headers = LoginHeaders();
   @override
+  bool followRedirects = true;
+  @override
   set contentLength(int value) {}
   @override
   void add(List<int> data) {}
