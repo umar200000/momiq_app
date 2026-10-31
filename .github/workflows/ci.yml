@@ -89,6 +89,8 @@ jobs:
     # Keep an explicit supported macOS host; real-device ARM64 QA remains required.
     runs-on: macos-15-intel
     timeout-minutes: 40
+    outputs:
+      artifact-id: ${{ steps.ios-package.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
@@ -104,6 +106,7 @@ jobs:
         env:
           MOMIQ_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Retain iOS simulator QA artifact for seven days
+        id: ios-package
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ios-simulator-debug-${{ github.sha }}-${{ github.run_attempt }}
@@ -112,7 +115,18 @@ jobs:
           retention-days: 7
           compression-level: 0
           include-hidden-files: false
-      - name: Launch the QA bundle twice on a fresh iPhone simulator
+  ios-startup:
+    needs: ios-simulator
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.ios-simulator.outputs.artifact-id }}
+          merge-multiple: true
+          path: ci-artifacts/ios-simulator/
+      - name: Launch the verified QA bundle twice on a fresh iPhone simulator
         run: python3 tool/ios_startup.py
         env:
           MOMIQ_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
