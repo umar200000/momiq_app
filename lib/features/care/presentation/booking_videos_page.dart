@@ -710,6 +710,17 @@ class _PlaybackState extends State<_Playback> with WidgetsBindingObserver {
   Future<void> load() async {
     if (loading || session != CustomerApi.sessionVersion) return;
     loading = true;
+    try {
+      await widget.api.verifyPrivateDestination();
+    } catch (e) {
+      if (mounted) setState(() => error = e);
+      loading = false;
+      return;
+    }
+    if (!mounted || session != CustomerApi.sessionVersion) {
+      loading = false;
+      return;
+    }
     final controller = VideoPlayerController.networkUrl(
       Uri.parse(widget.url),
       httpHeaders: {'Authorization': 'Bearer ${widget.api.token}'},

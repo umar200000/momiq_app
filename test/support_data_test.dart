@@ -30,8 +30,9 @@ void main() {
       addTearDown(c.dispose);
       await c.load();
       api.transform = (method, _, data) {
-        if (method == 'POST')
+        if (method == 'POST') {
           data['acknowledgement']['requestId'] = 'unrelated';
+        }
         return data;
       };
       expect(await c.send('TEST request', null, subject: 'TEST'), false);

@@ -13,6 +13,12 @@ class AppEnvironment {
   );
 
   final String name, apiUrl;
+  static const requiredMobileFeatures = {
+    'booking-receipts-v1',
+    'home-visit-address-v1',
+    'wallet-receipts-v1',
+    'support-receipts-v1',
+  };
   String get sessionScope => '$name|$apiUrl';
 
   void validate({
@@ -81,12 +87,18 @@ class AppEnvironment {
   }
 
   void validateHealth(Map<String, dynamic> health) {
-    if (health['mode'] != name) {
+    if (health['mode'] != name || (name != 'local' && health['ok'] != true)) {
       throw StateError('Ilova va server muhiti mos emas.');
     }
     if (name == 'production' &&
         (health['testLogin'] != false || health['sms'] != true)) {
       throw StateError('Production kirish xizmati hali tayyor emas.');
+    }
+    final features = health['mobileFeatures'];
+    if (name != 'local' &&
+        (features is! List ||
+            !requiredMobileFeatures.every(features.contains))) {
+      throw StateError('Server versiyasi ilovaga mos emas.');
     }
   }
 }

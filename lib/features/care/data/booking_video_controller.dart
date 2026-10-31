@@ -25,6 +25,11 @@ class VideoUpload {
     void Function(double) progress,
   ) async {
     if (_cancelled) throw StateError('Yuklash bekor qilindi');
+    final session = CustomerApi.sessionVersion;
+    await api.verifyPrivateDestination();
+    if (_cancelled || session != CustomerApi.sessionVersion) {
+      throw StateError('Yuklash bekor qilindi');
+    }
     final client = _client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
     try {
@@ -32,6 +37,9 @@ class VideoUpload {
           .postUrl(Uri.parse('${api.baseUrl}$path'))
           .timeout(const Duration(seconds: 10));
       request.followRedirects = false;
+      if (_cancelled || session != CustomerApi.sessionVersion) {
+        throw StateError('Yuklash bekor qilindi');
+      }
       request.headers.set(
         HttpHeaders.authorizationHeader,
         'Bearer ${api.token}',

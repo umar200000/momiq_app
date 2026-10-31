@@ -54,6 +54,8 @@ jobs:
           include-hidden-files: false
       - run: flutter analyze
       - run: flutter test
+      - name: Verify hosted private requests with an isolated fake transport
+        run: flutter test --no-pub --dart-define-from-file=config/production.json test/hosted_private_transport_test.dart
       - name: Build Android debug for ARM64
         run: flutter build apk --debug --no-pub --target-platform android-arm64 --dart-define-from-file=config/local.json
       - name: Package Android QA binary and source manifest

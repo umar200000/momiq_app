@@ -134,6 +134,38 @@ class CustomerApi {
   }
 
   final String token, userId, baseUrl;
+  Future<void>? _checkingBackend;
+  Stopwatch? _healthySince;
+
+  Future<void> verifyPrivateDestination() async {
+    if (AppEnvironment.current.name == 'local' || token.isEmpty) return;
+    final version = sessionVersion;
+    void checkSession() {
+      if (!identical(active, this) || version != sessionVersion) {
+        throw StateError('Sessiya o‘zgargan');
+      }
+    }
+
+    checkSession();
+    if (baseUrl != configuredUrl) throw StateError('Server manzili mos emas');
+    final age = _healthySince;
+    if (age != null && age.elapsed < const Duration(minutes: 5)) return;
+    final check = _checkingBackend ??= _checkAnonymousHealth();
+    try {
+      await check;
+      checkSession();
+      _healthySince = Stopwatch()..start();
+    } finally {
+      if (identical(_checkingBackend, check)) _checkingBackend = null;
+    }
+  }
+
+  Future<void> _checkAnonymousHealth() async {
+    AppEnvironment.current.validate();
+    final response = await CustomerApi('', '').request('GET', '/health');
+    AppEnvironment.current.validateHealth(response);
+  }
+
   static bool _loggingIn = false;
   static Future<Map<String, dynamic>>? _loginCommit;
   static Future<Map<String, dynamic>> login(
@@ -364,12 +396,21 @@ class CustomerApi {
     String path, [
     Map<String, dynamic>? body,
   ]) async {
+    final version = sessionVersion;
+    if (token.isNotEmpty && AppEnvironment.current.name != 'local') {
+      await verifyPrivateDestination();
+    }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
       final req = await client
           .openUrl(method, Uri.parse('$baseUrl$path'))
           .timeout(const Duration(seconds: 8));
       req.followRedirects = false;
+      if (AppEnvironment.current.name != 'local' &&
+          token.isNotEmpty &&
+          (version != sessionVersion || !identical(active, this))) {
+        throw StateError('Sessiya o‘zgargan');
+      }
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');

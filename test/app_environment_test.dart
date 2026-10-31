@@ -91,9 +91,11 @@ void main() {
       throwsStateError,
     );
     config.validateHealth({
+      'ok': true,
       'mode': 'production',
       'testLogin': false,
       'sms': true,
+      'mobileFeatures': AppEnvironment.requiredMobileFeatures.toList(),
     });
   });
 
