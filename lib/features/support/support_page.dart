@@ -302,6 +302,19 @@ class _SupportPageState extends State<_BoundSupportPage> {
               onPressed: busy ? null : () => load(more: true),
               child: Text(lt('Yana', 'More', 'Ещё')),
             ),
+          ListTile(
+            key: const ValueKey('softwareLicenses'),
+            leading: const Icon(Icons.description_outlined),
+            title: Text(
+              lt(
+                'Kutubxonalar litsenziyalari',
+                'Software licenses',
+                'Лицензии библиотек',
+              ),
+            ),
+            onTap: () =>
+                showLicensePage(context: context, applicationName: 'Momiq'),
+          ),
         ],
       ),
     );

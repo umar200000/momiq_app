@@ -4,6 +4,8 @@ Never signs, installs, runs, deploys or promotes an application.
 """
 import argparse
 import hashlib
+import gzip
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -18,6 +20,17 @@ import zipfile
 def digest(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def notice_info(stream):
+    raw = stream.read(8*1024*1024+1)
+    if len(raw)>8*1024*1024:
+        raise ValueError('Oversized packaged notices')
+    with gzip.GzipFile(fileobj=BytesIO(raw)) as compressed:
+        notices = compressed.read(32*1024*1024+1)
+    if not notices or len(notices)>32*1024*1024 or not notices.decode('utf-8').strip():
+        raise ValueError('Invalid packaged notices')
+    return {'bytes':len(notices),'sha256':hashlib.sha256(notices).hexdigest()}
 
 
 def apk_badging(apk):
@@ -55,6 +68,15 @@ def package(root, platform, checkout_sha, source_sha):
         with zipfile.ZipFile(source) as archive:
             if not {'AndroidManifest.xml', 'lib/arm64-v8a/libflutter.so'}.issubset(archive.namelist()):
                 raise ValueError('Expected ARM64 Android APK')
+            with archive.open('assets/flutter_assets/NOTICES.Z') as stream:
+                notices = notice_info(stream)
+            native = {}
+            for member in archive.infolist():
+                if re.fullmatch(r'lib/[\w-]+/[\w.+-]+\.so',member.filename):
+                    if member.filename in native:
+                        raise ValueError('Duplicate native library')
+                    with archive.open(member) as stream:
+                        native[member.filename] = hashlib.file_digest(stream,'sha256').hexdigest()
         badging = apk_badging(source)
         package_line = next((line for line in badging.splitlines() if line.startswith('package: ')), '')
         fields = dict(re.findall(r"\b(\w+)='([^']*)'", package_line))
@@ -82,6 +104,16 @@ def package(root, platform, checkout_sha, source_sha):
             raise ValueError('Missing simulator executable')
         if any(path.is_symlink() and not path.resolve().is_relative_to(source.resolve()) for path in source.rglob('*')):
             raise ValueError('Bundle link escapes application')
+        with (source/'Frameworks/App.framework/flutter_assets/NOTICES.Z').open('rb') as stream:
+            notices = notice_info(stream)
+        native = {}
+        for plist in (source/'Frameworks').glob('*.framework/Info.plist'):
+            with plist.open('rb') as stream:
+                framework = plistlib.load(stream).get('CFBundleExecutable')
+            if not isinstance(framework,str) or not re.fullmatch(r'[\w.+-]+',framework) or framework in ('.','..'):
+                raise ValueError('Invalid framework executable')
+            binary = plist.parent/framework
+            native[binary.relative_to(source).as_posix()] = digest(binary)
     output = root/'ci-artifacts'/platform
     if not output.resolve().is_relative_to(root) or output.exists():
         raise ValueError('Refusing to replace existing artifact evidence')
@@ -98,6 +130,7 @@ def package(root, platform, checkout_sha, source_sha):
         'releaseReady': False, 'signing': 'android-debug-key' if platform == 'android' else 'unsigned-simulator',
         'checkoutSha': checkout_sha, 'sourceSha': source_sha, 'declaredVersion': version[1],
         'binaryIdentity': binary_identity,
+        'packagedFlutterNotices': notices, 'nativeLibrariesSha256': native,
         'pubspecLockSha256': digest(root/'pubspec.lock'),
         'artifact': artifact.name, 'bytes': artifact.stat().st_size, 'sha256': digest(artifact),
     }

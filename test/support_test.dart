@@ -73,6 +73,20 @@ class SupportApi extends CustomerApi {
 }
 
 void main() {
+  testWidgets('software notices open from Help without a provider request', (
+    t,
+  ) async {
+    final api = SupportApi();
+    await t.pumpWidget(MaterialApp(home: SupportPage(api: api)));
+    await t.pumpAndSettle();
+    final link = find.byKey(const ValueKey('softwareLicenses'));
+    await t.ensureVisible(link);
+    await t.tap(link);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 400));
+    expect(find.byType(LicensePage), findsOneWidget);
+    expect(api.posts, isEmpty);
+  });
   test(
     'lost create response survives restart with one ticket and original booking context',
     () async {

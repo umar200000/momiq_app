@@ -1,4 +1,5 @@
 import hashlib
+import gzip
 import json
 from pathlib import Path
 import plistlib
@@ -27,6 +28,7 @@ class PackageTests(unittest.TestCase):
         with zipfile.ZipFile(path, 'w') as archive:
             archive.writestr('AndroidManifest.xml', 'TEST manifest')
             archive.writestr('lib/arm64-v8a/libflutter.so', 'TEST engine')
+            archive.writestr('assets/flutter_assets/NOTICES.Z', gzip.compress(b'TEST notices'))
         return path
 
     @patch('package_build.apk_badging', return_value=badging)
@@ -37,6 +39,8 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(result['checkoutSha'], 'a'*40)
         self.assertEqual(result['sourceSha'], 'b'*40)
         self.assertEqual(result['binaryIdentity']['minSdk'], 26)
+        self.assertEqual(result['packagedFlutterNotices']['sha256'], hashlib.sha256(b'TEST notices').hexdigest())
+        self.assertEqual(result['nativeLibrariesSha256']['lib/arm64-v8a/libflutter.so'],hashlib.sha256(b'TEST engine').hexdigest())
         self.assertFalse(result['releaseReady'])
         output = self.root/'ci-artifacts/android/manifest.json'
         before = output.read_bytes()
@@ -59,6 +63,11 @@ class PackageTests(unittest.TestCase):
         app.mkdir(parents=True)
         (app/'Runner').write_bytes(b'TEST executable')
         (app/'Runner').chmod(0o755)
+        framework = app/'Frameworks/App.framework'
+        (framework/'flutter_assets').mkdir(parents=True)
+        (framework/'flutter_assets/NOTICES.Z').write_bytes(gzip.compress(b'TEST notices'))
+        (framework/'Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'App'}))
+        (framework/'App').write_bytes(b'TEST native')
         with (app/'Info.plist').open('wb') as stream:
             info = {'CFBundleIdentifier':'net.momiq.app', 'CFBundleSupportedPlatforms':['iPhoneSimulator'],
                     'CFBundleExecutable':'Runner', 'CFBundleShortVersionString':'1.2.3',
@@ -70,6 +79,7 @@ class PackageTests(unittest.TestCase):
             plistlib.dump(info, stream)
         result = package(self.root, 'ios-simulator', 'a'*40, 'b'*40)
         self.assertEqual(result['binaryIdentity']['minimumOs'], '15.0')
+        self.assertEqual(result['nativeLibrariesSha256']['Frameworks/App.framework/App'],hashlib.sha256(b'TEST native').hexdigest())
         self.assertEqual(result['signing'], 'unsigned-simulator')
         with tarfile.open(self.root/'ci-artifacts/ios-simulator'/result['artifact']) as archive:
             self.assertEqual(archive.extractfile('Runner.app/Runner').read(), b'TEST executable')
