@@ -618,49 +618,91 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
                               final available = item['available'] != false;
                               final url =
                                   '${widget.api.baseUrl}${c.path}/${item['id']}';
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text(
-                                  '$label · ${(item['durationMs'] / 1000).round()} s',
-                                ),
-                                subtitle: Text(
-                                  available
-                                      ? lt(
-                                          'Serverda saqlangan',
-                                          'Saved on server',
-                                          'Сохранено на сервере',
-                                        )
-                                      : lt(
-                                          'Saqlash muddati tugagan',
-                                          'Retention period ended',
-                                          'Срок хранения истёк',
-                                        ),
-                                ),
-                                leading: !available
-                                    ? const Icon(Icons.history)
-                                    : _VideoPoster(
-                                        key: ValueKey((
-                                          widget.api,
-                                          url,
-                                          CustomerApi.sessionVersion,
-                                        )),
-                                        api: widget.api,
-                                        path: "${c.path}/${item['id']}/poster",
-                                      ),
-                                trailing: available
-                                    ? const Icon(Icons.play_circle_outline)
-                                    : null,
-                                onTap: !c.live || !available
-                                    ? null
-                                    : () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => _Playback(
+                              return Column(
+                                children: [
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      '$label · ${(item['durationMs'] / 1000).round()} s',
+                                    ),
+                                    subtitle: Text(
+                                      available
+                                          ? lt(
+                                              'Serverda saqlangan',
+                                              'Saved on server',
+                                              'Сохранено на сервере',
+                                            )
+                                          : lt(
+                                              'Saqlash muddati tugagan',
+                                              'Retention period ended',
+                                              'Срок хранения истёк',
+                                            ),
+                                    ),
+                                    leading: !available
+                                        ? const Icon(Icons.history)
+                                        : _VideoPoster(
+                                            key: ValueKey((
+                                              widget.api,
+                                              url,
+                                              CustomerApi.sessionVersion,
+                                            )),
                                             api: widget.api,
-                                            url: '$url/playback',
+                                            path:
+                                                "${c.path}/${item['id']}/poster",
                                           ),
+                                    trailing: available
+                                        ? const Icon(Icons.play_circle_outline)
+                                        : null,
+                                    onTap: !c.live || !available
+                                        ? null
+                                        : () => Navigator.push(
+                                            context,
+                                            MaterialPageRoute<void>(
+                                              builder: (_) => _Playback(
+                                                api: widget.api,
+                                                url: '$url/playback',
+                                              ),
+                                            ),
+                                          ),
+                                  ),
+                                  if (available)
+                                    Align(
+                                      alignment:
+                                          AlignmentDirectional.centerStart,
+                                      child: TextButton.icon(
+                                        key: ValueKey(
+                                          "report-video-${item['id']}",
+                                        ),
+                                        onPressed: !c.live
+                                            ? null
+                                            : () {
+                                                if (!c.live) return;
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute<void>(
+                                                    builder: (_) =>
+                                                        SupportThreadPage(
+                                                          api: widget.api,
+                                                          bookingId:
+                                                              c.bookingId,
+                                                          target: {
+                                                            'kind':
+                                                                'booking_video',
+                                                            'id':
+                                                                item['id']
+                                                                    as String,
+                                                          },
+                                                        ),
+                                                  ),
+                                                );
+                                              },
+                                        icon: const Icon(Icons.flag_outlined),
+                                        label: Text(
+                                          supportTargetLabel('booking_video'),
                                         ),
                                       ),
+                                    ),
+                                ],
                               );
                             },
                           ),

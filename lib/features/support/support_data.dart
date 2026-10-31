@@ -113,5 +113,19 @@ SupportData supportThread(
       _invalid();
     }
   }
+  final video = data['videoReport'];
+  if (video != null &&
+      (target != null ||
+          video is! Map ||
+          video['id'] is! String ||
+          !RegExp(r'^[0-9a-f]{32}$').hasMatch(video['id']) ||
+          video['day'] is! String ||
+          !RegExp(r'^\d{4}-\d\d-\d\d$').hasMatch(video['day']) ||
+          !{'morning', 'evening'}.contains(video['slot']) ||
+          ticket['topic'] != 'safety' ||
+          ticket['bookingId'] is! String ||
+          !RegExp(r'^[0-9a-f]{32}$').hasMatch(ticket['bookingId']))) {
+    _invalid();
+  }
   return {...data, 'ticket': ticket, 'items': items, 'nextCursor': cursor};
 }

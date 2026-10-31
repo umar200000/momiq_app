@@ -33,6 +33,12 @@ String supportTargetLabel(String kind, [String? purpose]) => purpose == 'appeal'
         'Appeal decision',
         'Обжаловать решение',
       )
+    : kind == 'booking_video'
+    ? lt(
+        'Video hisobotga shikoyat',
+        'Report video',
+        'Пожаловаться на видеоотчёт',
+      )
     : kind == 'review'
     ? lt('Sharhga shikoyat', 'Report review', 'Пожаловаться на отзыв')
     : lt(
@@ -505,7 +511,12 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
     builder: (context, _) {
       if (!live) return _supportSessionExpired();
       final ticket = c.data?['ticket'];
-      final target = c.pending?['target'] ?? c.data?['target'] ?? c.target;
+      final video = c.data?['videoReport'];
+      final target =
+          c.pending?['target'] ??
+          c.data?['target'] ??
+          c.target ??
+          (video == null ? null : {'kind': 'booking_video', 'id': video['id']});
       final enabled =
           c.live &&
           !c.busy &&
@@ -548,7 +559,13 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                   ),
                 ),
               Text(
-                target['purpose'] == 'appeal'
+                target['kind'] == 'booking_video'
+                    ? lt(
+                        'Sababini yozing. Murojaat shu videoga bog‘lanadi. Videoning saqlash muddati avvalgi tartibda davom etadi.',
+                        'Describe the issue. The report identifies this video. Its usual retention period applies.',
+                        'Опишите причину. Обращение будет связано с этим видео. Срок хранения видео остаётся прежним.',
+                      )
+                    : target['purpose'] == 'appeal'
                     ? lt(
                         'Qarorga nega rozi emasligingizni yozing. Administrator qayta ko‘rib chiqadi. Murojaat yuborish e’lon yoki sharhni avtomatik tiklamaydi.',
                         'Explain why you disagree. An administrator will review the decision. Submitting an appeal does not automatically restore the listing or review.',
@@ -571,50 +588,51 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                   labelText: lt('Mavzu', 'Subject', 'Тема'),
                 ),
               ),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                isDense: false,
-                itemHeight: null,
-                initialValue: topic,
-                items: [
-                  for (final entry in <String, String>{
-                    'general': lt('Umumiy', 'General', 'Общее'),
-                    'payment': lt(
-                      'Balans / chek',
-                      'Balance / receipt',
-                      'Баланс / чек',
-                    ),
-                    'account': lt('Hisob', 'Account', 'Аккаунт'),
-                    if (widget.bookingId == null && c.target == null)
-                      'account_deletion': lt(
-                        'Hisobni o‘chirish so‘rovi',
-                        'Request account deletion',
-                        'Запрос на удаление аккаунта',
+              if (target?['kind'] != 'booking_video')
+                DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  isDense: false,
+                  itemHeight: null,
+                  initialValue: topic,
+                  items: [
+                    for (final entry in <String, String>{
+                      'general': lt('Umumiy', 'General', 'Общее'),
+                      'payment': lt(
+                        'Balans / chek',
+                        'Balance / receipt',
+                        'Баланс / чек',
                       ),
-                    'safety': lt('Xavfsizlik', 'Safety', 'Безопасность'),
-                    if (widget.bookingId != null || topic == 'booking')
-                      'booking': lt('Buyurtma', 'Booking', 'Заказ'),
-                  }.entries)
-                    DropdownMenuItem(
-                      value: entry.key,
-                      child: Text(entry.value),
-                    ),
-                ],
-                onChanged: enabled
-                    ? (v) => setState(() {
-                        topic = v!;
-                        confirmAccountRequest = false;
-                        if (topic == 'account_deletion' &&
-                            subject.text.trim().isEmpty) {
-                          subject.text = lt(
-                            'Hisobni o‘chirish so‘rovi',
-                            'Request account deletion',
-                            'Запрос на удаление аккаунта',
-                          );
-                        }
-                      })
-                    : null,
-              ),
+                      'account': lt('Hisob', 'Account', 'Аккаунт'),
+                      if (widget.bookingId == null && c.target == null)
+                        'account_deletion': lt(
+                          'Hisobni o‘chirish so‘rovi',
+                          'Request account deletion',
+                          'Запрос на удаление аккаунта',
+                        ),
+                      'safety': lt('Xavfsizlik', 'Safety', 'Безопасность'),
+                      if (widget.bookingId != null || topic == 'booking')
+                        'booking': lt('Buyurtma', 'Booking', 'Заказ'),
+                    }.entries)
+                      DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                  ],
+                  onChanged: enabled
+                      ? (v) => setState(() {
+                          topic = v!;
+                          confirmAccountRequest = false;
+                          if (topic == 'account_deletion' &&
+                              subject.text.trim().isEmpty) {
+                            subject.text = lt(
+                              'Hisobni o‘chirish so‘rovi',
+                              'Request account deletion',
+                              'Запрос на удаление аккаунта',
+                            );
+                          }
+                        })
+                      : null,
+                ),
             ],
             if (widget.id == null && topic == 'account_deletion') ...[
               Text(

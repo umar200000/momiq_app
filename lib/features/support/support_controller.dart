@@ -129,7 +129,10 @@ class SupportController extends ChangeNotifier {
           if (topic == 'account_deletion')
             'confirmAccountRequest': confirmAccountRequest,
           'bookingId': bookingId,
-          if (target != null) 'target': target,
+          if (target?['kind'] == 'booking_video')
+            'reportVideoId': target!['id']
+          else if (target != null)
+            'target': target,
         },
       };
       await storage.write(pending!);
@@ -156,6 +159,13 @@ class SupportController extends ChangeNotifier {
         throw const FormatException('Account request confirmation mismatch');
       }
       final original = pending!['target'];
+      if (pending!.containsKey('reportVideoId') &&
+          (result['videoReport']?['id'] != pending!['reportVideoId'] ||
+              result['ticket']['bookingId'] != pending!['bookingId'])) {
+        throw const FormatException(
+          'Private video report confirmation mismatch',
+        );
+      }
       if (original is Map && original.containsKey('media')) {
         final confirmed = result['target'];
         final media = confirmed?['snapshot']?['media'];
