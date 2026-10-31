@@ -66,6 +66,14 @@ class SupportApi extends CustomerApi {
         .toList();
     return {
       'ticket': ticket,
+      if (method == 'POST')
+        'acknowledgement': {
+          'ticketId': ticket['id'],
+          'requestId': body!['requestId'],
+          'messageId': '${body['revision'] + 1}',
+          'revision': body['revision'] + 1,
+          'action': body['action'],
+        },
       'items': items,
       'nextCursor': selected.length > 20 ? items.first['id'] : null,
     };

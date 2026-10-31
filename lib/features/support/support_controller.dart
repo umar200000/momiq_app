@@ -141,6 +141,16 @@ class SupportController extends ChangeNotifier {
         id: id,
         minimumRevision: (pending!['revision'] as int) + 1,
       );
+      final receipt = result['acknowledgement'];
+      if (receipt is! Map ||
+          receipt['ticketId'] != result['ticket']['id'] ||
+          receipt['requestId'] != pending!['requestId'] ||
+          receipt['action'] != pending!['action'] ||
+          receipt['revision'] != pending!['revision'] + 1 ||
+          receipt['messageId'] is! String ||
+          !RegExp(r'^[1-9][0-9]{0,17}$').hasMatch(receipt['messageId'])) {
+        throw const FormatException('Support confirmation mismatch');
+      }
       if (pending!['topic'] == 'account_deletion' &&
           result['ticket']['topic'] != 'account_deletion') {
         throw const FormatException('Account request confirmation mismatch');

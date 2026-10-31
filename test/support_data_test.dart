@@ -22,6 +22,27 @@ class ContractApi extends SupportApi {
 
 void main() {
   test(
+    'wrong support receipt preserves the original draft for retry',
+    () async {
+      final api = ContractApi();
+      final store = ChatDraft(),
+          c = SupportController(api, null, storage: store);
+      addTearDown(c.dispose);
+      await c.load();
+      api.transform = (method, _, data) {
+        if (method == 'POST')
+          data['acknowledgement']['requestId'] = 'unrelated';
+        return data;
+      };
+      expect(await c.send('TEST request', null, subject: 'TEST'), false);
+      final original = Map.of(c.pending!);
+      api.transform = null;
+      expect(await c.send('edited', null, subject: 'edited'), true);
+      expect(api.posts, [original, original]);
+      expect(store.value, isNull);
+    },
+  );
+  test(
     'list rejects malformed rows, duplicates and unusable cursors atomically',
     () {
       final row = ContractApi().ticket;
