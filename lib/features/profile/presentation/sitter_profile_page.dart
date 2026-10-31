@@ -32,12 +32,22 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   final _about = TextEditingController();
   final _message = TextEditingController();
   Uint8List? _photo;
+  Map<String, dynamic>? _loadedAccount;
+  CustomerApi? _api;
+  late final int _sessionVersion;
+  bool get _current =>
+      mounted &&
+      _sessionVersion == CustomerApi.sessionVersion &&
+      identical(_api, CustomerApi.active);
+  bool _loadFailed = false;
   bool _loading = true,
       _saving = false,
       _orders = true,
       _chat = true,
       _care = true;
   List<bool> _days = [true, true, true, true, true, false, false];
+  bool _hoursEnabled = true;
+  List<String> _closedDates = [];
   TimeOfDay _start = const TimeOfDay(hour: 9, minute: 0),
       _end = const TimeOfDay(hour: 18, minute: 0);
   String tr(String uz, String en, String ru) => lt(uz, en, ru);
@@ -52,17 +62,36 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   @override
   void initState() {
     super.initState();
+    _sessionVersion = CustomerApi.sessionVersion;
+    _api = CustomerApi.active;
     _photo = widget.avatar;
     _load();
   }
 
   Future<void> _load() async {
+    if (!_current) return;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadFailed = false;
+      });
+    }
     try {
       final p = await SharedPreferences.getInstance();
+      if (!_current) return;
       final api = await CustomerApi.restore();
-      if (api != null && widget.section == 0) {
+      if (!mounted ||
+          _sessionVersion != CustomerApi.sessionVersion ||
+          (_api != null && !identical(_api, api)) ||
+          !identical(api, CustomerApi.active)) {
+        return;
+      }
+      _api = api;
+      if (api != null && [0, 1, 3, 5].contains(widget.section)) {
         final response = await api.request('GET', '/me');
+        if (!_current) return;
         final account = Map<String, dynamic>.from(response['account']);
+        _loadedAccount = account;
         final profile = account['profile'];
         final sitter = account['sitterProfile'] as Map? ?? {};
         _first.text = profile['first'];
@@ -72,13 +101,36 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
             : base64Decode(profile['photo']);
         _years.text = '${sitter['years'] ?? ''}';
         _about.text = sitter['about'] ?? '';
-        if (mounted) setState(() => _loading = false);
+        final notifications = account['notifications'] as Map? ?? {};
+        _orders = notifications['orders'] != false;
+        _chat = notifications['chat'] != false;
+        _care = notifications['video'] != false;
+        final schedule = sitter['schedule'] as Map?;
+        _hoursEnabled = schedule != null;
+        _closedDates = List<String>.from(sitter['closedDates'] ?? []);
+        if (schedule != null) {
+          _days = List<bool>.from(schedule['days']);
+          final start = schedule['start'] as int;
+          final end = schedule['end'] as int;
+          _start = TimeOfDay(hour: start ~/ 60, minute: start % 60);
+          _end = TimeOfDay(hour: end ~/ 60, minute: end % 60);
+        }
+        await AppLanguage.select(account['language'] ?? 'uz');
+        if (_current) setState(() => _loading = false);
         return;
       }
 
+      if (api != null) {
+        if (_current) setState(() => _loading = false);
+        return;
+      }
+      if (CustomerApi.enabled) throw StateError('Hisobingizga qayta kiring');
+      if (!_current) return;
       _years.text = p.getString('mock.profile.years') ?? '';
       _about.text = p.getString('mock.profile.about') ?? '';
       final days = p.getStringList('mock.profile.days');
+      _closedDates = p.getStringList('mock.profile.closedDates') ?? [];
+      _hoursEnabled = p.getBool('mock.profile.hoursEnabled') ?? true;
       if (days?.length == 7) _days = days!.map((v) => v == 'true').toList();
       _orders = p.getBool('mock.notify.orders') ?? true;
       _chat = p.getBool('mock.notify.chat') ?? true;
@@ -88,6 +140,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       _start = TimeOfDay(hour: a ~/ 60, minute: a % 60);
       _end = TimeOfDay(hour: b ~/ 60, minute: b % 60);
     } catch (_) {
+      if (!_current) return;
+      _loadFailed = true;
       if (mounted) {
         _notice(
           tr(
@@ -98,16 +152,22 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
         );
       }
     }
-    if (mounted) setState(() => _loading = false);
+    if (_current) setState(() => _loading = false);
   }
 
   void _notice(String value) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(value)));
   Future<void> _save() async {
-    if (_saving || !(_form.currentState?.validate() ?? true)) return;
+    if (!_current ||
+        _loading ||
+        _loadFailed ||
+        _saving ||
+        !(_form.currentState?.validate() ?? true)) {
+      return;
+    }
     if (widget.section == 1 &&
-        _days.any((v) => v) &&
+        _hoursEnabled &&
         _start.hour * 60 + _start.minute >= _end.hour * 60 + _end.minute) {
       _notice(
         tr(
@@ -130,13 +190,13 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     }
     setState(() => _saving = true);
     try {
-      final p = await SharedPreferences.getInstance();
-      final results = <bool>[];
-      if (widget.section == 0) {
-        final api = await CustomerApi.restore();
-        if (api != null) {
-          final response = await api.request('GET', '/me');
-          final account = Map<String, dynamic>.from(response['account']);
+      final api = _api;
+      if (api != null) {
+        if (_loadedAccount == null) {
+          throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
+        }
+        final account = Map<String, dynamic>.from(_loadedAccount!);
+        if (widget.section == 0) {
           account['profile'] = {
             'first': _first.text.trim(),
             'last': _last.text.trim(),
@@ -147,12 +207,37 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
             'years': int.tryParse(_years.text),
             'about': _about.text.trim(),
           };
-          final saved = await api.request('PUT', '/me', account);
-          await CustomerApi.rememberAccount(
-            Map<String, dynamic>.from(saved['account']),
-          );
+        } else if (widget.section == 1) {
+          account['sitterProfile'] = {
+            ...?account['sitterProfile'] as Map?,
+            'closedDates': [..._closedDates]..sort(),
+            'schedule': !_hoursEnabled
+                ? null
+                : {
+                    'days': _days,
+                    'start': _start.hour * 60 + _start.minute,
+                    'end': _end.hour * 60 + _end.minute,
+                  },
+          };
+        } else if (widget.section == 3) {
+          account['notifications'] = {
+            'orders': _orders,
+            'chat': _chat,
+            'video': _care,
+          };
         }
-
+        final saved = await api.request('PUT', '/me', account);
+        if (!_current) return;
+        _loadedAccount = Map<String, dynamic>.from(saved['account']);
+        await CustomerApi.rememberAccount(_loadedAccount!);
+        if (mounted && _current) Navigator.pop(context, true);
+        return;
+      }
+      if (CustomerApi.enabled) throw StateError('Hisobingizga qayta kiring');
+      final p = await SharedPreferences.getInstance();
+      if (!_current) return;
+      final results = <bool>[];
+      if (widget.section == 0) {
         results.add(
           await p.setString('mock.profile.first', _first.text.trim()),
         );
@@ -169,6 +254,12 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
           );
         }
       } else if (widget.section == 1) {
+        results.add(
+          await p.setStringList('mock.profile.closedDates', _closedDates),
+        );
+        results.add(
+          await p.setBool('mock.profile.hoursEnabled', _hoursEnabled),
+        );
         results.add(
           await p.setStringList(
             'mock.profile.days',
@@ -190,35 +281,66 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
         results.add(await p.setBool('mock.notify.care', _care));
       }
       if (results.any((ok) => !ok)) throw StateError('Save failed');
-      if (!mounted) return;
+      if (!mounted || !_current) return;
       Navigator.pop(context, true);
-    } catch (_) {
-      if (mounted) {
+    } catch (e) {
+      if (_current) {
         _notice(
-          tr(
-            'Saqlanmadi. Qayta urinib ko‘ring.',
-            'Could not save. Retry.',
-            'Не удалось сохранить. Повторите.',
-          ),
+          e is CustomerApiException
+              ? e.message
+              : tr(
+                  'Saqlanmadi. Qayta urinib ko‘ring.',
+                  'Could not save. Retry.',
+                  'Не удалось сохранить. Повторите.',
+                ),
         );
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (_current) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _selectLanguage(String value) async {
+    if (!_current || _loading || _loadFailed || _saving) return;
+    setState(() => _saving = true);
+    try {
+      final api = _api;
+      if (api != null) {
+        if (_loadedAccount == null) {
+          throw StateError('Profil yuklanmagan');
+        }
+        final saved = await api.request('PUT', '/me', {
+          ..._loadedAccount!,
+          'language': value,
+        });
+        if (!_current) return;
+        _loadedAccount = Map<String, dynamic>.from(saved['account']);
+        await CustomerApi.rememberAccount(_loadedAccount!);
+      } else if (CustomerApi.enabled) {
+        throw StateError('Hisobingizga qayta kiring');
+      }
+      if (!_current) return;
+      await AppLanguage.select(value);
+    } catch (e) {
+      if (_current) _notice(e.toString());
+    } finally {
+      if (_current) setState(() => _saving = false);
     }
   }
 
   Future<void> _pickPhoto() async {
+    if (!_current || _loading || _saving) return;
     try {
       final image = await ImagePicker().pickImage(
         source: ImageSource.gallery,
         maxWidth: 800,
         imageQuality: 80,
       );
-      if (image == null) return;
+      if (!_current || image == null) return;
       final bytes = await image.readAsBytes();
-      if (mounted) setState(() => _photo = bytes);
+      if (_current) setState(() => _photo = bytes);
     } catch (_) {
-      if (mounted) {
+      if (_current) {
         _notice(
           tr(
             'Rasm ochilmadi.',
@@ -236,6 +358,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     String key, {
     int lines = 1,
     bool number = false,
+    bool required = true,
+    int limit = 100,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: TextFormField(
@@ -251,7 +375,16 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       ),
       validator: (value) {
         if (value == null || value.trim().isEmpty) {
-          return tr('To‘ldiring', 'Required', 'Обязательное поле');
+          return required
+              ? tr('To‘ldiring', 'Required', 'Обязательное поле')
+              : null;
+        }
+        if (value.runes.length > limit) {
+          return tr(
+            'Eng ko‘pi $limit belgi',
+            'At most $limit characters',
+            'Не более $limit символов',
+          );
         }
         if (number &&
             (int.tryParse(value) == null ||
@@ -288,6 +421,13 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       appBar: AppBar(backgroundColor: listingBackground, title: Text(title)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : _loadFailed
+          ? Center(
+              child: FilledButton(
+                onPressed: _load,
+                child: Text(tr('Qayta urinish', 'Retry', 'Повторить')),
+              ),
+            )
           : SafeArea(
               child: Form(
                 key: _form,
@@ -321,6 +461,22 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                                   ),
                                 ),
                               ),
+                              if (_photo != null)
+                                TextButton(
+                                  key: const ValueKey(
+                                    'removeSitterProfilePhoto',
+                                  ),
+                                  onPressed: _saving
+                                      ? null
+                                      : () => setState(() => _photo = null),
+                                  child: Text(
+                                    tr(
+                                      'Rasmni olib tashlash',
+                                      'Remove photo',
+                                      'Удалить фото',
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -345,6 +501,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                         ),
                         'profileYears',
                         number: true,
+                        required: false,
                       ),
                       field(
                         _about,
@@ -355,68 +512,169 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                         ),
                         'profileAbout',
                         lines: 4,
+                        required: false,
+                        limit: 4000,
                       ),
                     ],
                     if (widget.section == 1) ...[
                       Text(
                         tr(
-                          'Qaysi kunlari ishlaysiz?',
-                          'Which days do you work?',
-                          'В какие дни вы работаете?',
+                          'Toshkent vaqti. Ish kunlari va soati faqat olib kelish va olib ketishga tegishli. Hayvon tunda qolishi mumkin. Qabul qilingan buyurtmalar o‘zgarmaydi.',
+                          'Tashkent time. Workdays and hours apply only to drop-off and pick-up. Overnight stays are allowed. Accepted bookings stay unchanged.',
+                          'Время Ташкента. Рабочие дни и часы ограничивают только передачу и возврат питомца. Ночёвка разрешена. Принятые заказы сохраняются.',
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      for (var i = 0; i < 7; i++)
-                        tile(
-                          SwitchListTile(
-                            key: ValueKey('workDay-$i'),
-                            title: Text(
-                              [
-                                tr('Dushanba', 'Monday', 'Понедельник'),
-                                tr('Seshanba', 'Tuesday', 'Вторник'),
-                                tr('Chorshanba', 'Wednesday', 'Среда'),
-                                tr('Payshanba', 'Thursday', 'Четверг'),
-                                tr('Juma', 'Friday', 'Пятница'),
-                                tr('Shanba', 'Saturday', 'Суббота'),
-                                tr('Yakshanba', 'Sunday', 'Воскресенье'),
-                              ][i],
-                            ),
-                            value: _days[i],
-                            onChanged: _saving
-                                ? null
-                                : (v) => setState(() => _days[i] = v),
+                      SwitchListTile(
+                        key: const ValueKey('handoverHoursEnabled'),
+                        title: Text(
+                          tr(
+                            'Olib kelish/ketish vaqtini cheklash',
+                            'Set handover hours',
+                            'Ограничить время передачи',
                           ),
                         ),
-                      for (final start in [true, false])
-                        tile(
-                          ListTile(
-                            title: Text(
-                              start
-                                  ? tr('Boshlanish', 'Start', 'Начало')
-                                  : tr('Tugash', 'End', 'Окончание'),
-                            ),
-                            trailing: Text(
-                              (start ? _start : _end).format(context),
-                            ),
-                            onTap: _saving
-                                ? null
-                                : () async {
-                                    final value = await showTimePicker(
-                                      context: context,
-                                      initialTime: start ? _start : _end,
-                                    );
-                                    if (value != null && mounted) {
-                                      setState(() {
-                                        if (start) {
-                                          _start = value;
-                                        } else {
-                                          _end = value;
-                                        }
-                                      });
-                                    }
-                                  },
+                        value: _hoursEnabled,
+                        onChanged: _saving
+                            ? null
+                            : (value) => setState(() => _hoursEnabled = value),
+                      ),
+                      if (_hoursEnabled) ...[
+                        Text(
+                          tr(
+                            'Qaysi kunlari ishlaysiz?',
+                            'Which days do you work?',
+                            'В какие дни вы работаете?',
                           ),
                         ),
+                        const SizedBox(height: 12),
+                        for (var i = 0; i < 7; i++)
+                          tile(
+                            SwitchListTile(
+                              key: ValueKey('workDay-$i'),
+                              title: Text(
+                                [
+                                  tr('Dushanba', 'Monday', 'Понедельник'),
+                                  tr('Seshanba', 'Tuesday', 'Вторник'),
+                                  tr('Chorshanba', 'Wednesday', 'Среда'),
+                                  tr('Payshanba', 'Thursday', 'Четверг'),
+                                  tr('Juma', 'Friday', 'Пятница'),
+                                  tr('Shanba', 'Saturday', 'Суббота'),
+                                  tr('Yakshanba', 'Sunday', 'Воскресенье'),
+                                ][i],
+                              ),
+                              value: _days[i],
+                              onChanged: _saving
+                                  ? null
+                                  : (v) => setState(() => _days[i] = v),
+                            ),
+                          ),
+                        for (final start in [true, false])
+                          tile(
+                            ListTile(
+                              title: Text(
+                                start
+                                    ? tr('Boshlanish', 'Start', 'Начало')
+                                    : tr('Tugash', 'End', 'Окончание'),
+                              ),
+                              trailing: Text(
+                                (start ? _start : _end).format(context),
+                              ),
+                              onTap: _saving
+                                  ? null
+                                  : () async {
+                                      final value = await showTimePicker(
+                                        context: context,
+                                        initialTime: start ? _start : _end,
+                                      );
+                                      if (value != null && mounted) {
+                                        setState(() {
+                                          if (start) {
+                                            _start = value;
+                                          } else {
+                                            _end = value;
+                                          }
+                                        });
+                                      }
+                                    },
+                            ),
+                          ),
+                      ],
+                      const SizedBox(height: 16),
+                      Text(
+                        tr(
+                          'Yangi bron boshlanmaydigan sanalar',
+                          'Dates closed to new arrivals',
+                          'Даты без новых заездов',
+                        ),
+                      ),
+                      Text(
+                        tr(
+                          'Bu sanada avval boshlangan parvarish davom etishi va hayvon olib ketilishi mumkin.',
+                          'Existing stays and pick-ups can continue on these dates.',
+                          'В эти даты возможны продолжение ухода и возврат питомца.',
+                        ),
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final date in _closedDates)
+                            InputChip(
+                              key: ValueKey('closedDate-$date'),
+                              label: Text(date),
+                              onDeleted: _saving
+                                  ? null
+                                  : () => setState(
+                                      () => _closedDates.remove(date),
+                                    ),
+                            ),
+                        ],
+                      ),
+                      TextButton.icon(
+                        key: const ValueKey('addClosedDate'),
+                        icon: const Icon(Icons.event_busy),
+                        label: Text(
+                          tr(
+                            'Yopiq sana qo‘shish',
+                            'Add closed date',
+                            'Добавить закрытую дату',
+                          ),
+                        ),
+                        onPressed: _saving || _closedDates.length >= 366
+                            ? null
+                            : () async {
+                                final now = DateTime.now().toUtc().add(
+                                  const Duration(hours: 5),
+                                );
+                                final selected = await showDatePicker(
+                                  context: context,
+                                  initialDate: DateTime(
+                                    now.year,
+                                    now.month,
+                                    now.day,
+                                  ),
+                                  firstDate: DateTime(
+                                    now.year,
+                                    now.month,
+                                    now.day,
+                                  ),
+                                  lastDate: DateTime(
+                                    now.year + 1,
+                                    now.month,
+                                    now.day,
+                                  ),
+                                );
+                                if (selected == null || !mounted) return;
+                                final date =
+                                    '${selected.year.toString().padLeft(4, '0')}-${selected.month.toString().padLeft(2, '0')}-${selected.day.toString().padLeft(2, '0')}';
+                                if (!_closedDates.contains(date)) {
+                                  setState(
+                                    () =>
+                                        _closedDates = [..._closedDates, date]
+                                          ..sort(),
+                                  );
+                                }
+                              },
+                      ),
                     ],
                     if (widget.section == 2)
                       Text(
@@ -475,9 +733,9 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                       ),
                       Text(
                         tr(
-                          'Push xabarlar hali ulanmagan.',
-                          'Push notifications are not connected yet.',
-                          'Push-уведомления пока не подключены.',
+                          'Bu sozlamalar kelajakdagi push xabarlari uchun saqlanadi. Hozir telefoningizga push yuborilmaydi. Ilova ichidagi buyurtma, chat, parvarish va to‘lov xabarlari tarixi bu tugmalar bilan o‘chmaydi.',
+                          'These preferences are saved for future push notifications. No push is sent to your phone yet. These switches do not remove booking, chat, care or payment notices from the in-app history.',
+                          'Эти настройки сохраняются для будущих push-уведомлений. Сейчас push на телефон не отправляются. Эти переключатели не удаляют уведомления о заказах, чате, уходе и платежах из истории в приложении.',
                         ),
                       ),
                     ],
@@ -551,9 +809,9 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                                   : Icons.radio_button_off,
                               color: listingGold,
                             ),
-                            onTap: () async {
-                              await AppLanguage.select(item.$1);
-                            },
+                            onTap: _saving
+                                ? null
+                                : () => _selectLanguage(item.$1),
                           ),
                         ),
                     ],

@@ -1,4 +1,5 @@
 import 'feed_fixture.dart';
+import 'package:momiq_app/features/listings/data/current_position.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ class FakeLocation extends CustomerLocationService {
   CustomerLocationStatus value = CustomerLocationStatus.denied;
   int requested = 0, located = 0, settings = 0, appSettings = 0;
   bool grant = true;
+  bool poor = false;
   Completer<CustomerCoordinates>? pendingLocation;
   @override
   Future<CustomerLocationStatus> status() async => value;
@@ -35,6 +37,7 @@ class FakeLocation extends CustomerLocationService {
   @override
   Future<CustomerCoordinates> locate() async {
     located++;
+    if (poor) throw const PositionQualityException();
     if (pendingLocation != null) return pendingLocation!.future;
     return const CustomerCoordinates(41.315, 69.285);
   }
@@ -45,7 +48,11 @@ class FakeFeed extends CustomerFeedRepository {
   Completer<List<CJson>>? pending;
   bool fail = false;
   @override
-  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) async {
+  Future<List<CJson>> fetchSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+  }) async {
     calls++;
     if (fail) throw StateError('Offline');
     if (pending != null) return pending!.future;
@@ -97,6 +104,30 @@ void main() {
     },
   );
   testWidgets(
+    'declined location offer stays dismissed after restart but manual enable remains',
+    (t) async {
+      final loc = FakeLocation();
+      await open(t, CustomerStore(feedRepository: FakeFeed()), loc);
+      await t.tap(find.byKey(const ValueKey('skipCustomerLocation')));
+      await t.pumpAndSettle();
+      await t.pumpWidget(const SizedBox());
+      await open(t, CustomerStore(feedRepository: FakeFeed()), loc);
+      expect(find.byKey(const ValueKey('skipCustomerLocation')), findsNothing);
+      expect(loc.requested, 0);
+      expect(loc.located, 0);
+      await t.tap(find.byKey(const ValueKey('customerLocation')));
+      await t.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('enableCustomerLocation')),
+        findsOneWidget,
+      );
+      await t.tap(find.byKey(const ValueKey('enableCustomerLocation')));
+      await t.pumpAndSettle();
+      expect(loc.requested, 1);
+      expect(loc.located, 1);
+    },
+  );
+  testWidgets(
     'permission grant fetches actual coordinates and sorts mock sitters',
     (t) async {
       final feed = FakeFeed();
@@ -110,6 +141,22 @@ void main() {
       expect(feed.calls, 2);
       expect(s.sitters.first['id'], 'nilufar');
       expect(s.sitters.first['distance'], 0);
+    },
+  );
+  testWidgets(
+    'poor GPS preserves browsing and gives an actionable manual fallback',
+    (t) async {
+      final feed = FakeFeed(), loc = FakeLocation()..poor = true;
+      await open(t, CustomerStore(feedRepository: feed), loc);
+      await t.tap(find.byKey(const ValueKey('enableCustomerLocation')));
+      await t.pumpAndSettle();
+      expect(feed.calls, 1);
+      expect(loc.located, 1);
+      expect(
+        find.textContaining('Toshkent bo‘yicha qidirishda davom eting'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('customerService-0')), findsOneWidget);
     },
   );
   testWidgets(

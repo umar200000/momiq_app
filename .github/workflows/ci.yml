@@ -6,17 +6,134 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: flutter-checks-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Scan reachable Git history for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          scanner="$RUNNER_TEMP/momiq-gitleaks"
+          mkdir -p "$scanner"
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 60 --location https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$scanner/release.tar.gz"
+          printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$scanner/release.tar.gz" | sha256sum --check -
+          tar -xzf "$scanner/release.tar.gz" -C "$scanner" gitleaks
+          printf '[extend]\nuseDefault = true\n' > "$scanner/config.toml"
+          touch "$scanner/empty-ignore"
+          "$scanner/gitleaks" git . --log-opts=--all --config "$scanner/config.toml" --gitleaks-ignore-path "$scanner/empty-ignore" --ignore-gitleaks-allow --redact=100 --no-banner --timeout 120
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           flutter-version: '3.44.5'
           channel: stable
           cache: true
       - run: cp lib/core/config/maps_key.example.dart lib/core/config/maps_key.local.dart
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
+      - name: Audit public Pub dependency versions
+        run: |
+          python3 -m unittest discover -s tool -p 'test_*.py' -q
+          flutter pub deps --json > pub-deps.json
+          python3 tool/audit_pub.py pub-deps.json --output pub-audit.json
+      - name: Collect resolved Pub license evidence
+        run: python3 tool/license_inventory.py pub-deps.json --output ci-artifacts/pub-licenses
+      - name: Retain Pub license evidence for seven days
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pub-licenses-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-artifacts/pub-licenses/
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: false
       - run: flutter analyze
       - run: flutter test
+      - name: Verify hosted private requests with an isolated fake transport
+        run: flutter test --no-pub --dart-define-from-file=config/production.json test/hosted_private_transport_test.dart
+      - name: Build Android debug for ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/android-build.log"
+          for delay in 30 90 0; do
+            if flutter build apk --debug --no-pub --target-platform android-arm64 --dart-define-from-file=config/local.json 2>&1 | tee "$log"; then
+              exit 0
+            fi
+            if [[ "$delay" == 0 ]] || ! grep -q '429.*Too Many Requests' "$log"; then exit 1; fi
+            sleep "$delay"
+          done
+      - name: Package Android QA binary and source manifest
+        run: python3 tool/package_build.py android
+        env:
+          MOMIQ_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Retain Android QA artifact for seven days
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-arm64-debug-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-artifacts/android/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          include-hidden-files: false
+  ios-simulator:
+    # ARM64 hosted capacity failed before checkout on 2026-10-28.
+    # Keep an explicit supported macOS host; real-device ARM64 QA remains required.
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    outputs:
+      artifact-id: ${{ steps.ios-package.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.5'
+          channel: stable
+          cache: true
+      - run: cp lib/core/config/maps_key.example.dart lib/core/config/maps_key.local.dart
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build ios --simulator --debug --no-codesign --dart-define-from-file=config/local.json
+      - name: Package unsigned simulator bundle and source manifest
+        run: python3 tool/package_build.py ios-simulator
+        env:
+          MOMIQ_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Retain iOS simulator QA artifact for seven days
+        id: ios-package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-simulator-debug-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-artifacts/ios-simulator/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          include-hidden-files: false
+  ios-startup:
+    needs: ios-simulator
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.ios-simulator.outputs.artifact-id }}
+          merge-multiple: true
+          path: ci-artifacts/ios-simulator/
+      - name: Launch the verified QA bundle twice on a fresh iPhone simulator
+        run: python3 tool/ios_startup.py
+        env:
+          MOMIQ_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Retain first-launch and restart screenshots for seven days
+        if: ${{ !cancelled() && hashFiles('ci-artifacts/ios-startup/*.png') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ios-startup-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-artifacts/ios-startup/
+          retention-days: 7

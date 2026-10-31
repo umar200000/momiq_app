@@ -4,13 +4,17 @@ import 'package:momiq_app/features/customer/data/customer_store.dart'
 import 'package:momiq_app/features/customer/data/customer_feed_repository.dart';
 import 'sitter_fixtures.dart';
 
-class FixtureCustomerFeedRepository implements CustomerFeedRepository {
+class FixtureCustomerFeedRepository extends CustomerFeedRepository {
   const FixtureCustomerFeedRepository({
     this.delay = const Duration(milliseconds: 650),
   });
   final Duration delay;
   @override
-  Future<List<CJson>> fetchSitters({CustomerCoordinates? location}) async {
+  Future<List<CJson>> fetchSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+  }) async {
     await Future<void>.delayed(delay);
     const coordinates = [
       (41.2995, 69.2726),

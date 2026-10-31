@@ -30,13 +30,11 @@ String shortDate(String value) {
   return '${d.day}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 }
 
-List<String> allowedCustomerPetTypes(CJson sitter) => sitter['service'] == 1
-    ? ['It', 'Mushuk', 'Boshqa']
-    : (sitter['pets'] as List)
-          .where((type) => type == 'It' || type == 'Mushuk')
-          .cast<String>()
-          .toSet()
-          .toList();
+List<String> allowedCustomerPetTypes(CJson sitter) => (sitter['pets'] as List)
+    .where((type) => type == 'It' || type == 'Mushuk')
+    .cast<String>()
+    .toSet()
+    .toList();
 String customerPetType(CJson pet) =>
     pet['type'] == 'Boshqa' && '${pet['otherType'] ?? ''}'.trim().isNotEmpty
     ? pet['otherType']
@@ -85,12 +83,29 @@ class CustomerStore extends ChangeNotifier {
       .toList();
   List<CJson> get sitters => List.unmodifiable(_sitters);
   int _feedVersion = 0;
+  bool feedLoading = false;
+  String? feedError;
+  String? feedNextCursor, feedMoreError;
+  bool feedLoadingMore = false;
+  Map<String, String> _feedFilters = {};
+  DateTime? _feedStart, _feedEnd;
+  CustomerCoordinates? feedLocation;
   bool _disposed = false;
   CustomerApi? api;
-  Timer? _syncTimer;
   bool _syncing = false;
+  int _accountGeneration = 0;
+  Future<void>? _loading;
+  bool get _current =>
+      !_disposed && _sessionVersion == CustomerApi.sessionVersion;
+  void _requireCurrent() {
+    if (!_current) throw StateError('Sessiya tugagan');
+  }
+
+  bool _acceptRead(int generation) =>
+      _current && !busy && generation == _accountGeneration;
   String? syncError;
   bool get remote => api != null;
+  int? get revision => _data['_revision'] as int?;
   String get _cacheKey =>
       api == null ? storageKey : '$storageKey.${api!.userId}';
   Map<String, dynamic> _account(Map<String, dynamic> data) => {
@@ -105,46 +120,144 @@ class CustomerStore extends ChangeNotifier {
     ])
       key: data[key],
     'language': data['language'] ?? 'uz',
+    if (data.containsKey('_revision')) '_revision': data['_revision'],
   };
   Future<void> refreshRemote() async {
-    if (api == null || busy || _syncing || _disposed) return;
+    if (api == null || busy || _syncing || !_current) return;
+    final generation = _accountGeneration;
     _syncing = true;
     try {
       final account = await api!.request('GET', '/me');
+      if (!_acceptRead(generation)) return;
       final messages = await api!.request('GET', '/messages');
-      if (_disposed || busy) return;
-      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
-      _data.addAll(Map<String, dynamic>.from(account['account']));
+      if (!_acceptRead(generation)) return;
       await CustomerApi.rememberAccount(
         Map<String, dynamic>.from(account['account']),
+        isCurrent: () => _acceptRead(generation),
       );
+      if (!_acceptRead(generation)) return;
+      _data.addAll(Map<String, dynamic>.from(account['account']));
       _data['messages'] = messages['messages'];
       if (AppLanguage.current.value != _data['language']) {
         await AppLanguage.select(_data['language'] ?? 'uz');
       }
-      syncError = null;
+      if (_acceptRead(generation)) syncError = null;
     } catch (e) {
-      if (!_disposed) syncError = e.toString();
+      if (_acceptRead(generation)) syncError = e.toString();
     } finally {
       _syncing = false;
-      if (!_disposed) notifyListeners();
+      if (_acceptRead(generation)) notifyListeners();
     }
   }
 
-  Future<void> refreshSitters({CustomerCoordinates? location}) async {
+  Future<void> refreshSitters({
+    CustomerCoordinates? location,
+    DateTime? startsAt,
+    DateTime? endsAt,
+    Map<String, String> filters = const {},
+  }) async {
+    if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
     final version = ++_feedVersion;
-    final result = await feedRepository.fetchSitters(location: location);
-    if (_disposed || version != _feedVersion) return;
-    _sitters = result;
-    customerSitters
-      ..clear()
-      ..addAll(result);
-    if (!_disposed) notifyListeners();
+    feedLoading = true;
+    feedError = null;
+    feedMoreError = null;
+    feedLoadingMore = false;
+    feedNextCursor = null;
+    _feedFilters = Map.of(filters);
+    _feedStart = startsAt;
+    _feedEnd = endsAt;
+    feedLocation = location;
+    notifyListeners();
+    try {
+      final result = await feedRepository.fetchPage(
+        location: location,
+        startsAt: startsAt,
+        endsAt: endsAt,
+        filters: filters,
+      );
+      if (_disposed ||
+          version != _feedVersion ||
+          _sessionVersion != CustomerApi.sessionVersion) {
+        return;
+      }
+      _sitters = result.sitters;
+      feedNextCursor = result.nextCursor;
+      customerSitters
+        ..clear()
+        ..addAll(result.sitters);
+    } catch (_) {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedError = 'catalog_unavailable';
+      }
+      rethrow;
+    } finally {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> loadMoreSitters() async {
+    final cursor = feedNextCursor;
+    if (_disposed ||
+        feedLoading ||
+        feedLoadingMore ||
+        cursor == null ||
+        _sessionVersion != CustomerApi.sessionVersion) {
+      return;
+    }
+    final version = _feedVersion;
+    feedLoadingMore = true;
+    feedMoreError = null;
+    notifyListeners();
+    try {
+      final result = await feedRepository.fetchPage(
+        location: feedLocation,
+        startsAt: _feedStart,
+        endsAt: _feedEnd,
+        filters: _feedFilters,
+        after: cursor,
+      );
+      if (_disposed ||
+          version != _feedVersion ||
+          _sessionVersion != CustomerApi.sessionVersion) {
+        return;
+      }
+      if (result.nextCursor == cursor) {
+        throw StateError('Repeated catalog cursor');
+      }
+      final merged = {for (final sitter in _sitters) sitter['id']: sitter};
+      for (final sitter in result.sitters) {
+        merged[sitter['id']] = sitter;
+      }
+      _sitters = merged.values.toList();
+      customerSitters
+        ..clear()
+        ..addAll(_sitters);
+      feedNextCursor = result.nextCursor;
+    } catch (_) {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedMoreError = 'catalog_page_unavailable';
+      }
+    } finally {
+      if (!_disposed &&
+          version == _feedVersion &&
+          _sessionVersion == CustomerApi.sessionVersion) {
+        feedLoadingMore = false;
+        notifyListeners();
+      }
+    }
   }
 
   @override
   void dispose() {
-    _syncTimer?.cancel();
     petSession.removeListener(_petsChanged);
     _disposed = true;
     super.dispose();
@@ -166,64 +279,136 @@ class CustomerStore extends ChangeNotifier {
     this.petSession.addListener(_petsChanged);
   }
   CJson get profile => Map<String, dynamic>.from(_data['profile'] as Map);
+  List<CJson> get allPets =>
+      (api == null ? petSession.pets : _data['pets'] as List)
+          .map((v) => Map<String, dynamic>.from(v as Map))
+          .toList();
+  List<CJson> get archivedPets =>
+      allPets.where((p) => p['archived'] == true).toList();
   List<CJson> list(String key) =>
       (key == 'pets' && api == null ? petSession.pets : _data[key] as List)
           .map((v) => Map<String, dynamic>.from(v as Map))
+          .where((v) => key != 'pets' || v['archived'] != true)
           .toList();
+
+  Future<void> archivePet(
+    String id,
+    bool archived, {
+    int? expectedRevision,
+  }) async {
+    _requireCurrent();
+    if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
+    final pet = allPets.where((p) => p['id'] == id).firstOrNull;
+    if (pet == null) throw StateError('Hayvon topilmadi');
+    if (api == null) {
+      petSession.save({...pet, 'archived': archived});
+      return;
+    }
+    if (expectedRevision != revision) {
+      throw CustomerApiException('Profil o‘zgargan. Qayta yuklang.', 409);
+    }
+    busy = true;
+    _accountGeneration++;
+    notifyListeners();
+    try {
+      final result = await api!.request('POST', '/me/pets/archive', {
+        'petId': id,
+        'archived': archived,
+        '_revision': expectedRevision,
+      });
+      _requireCurrent();
+      final next = {..._data, ...Map<String, dynamic>.from(result['account'])};
+      await CustomerApi.rememberAccount(
+        _account(next),
+        isCurrent: () => _current,
+      );
+      _requireCurrent();
+      // Server remains authoritative if local cache is unavailable.
+      final prefs = await preferences();
+      _requireCurrent();
+      await prefs.setString(_cacheKey, jsonEncode(next));
+      _requireCurrent();
+      _data = next;
+    } finally {
+      busy = false;
+      if (_current) notifyListeners();
+    }
+  }
+
   List<String> get favorites => List<String>.from(_data['favorites'] as List);
   CJson get notifications =>
       Map<String, dynamic>.from(_data['notifications'] as Map);
-  Future<void> load() async {
-    if (loaded) return;
-    api ??= await CustomerApi.restore();
-    final raw = (await preferences()).getString(_cacheKey);
-    _data = raw == null
-        ? _emptyAccount()
-        : Map<String, dynamic>.from(jsonDecode(raw) as Map);
-    final legacyDemo = (_data['bookings'] as List? ?? []).any(
-      (b) => b['sample'] == true,
-    );
-    _data['bookings'] = <CJson>[];
-    if (api == null) {
-      _data['messages'] = <CJson>[];
-      _data['favorites'] = <String>[];
-      if (legacyDemo &&
-          _data['profile']['first'] == 'Madina' &&
-          _data['profile']['last'] == 'Karimova') {
-        _data['profile'] = {'first': '', 'last': '', 'photo': null};
-      }
-    }
-    _data['pets'] =
-        <CJson>[]; // Never restore pets from an earlier app session.
-    if (api != null) {
-      final account = await api!.request('GET', '/me');
-      final messages = await api!.request('GET', '/messages');
-      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) return;
-      _data.addAll(Map<String, dynamic>.from(account['account']));
-      await CustomerApi.rememberAccount(
-        Map<String, dynamic>.from(account['account']),
-      );
-      _data['messages'] = messages['messages'];
-      if (AppLanguage.current.value != _data['language']) {
-        await AppLanguage.select(_data['language'] ?? 'uz');
-      }
-      if (!_disposed) {
-        _syncTimer = Timer.periodic(
-          const Duration(seconds: 3),
-          (_) => refreshRemote(),
-        );
-      }
-    }
-    loaded = true;
-    if (!_disposed) notifyListeners();
+  Future<void> load() {
+    _requireCurrent();
+    if (loaded) return Future.value();
+    return _loading ??= _load().whenComplete(() => _loading = null);
   }
 
-  Future<void> update(void Function(CJson next) change) async {
-    if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
-      throw StateError('Sessiya tugagan');
+  Future<void> _load() async {
+    final client = api ?? await CustomerApi.restore();
+    _requireCurrent();
+    api = client;
+    if (api == null && CustomerApi.enabled) {
+      throw CustomerApiException('Hisobingizga qayta kiring.', 401);
     }
+    final prefs = await preferences();
+    _requireCurrent();
+    final raw = prefs.getString(_cacheKey);
+    final next = raw == null
+        ? _emptyAccount()
+        : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    final legacyDemo = (next['bookings'] as List? ?? []).any(
+      (b) => b['sample'] == true,
+    );
+    next['bookings'] = <CJson>[];
+    if (api == null) {
+      next['messages'] = <CJson>[];
+      next['favorites'] = <String>[];
+      if (legacyDemo &&
+          next['profile']['first'] == 'Madina' &&
+          next['profile']['last'] == 'Karimova') {
+        next['profile'] = {'first': '', 'last': '', 'photo': null};
+      }
+    }
+    next['pets'] = <CJson>[]; // Never restore pets from an earlier app session.
+    if (api != null) {
+      final account = await api!.request('GET', '/me');
+      _requireCurrent();
+      final messages = await api!.request('GET', '/messages');
+      _requireCurrent();
+      next.addAll(Map<String, dynamic>.from(account['account']));
+      await CustomerApi.rememberAccount(
+        Map<String, dynamic>.from(account['account']),
+        isCurrent: () => _current,
+      );
+      _requireCurrent();
+      next['messages'] = messages['messages'];
+      if (AppLanguage.current.value != next['language']) {
+        await AppLanguage.select(next['language'] ?? 'uz');
+      }
+    }
+    _requireCurrent();
+    _data = next;
+    loaded = true;
+    notifyListeners();
+  }
+
+  Future<void> update(
+    void Function(CJson next) change, {
+    int? expectedRevision,
+  }) async {
+    _requireCurrent();
     if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
+    if (api != null &&
+        expectedRevision != null &&
+        expectedRevision != revision) {
+      throw CustomerApiException(
+        'Profil boshqa qurilmada o‘zgargan. Sahifani qayta ochib, o‘zgarishni takrorlang.',
+        409,
+      );
+    }
     busy = true;
+    _accountGeneration++;
     if (!_disposed) notifyListeners();
     try {
       final next = Map<String, dynamic>.from(
@@ -236,17 +421,24 @@ class CustomerStore extends ChangeNotifier {
         final saved = await api!.request('PUT', '/me', _account(next));
         next.addAll(Map<String, dynamic>.from(saved['account']));
       }
-      if (_disposed || _sessionVersion != CustomerApi.sessionVersion) {
-        throw StateError('Sessiya tugagan');
+      _requireCurrent();
+      if (api != null) {
+        await CustomerApi.rememberAccount(
+          _account(next),
+          isCurrent: () => _current,
+        );
       }
-      if (api != null) await CustomerApi.rememberAccount(_account(next));
-      if (!await (await preferences()).setString(_cacheKey, jsonEncode(next))) {
+      _requireCurrent();
+      final prefs = await preferences();
+      _requireCurrent();
+      if (!await prefs.setString(_cacheKey, jsonEncode(next))) {
         throw StateError('Saqlanmadi');
       }
+      _requireCurrent();
       _data = next;
     } finally {
       busy = false;
-      if (!_disposed) notifyListeners();
+      if (_current) notifyListeners();
     }
   }
 
@@ -254,19 +446,33 @@ class CustomerStore extends ChangeNotifier {
     final items = d['favorites'] as List;
     items.contains(id) ? items.remove(id) : items.add(id);
   });
-  Future<void> saveItem(String key, CJson value) async {
+  Future<void> saveItem(
+    String key,
+    CJson value, {
+    int? expectedRevision,
+  }) async {
+    _requireCurrent();
     if (['messages', 'support'].contains(key) && api == null) {
       throw StateError('Xabar yuborish uchun hisobingizga kiring.');
     }
     if (key == 'messages' && api != null) {
-      final result = await api!.request('POST', '/messages', {
-        'sitter': value['sitter'],
-        'text': value['text'] ?? '',
-        'image': value['image'],
-        'requestId': value['id'],
-      });
-      _data['messages'] = result['messages'];
-      if (!_disposed) notifyListeners();
+      if (busy) throw StateError('Saqlanmoqda. Biroz kuting.');
+      busy = true;
+      _accountGeneration++;
+      notifyListeners();
+      try {
+        final result = await api!.request('POST', '/messages', {
+          'sitter': value['sitter'],
+          'text': value['text'] ?? '',
+          'image': value['image'],
+          'requestId': value['id'],
+        });
+        _requireCurrent();
+        _data['messages'] = result['messages'];
+      } finally {
+        busy = false;
+        if (_current) notifyListeners();
+      }
       return;
     }
     if (key == 'pets' && api == null) {
@@ -281,7 +487,7 @@ class CustomerStore extends ChangeNotifier {
       } else {
         items[i] = value;
       }
-    });
+    }, expectedRevision: expectedRevision);
   }
 
   /// Availability is based on supplied data only.

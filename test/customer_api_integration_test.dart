@@ -1,23 +1,31 @@
-import 'feed_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/customer/data/customer_store.dart';
+import 'package:momiq_app/core/config/app_environment.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
     'live SQLite API persists client profile, pets and settings without demo data',
     () async {
+      if (AppEnvironment.current.name != 'local' ||
+          !{
+            '127.0.0.1',
+            'localhost',
+            '::1',
+          }.contains(Uri.parse(CustomerApi.configuredUrl).host)) {
+        throw StateError(
+          'This integration fixture may only write to a local API.',
+        );
+      }
       HttpOverrides.global = null;
       SharedPreferences.setMockInitialValues({});
       await CustomerApi.login('+998 90 000 00 01', '111111');
       final api = CustomerApi.active!;
-      final store = CustomerStore(
-        feedRepository: const FixtureCustomerFeedRepository(),
-      )..api = api;
+      final store = CustomerStore()..api = api;
       addTearDown(store.dispose);
       await store.load();
       final image = base64Encode(
@@ -34,9 +42,7 @@ void main() {
         'type': 'Mushuk',
         'photo': image,
       });
-      final reopened = CustomerStore(
-        feedRepository: const FixtureCustomerFeedRepository(),
-      )..api = api;
+      final reopened = CustomerStore()..api = api;
       addTearDown(reopened.dispose);
       await reopened.load();
       expect(reopened.profile['first'], 'Sinov');

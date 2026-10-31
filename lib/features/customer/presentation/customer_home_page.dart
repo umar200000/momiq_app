@@ -1,10 +1,14 @@
+import '../../chat/presentation/conversation_page.dart';
+import '../../auth/presentation/role_switch_tile.dart';
 import '../data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'customer_home_design.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/widgets/momiq_shimmer.dart';
 import '../data/customer_feed_repository.dart';
 import '../data/customer_location_service.dart';
+import '../../listings/data/current_position.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../core/localization/app_language.dart';
@@ -15,6 +19,8 @@ import 'customer_widgets.dart';
 import 'customer_discovery.dart';
 import 'customer_bookings.dart';
 import 'customer_account.dart';
+import '../../notifications/presentation/notifications_page.dart';
+import '../../bookings/presentation/bookings_page.dart';
 
 class CustomerHomePage extends StatefulWidget {
   const CustomerHomePage({super.key, this.store, this.locationService});
@@ -37,6 +43,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
       _locating = false,
       _waitingSettings = false;
   bool _resumePending = false;
+  bool _locationOfferOpen = false;
   Future<void>? _refreshRequest;
   @override
   void initState() {
@@ -49,7 +56,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     await _load();
     if (!mounted || _error != null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _offerLocation();
+      if (mounted) _offerLocation(automatic: true);
     });
   }
 
@@ -98,7 +105,9 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     }
   }
 
-  Future<void> _offerLocation() async {
+  Future<void> _offerLocation({bool automatic = false}) async {
+    if (_locationOfferOpen) return;
+    _locationOfferOpen = true;
     try {
       final status = await _locationService.status();
       if (!mounted || status == CustomerLocationStatus.unsupported) return;
@@ -106,6 +115,12 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         await _requestLocation();
         return;
       }
+      final preferences = await SharedPreferences.getInstance();
+      const offerKey = 'momiq.locationOfferSeen.v1';
+      if (automatic && preferences.getBool(offerKey) == true) return;
+      // This is only prompt history, never a substitute for OS permission.
+      await preferences.setBool(offerKey, true);
+      if (!mounted) return;
       final enable = await showModalBottomSheet<bool>(
         context: context,
         backgroundColor: listingSurface,
@@ -173,6 +188,8 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         );
       }
+    } finally {
+      _locationOfferOpen = false;
     }
   }
 
@@ -224,6 +241,17 @@ class _CustomerHomePageState extends State<CustomerHomePage>
       setState(() => _coordinates = point);
       if (_refreshRequest != null) await _refreshRequest;
       if (mounted) await _refreshFeed(showShimmer: false);
+    } on PositionQualityException {
+      if (mounted) {
+        cNotice(
+          context,
+          lt(
+            'Joylashuv yetarlicha aniq emas. Toshkent bo‘yicha qidirishda davom eting yoki qayta urining.',
+            'Location is not precise enough. Keep browsing Toshkent or retry.',
+            'Местоположение недостаточно точное. Продолжайте поиск по Ташкенту или повторите.',
+          ),
+        );
+      }
     } catch (_) {
       if (mounted) {
         cNotice(
@@ -281,7 +309,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
   void _search({int? service}) =>
       cPush(context, CustomerSearchPage(store: _store, service: service));
   bool _loggingOut = false;
-  Future<void> _logout() async {
+  Future<void> _logout({bool allDevices = false}) async {
     if (_loggingOut) return;
     final yes = await showDialog<bool>(
       context: context,
@@ -289,9 +317,11 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         title: cText('Chiqish'),
         content: cText(
           lt(
-            'Hisobdan chiqasizmi?',
-            'Log out of your account?',
-            'Выйти из аккаунта?',
+            allDevices
+                ? 'Barcha qurilmalardan chiqasizmi?'
+                : 'Hisobdan chiqasizmi?',
+            allDevices ? 'Log out on all devices?' : 'Log out of your account?',
+            allDevices ? 'Выйти на всех устройствах?' : 'Выйти из аккаунта?',
           ),
         ),
         actions: [
@@ -309,12 +339,14 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     if (yes == true && mounted) {
       setState(() => _loggingOut = true);
       try {
-        await CustomerApi.logout();
-      } catch (_) {
+        await CustomerApi.logout(allDevices: allDevices);
+      } catch (e) {
         if (mounted) {
           cNotice(
             context,
-            'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
+            e is CustomerApiException
+                ? e.message
+                : 'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
           );
         }
         return;
@@ -375,7 +407,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         ),
         IconButton(
-          onPressed: () => cPush(context, CustomerSettingsPage(store: _store)),
+          onPressed: () => cPush(context, const NotificationsPage()),
           icon: const Icon(Icons.notifications_none_rounded),
         ),
       ],
@@ -420,6 +452,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     ),
     for (final sitter in _store.sitters)
       SitterCard(store: _store, sitter: sitter),
+    CatalogMoreButton(store: _store),
   ];
   List<Widget> _profile() {
     final p = _store.profile;
@@ -485,7 +518,10 @@ class _CustomerHomePageState extends State<CustomerHomePage>
               children: [
                 for (final stat in [
                   ('${_store.list('pets').length}', 'Hayvonlar'),
-                  ('${_store.list('bookings').length}', 'Buyurtmalar'),
+                  (
+                    _store.remote ? '—' : '${_store.list('bookings').length}',
+                    'Buyurtmalar',
+                  ),
                   ('${_store.favorites.length}', 'Saqlangan'),
                 ])
                   Expanded(
@@ -549,6 +585,18 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
           onTap: () => cPush(context, item.$3),
         ),
+      const RoleSwitchTile(customer: false),
+      cButton(
+        lt(
+          'Barcha qurilmalardan chiqish',
+          'Log out on all devices',
+          'Выйти на всех устройствах',
+        ),
+        () => _logout(allDevices: true),
+        loading: _loggingOut,
+        secondary: true,
+        icon: Icons.devices,
+      ),
       cButton(
         'Chiqish',
         _logout,
@@ -633,8 +681,25 @@ class _CustomerHomePageState extends State<CustomerHomePage>
                                   ),
                                 ]
                               : _home(),
-                        1 => [CustomerOrders(store: _store)],
-                        2 => [CustomerChatList(store: _store)],
+                        1 => [
+                          _store.api == null
+                              ? CustomerOrders(store: _store)
+                              : BookingInbox(api: _store.api),
+                        ],
+                        2 => [
+                          ConversationInbox(api: _store.api),
+                          if (_store.list('messages').isNotEmpty)
+                            ExpansionTile(
+                              title: Text(
+                                lt(
+                                  'Oldingi yordam yozishmalari',
+                                  'Earlier support conversations',
+                                  'Предыдущие обращения',
+                                ),
+                              ),
+                              children: [CustomerChatList(store: _store)],
+                            ),
+                        ],
                         _ => _profile(),
                       },
                     ),

@@ -1,3 +1,5 @@
+import '../../support/support_page.dart';
+import 'pet_safety.dart';
 import '../../onboarding/data/profile_photo_source.dart';
 import 'customer_home_page.dart';
 import 'dart:convert';
@@ -13,6 +15,53 @@ class CustomerPetsPage extends StatelessWidget {
   const CustomerPetsPage({super.key, required this.store, this.select = false});
   final CustomerStore store;
   final bool select;
+  Future<void> _archive(BuildContext context, CJson pet, bool archived) async {
+    final revision = store.revision;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          archived
+              ? lt('Hayvonni arxivlash', 'Archive pet', 'Архивировать питомца')
+              : lt('Hayvonni tiklash', 'Restore pet', 'Восстановить питомца'),
+        ),
+        content: Text(
+          archived
+              ? lt(
+                  'Hayvon yangi buyurtma tanlovidan yashiriladi. Eski buyurtmalar va tarix saqlanadi.',
+                  'The pet will be hidden from new bookings. Existing bookings and history are kept.',
+                  'Питомец будет скрыт при создании новых заказов. Текущие заказы и история сохранятся.',
+                )
+              : lt(
+                  'Hayvon yana yangi buyurtmalarda tanlanadi.',
+                  'The pet will be available for new bookings again.',
+                  'Питомца снова можно будет выбрать для нового заказа.',
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Ortga', 'Back', 'Назад')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              archived
+                  ? lt('Arxivlash', 'Archive', 'В архив')
+                  : lt('Tiklash', 'Restore', 'Восстановить'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await store.archivePet(pet['id'], archived, expectedRevision: revision);
+    } catch (error) {
+      if (context.mounted) cNotice(context, error.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: store,
@@ -52,8 +101,17 @@ class CustomerPetsPage extends StatelessWidget {
                     ),
                   ],
                 ),
-                if ('${pet['notes']}'.isNotEmpty)
-                  cRow(Icons.notes_outlined, pet['notes']),
+                if ('${pet['notes'] ?? ''}'.trim().isNotEmpty)
+                  cRow(Icons.notes_outlined, '${pet['notes']}'),
+                if (!select)
+                  TextButton.icon(
+                    key: ValueKey('archivePet-${pet['id']}'),
+                    onPressed: store.busy
+                        ? null
+                        : () => _archive(context, pet, true),
+                    icon: const Icon(Icons.archive_outlined),
+                    label: Text(lt('Arxivlash', 'Archive', 'В архив')),
+                  ),
               ],
             ),
             onTap: select
@@ -61,6 +119,26 @@ class CustomerPetsPage extends StatelessWidget {
                 : () => cPush(context, CustomerPetForm(store: store, pet: pet)),
           ),
         if (store.list('pets').isEmpty) cText('Hozircha bo‘sh'),
+        if (!select && store.archivedPets.isNotEmpty)
+          ExpansionTile(
+            key: const ValueKey('archivedPets'),
+            title: Text(
+              lt('Arxivdagi hayvonlar', 'Archived pets', 'Питомцы в архиве'),
+            ),
+            children: [
+              for (final pet in store.archivedPets)
+                ListTile(
+                  title: Text(customerPetName(pet)),
+                  trailing: TextButton(
+                    key: ValueKey('restorePet-${pet['id']}'),
+                    onPressed: store.busy
+                        ? null
+                        : () => _archive(context, pet, false),
+                    child: Text(lt('Tiklash', 'Restore', 'Восстановить')),
+                  ),
+                ),
+            ],
+          ),
       ],
     ),
   );
@@ -83,12 +161,16 @@ class CustomerPetForm extends StatefulWidget {
 }
 
 class _CustomerPetFormState extends State<CustomerPetForm> {
+  late final int? _revision;
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController(),
       _age = TextEditingController(),
       _breed = TextEditingController(),
       _notes = TextEditingController(),
       _otherType = TextEditingController();
+  final _safety = {
+    for (final field in petSafetyFields) field: TextEditingController(),
+  };
   String? _type;
   String _sex = '';
   bool _picking = false;
@@ -99,16 +181,20 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
   @override
   void initState() {
     super.initState();
+    _revision = widget.store.revision;
     _type = widget.allowedTypes.length == 1 ? widget.allowedTypes.single : null;
     final p = widget.pet;
     if (p != null) {
-      _name.text = p['name'];
-      _age.text = p['age'];
-      _breed.text = p['breed'];
-      _notes.text = p['notes'];
+      _name.text = p['name'] ?? '';
+      _age.text = p['age'] ?? '';
+      _breed.text = p['breed'] ?? '';
+      _notes.text = p['notes'] ?? '';
+      for (final field in petSafetyFields) {
+        _safety[field]!.text = p[field] as String? ?? '';
+      }
       if (widget.allowedTypes.contains(p['type'])) _type = p['type'];
       _otherType.text = p['otherType'] ?? '';
-      _sex = p['sex'];
+      _sex = p['sex'] ?? '';
       _photo = p['photo'];
     }
   }
@@ -189,11 +275,12 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
         'sex': _sex,
         'breed': _breed.text.trim(),
         'notes': _notes.text.trim(),
+        for (final field in petSafetyFields) field: _safety[field]!.text.trim(),
         'photo': _photo,
-      });
+      }, expectedRevision: _revision);
       if (mounted) Navigator.pop(context, id);
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi. Qayta urinib ko‘ring.');
+    } catch (e) {
+      if (mounted) cNotice(context, e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -201,7 +288,14 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
 
   @override
   void dispose() {
-    for (final c in [_name, _age, _breed, _notes, _otherType]) {
+    for (final c in [
+      _name,
+      _age,
+      _breed,
+      _notes,
+      _otherType,
+      ..._safety.values,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -284,6 +378,7 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
             const SizedBox(height: 18),
             cField(_breed, 'Zoti'),
             cField(_notes, 'Xususiyatlari', lines: 3),
+            PetSafetyFields(controllers: _safety),
           ],
         ),
       ),
@@ -306,16 +401,21 @@ class CustomerProfileForm extends StatefulWidget {
 }
 
 class _CustomerProfileFormState extends State<CustomerProfileForm> {
+  late final int? _revision;
+  @override
+  void initState() {
+    super.initState();
+    _revision = widget.store.revision;
+  }
+
   final _form = GlobalKey<FormState>();
   late final _first = TextEditingController(
-    text: widget.registration ? '' : widget.store.profile['first'],
+    text: widget.store.profile['first'] ?? '',
   );
   late final _last = TextEditingController(
-    text: widget.registration ? '' : widget.store.profile['last'],
+    text: widget.store.profile['last'] ?? '',
   );
-  late String? _photo = widget.registration
-      ? null
-      : widget.store.profile['photo'];
+  late String? _photo = widget.store.profile['photo'];
   bool _saving = false;
   bool _picking = false;
   late final _photos = widget.photoSource ?? ProfilePhotoSource();
@@ -381,6 +481,7 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
           'last': _last.text.trim(),
           'photo': _photo,
         },
+        expectedRevision: _revision,
       );
       if (!mounted) return;
       if (widget.registration) {
@@ -391,8 +492,8 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
       } else {
         Navigator.pop(context);
       }
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi.');
+    } catch (e) {
+      if (mounted) cNotice(context, e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -467,8 +568,20 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
                 size: 12,
               ),
             const SizedBox(height: 24),
-            cField(_first, 'Ism', required: true, id: 'customerFirst'),
-            cField(_last, 'Familiya', required: true, id: 'customerLast'),
+            cField(
+              _first,
+              'Ism',
+              required: true,
+              limit: 100,
+              id: 'customerFirst',
+            ),
+            cField(
+              _last,
+              'Familiya',
+              required: true,
+              limit: 100,
+              id: 'customerLast',
+            ),
           ],
         ),
       ),
@@ -536,6 +649,7 @@ class CustomerAddressForm extends StatefulWidget {
 }
 
 class _CustomerAddressFormState extends State<CustomerAddressForm> {
+  late final int? _revision;
   late final _label = TextEditingController(
     text: widget.address?['label'] ?? 'Uyim',
   );
@@ -547,6 +661,7 @@ class _CustomerAddressFormState extends State<CustomerAddressForm> {
   @override
   void initState() {
     super.initState();
+    _revision = widget.store.revision;
     if (widget.address != null) {
       _location = CareLocation.fromJson(widget.address!);
     }
@@ -572,10 +687,10 @@ class _CustomerAddressFormState extends State<CustomerAddressForm> {
         ..._location!.toJson(),
         'label': _label.text.trim(),
         'apartment': _flat.text.trim(),
-      });
+      }, expectedRevision: _revision);
       if (mounted) Navigator.pop(context);
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi.');
+    } catch (e) {
+      if (mounted) cNotice(context, e.toString());
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -670,9 +785,9 @@ class _CustomerSettingsPageState extends State<CustomerSettingsPage> {
           ),
         cText(
           lt(
-            'Sozlamalar saqlanadi. Push xabarlar hali ulanmagan.',
-            'Push notifications are not connected.',
-            'Push-уведомления не подключены.',
+            'Bu sozlamalar kelajakdagi push xabarlari uchun saqlanadi. Hozir telefoningizga push yuborilmaydi. Ilova ichidagi buyurtma, chat, parvarish va to‘lov xabarlari tarixi bu tugmalar bilan o‘chmaydi.',
+            'These preferences are saved for future push notifications. No push is sent to your phone yet. These switches do not remove booking, chat, care or payment notices from the in-app history.',
+            'Эти настройки сохраняются для будущих push-уведомлений. Сейчас push на телефон не отправляются. Эти переключатели не удаляют уведомления о заказах, чате, уходе и платежах из истории в приложении.',
           ),
           size: 12,
         ),
@@ -681,78 +796,9 @@ class _CustomerSettingsPageState extends State<CustomerSettingsPage> {
   );
 }
 
-class CustomerHelpPage extends StatefulWidget {
+class CustomerHelpPage extends StatelessWidget {
   const CustomerHelpPage({super.key, required this.store});
   final CustomerStore store;
   @override
-  State<CustomerHelpPage> createState() => _CustomerHelpPageState();
-}
-
-class _CustomerHelpPageState extends State<CustomerHelpPage> {
-  final _message = TextEditingController();
-  bool _saving = false;
-  @override
-  void dispose() {
-    _message.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    if (_saving) return;
-    if (_message.text.trim().isEmpty) {
-      cNotice(context, 'Murojaatingizni yozing.');
-      return;
-    }
-    setState(() => _saving = true);
-    try {
-      await widget.store.saveItem('support', {
-        'id': DateTime.now().microsecondsSinceEpoch.toString(),
-        'text': _message.text.trim(),
-      });
-      if (mounted) {
-        _message.clear();
-        cNotice(
-          context,
-          widget.store.remote
-              ? 'Murojaatingiz adminga yuborildi.'
-              : 'Murojaat yuborilmadi. Hisobingizga kiring.',
-        );
-      }
-    } catch (_) {
-      if (mounted) cNotice(context, 'Saqlanmadi.');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => CustomerPage(
-    title: 'Yordam',
-    children: [
-      for (final q in [
-        (
-          'Buyurtma qanday beriladi?',
-          'Enagani, hayvoningizni va sanalarni tanlang, so‘ng buyurtmani yuboring.',
-        ),
-        (
-          'Buyurtmani qanday bekor qilaman?',
-          'Buyurtma tafsilotlarida Bekor qilish tugmasini bosing va sababini yozing.',
-        ),
-        (
-          'Video hisobot qayerda?',
-          'Buyurtma tafsilotlaridan Bugungi parvarish sahifasini oching.',
-        ),
-      ])
-        cCard(
-          ExpansionTile(
-            title: cText(q.$1, bold: true),
-            children: [
-              Padding(padding: const EdgeInsets.all(12), child: cText(q.$2)),
-            ],
-          ),
-        ),
-      cField(_message, 'Murojaatingiz', lines: 4),
-      cButton('Yuborish', _saving ? null : _send, loading: _saving),
-    ],
-  );
+  Widget build(BuildContext context) => SupportPage(api: store.api);
 }

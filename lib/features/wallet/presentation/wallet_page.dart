@@ -1,0 +1,1177 @@
+import 'package:cryptography/cryptography.dart' show Sha256;
+import '../../customer/presentation/customer_session_boundary.dart';
+import '../../../core/widgets/owned_dialogs.dart';
+import 'dart:convert';
+import 'dart:async';
+import 'dart:math';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
+import '../data/receipt_image.dart';
+import 'payment_qr.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../listings/presentation/listing_style.dart' show lt;
+import '../../customer/data/customer_api.dart';
+import '../data/wallet_draft_storage.dart';
+import 'topup_history_page.dart';
+
+int parseWalletAmount(String text) {
+  final value = text.trim().replaceAll(',', '.');
+  if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value)) {
+    throw const FormatException('Summani 2 kasr xonasigacha kiriting.');
+  }
+  final parts = value.split('.');
+  final minor =
+      BigInt.parse(parts[0]) * BigInt.from(100) +
+      BigInt.parse(parts.length == 1 ? '0' : parts[1].padRight(2, '0'));
+  if (minor <= BigInt.zero || minor > BigInt.from(100000000000)) {
+    throw const FormatException('Summa chegaradan tashqarida.');
+  }
+  return minor.toInt();
+}
+
+String walletMoney(int minor) =>
+    '${minor < 0 ? '-' : ''}${minor.abs() ~/ 100}${minor.abs() % 100 == 0 ? '' : '.${(minor.abs() % 100).toString().padLeft(2, '0')}'} so‘m';
+
+class WalletPage extends StatelessWidget {
+  const WalletPage({
+    super.key,
+    this.api,
+    this.pickReceipt,
+    this.draftStorage,
+    this.topupId,
+  });
+  final CustomerApi? api;
+  final Future<Uint8List?> Function(ImageSource source)? pickReceipt;
+  final WalletDraftStorage? draftStorage;
+  final String? topupId;
+  @override
+  Widget build(BuildContext context) {
+    final source = api ?? CustomerApi.active;
+    return CustomerSessionBoundary(
+      api: source,
+      expired: _expiredWallet(),
+      child: _BoundWalletPage(
+        key: ValueKey((source, topupId, draftStorage)),
+        api: source,
+        topupId: topupId,
+        draftStorage: draftStorage,
+        pickReceipt: pickReceipt,
+      ),
+    );
+  }
+}
+
+Widget _expiredWallet() => Scaffold(
+  appBar: AppBar(),
+  body: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Text(
+      lt(
+        'Sessiya o‘zgardi. Balansni qayta oching.',
+        'The session changed. Reopen your balance.',
+        'Сессия изменилась. Откройте баланс заново.',
+      ),
+    ),
+  ),
+);
+
+class _BoundWalletPage extends StatefulWidget {
+  const _BoundWalletPage({
+    super.key,
+    this.api,
+    this.pickReceipt,
+    this.draftStorage,
+    this.topupId,
+  });
+  final CustomerApi? api;
+  final Future<Uint8List?> Function(ImageSource source)? pickReceipt;
+  final WalletDraftStorage? draftStorage;
+  final String? topupId;
+  @override
+  State<_BoundWalletPage> createState() => _WalletPageState();
+}
+
+class _WalletPageState extends State<_BoundWalletPage>
+    with WidgetsBindingObserver, OwnedDialogs<_BoundWalletPage> {
+  final _session = CustomerApi.sessionVersion;
+  bool get _current => mounted && _session == CustomerApi.sessionVersion;
+  bool _reading = false, _discarding = false;
+  CustomerApi? _api;
+  Map<String, dynamic>? _wallet;
+  Map<String, dynamic>? _paymentConfig;
+  List<dynamic> _topups = [];
+  String? _nextCursor;
+  bool _moreLoading = false;
+  String? _error;
+  bool _loading = true, _sending = false, _picking = false, _accepted = false;
+  final _amount = TextEditingController();
+  final _payerReference = TextEditingController();
+  DateTime? _paidAt;
+  Uint8List? _receipt;
+  bool _receiptPickPending = false;
+  String? _requestId;
+  bool _attemptLocked = false;
+  WalletDraftStorage? _draftStorage;
+  Timer? _draftTimer;
+  bool _paymentStarted = false,
+      _paymentSubmitted = false,
+      _draftRestored = false,
+      _starting = false,
+      _draftUnreadable = false;
+  String? _draftError;
+  int _draftRevision = 0, _savedDraftRevision = 0;
+  int? _editingRevision;
+  bool get _editing => widget.topupId != null;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _draftTimer?.cancel();
+    if (_current && _paymentStarted && !_sending && !_discarding) {
+      unawaited(_saveDraftSafely());
+    }
+    _amount.dispose();
+    _payerReference.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_current &&
+        !_discarding &&
+        state != AppLifecycleState.resumed &&
+        _paymentStarted) {
+      _draftTimer?.cancel();
+      unawaited(_saveDraftSafely());
+    }
+  }
+
+  Future<void> _persistDraft() async {
+    if (!_current ||
+        _discarding ||
+        !_paymentStarted ||
+        _paymentSubmitted ||
+        _draftStorage == null ||
+        _paymentConfig == null) {
+      return;
+    }
+    final version = _draftRevision;
+    final data = <String, dynamic>{
+      'formatVersion': 1,
+      if (_editing) 'topupRevision': _editingRevision,
+      'amount': _amount.text,
+      'payerReference': _payerReference.text,
+      'paidAt': _paidAt?.toUtc().toIso8601String(),
+      'receipt': _receipt == null ? null : base64Encode(_receipt!),
+      'receiptPickPending': _receiptPickPending,
+      'requestId': _requestId,
+      'submissionPending': _attemptLocked,
+      'config': _paymentConfig,
+    };
+    await _draftStorage!.write(data);
+    if (mounted && _current) {
+      setState(() {
+        _savedDraftRevision = version;
+        _draftError = null;
+      });
+    }
+  }
+
+  Future<void> _saveDraftSafely() async {
+    try {
+      await _persistDraft();
+    } catch (_) {
+      if (mounted && _current) {
+        setState(
+          () => _draftError = lt(
+            'Qoralama saqlanmadi. Ilovani yopishdan oldin qayta urinib ko‘ring.',
+            'Draft was not saved. Retry before closing the app.',
+            'Черновик не сохранён. Повторите перед закрытием приложения.',
+          ),
+        );
+      }
+    }
+  }
+
+  void _draftChanged() {
+    if (!_current || _attemptLocked || _discarding) return;
+    _requestId = null;
+    _draftRevision++;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 500), _saveDraftSafely);
+    setState(() {});
+  }
+
+  Future<void> _startPayment() async {
+    if (!_current || _discarding || _starting) return;
+    setState(() => _starting = true);
+    try {
+      final config = Map<String, dynamic>.from(_paymentConfig!);
+      await _draftStorage!.write({
+        'formatVersion': 1,
+        'amount': '',
+        'receipt': null,
+        'requestId': null,
+        'config': config,
+      });
+      if (!mounted || !_current) return;
+      setState(() {
+        _paymentConfig = config;
+        _paymentStarted = true;
+        _paymentSubmitted = false;
+        _draftRevision++;
+        _savedDraftRevision = _draftRevision;
+      });
+    } catch (_) {
+      _paymentStarted = false;
+      _notice(
+        lt(
+          'QR’ni ochish uchun qoralamani saqlab bo‘lmadi. Qayta urinib ko‘ring.',
+          'Could not save the payment draft. Please retry.',
+          'Не удалось сохранить черновик. Повторите попытку.',
+        ),
+      );
+    } finally {
+      if (mounted && _current) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _discardDraft() async {
+    if (!_current || _discarding || _sending || _picking || _starting) return;
+    final confirmed = await showOwnedDialog<bool>(
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text(
+          lt('Qoralamani bekor qilish?', 'Discard draft?', 'Удалить черновик?'),
+        ),
+        content: Text(
+          lt(
+            'Bu amalga oshgan to‘lovni bekor qilmaydi. Agar pul o‘tkazgan bo‘lsangiz, avval chekni yuboring.',
+            'This does not cancel a payment. If you already paid, submit the receipt first.',
+            'Это не отменяет платёж. Если вы уже оплатили, сначала отправьте чек.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Saqlab qolish', 'Keep draft', 'Оставить')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(lt('Bekor qilish', 'Discard', 'Удалить')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || !_current) return;
+    if (_discarding || _sending || _picking || _starting) return;
+    setState(() => _discarding = true);
+    _draftTimer?.cancel();
+    try {
+      await _draftStorage?.clear();
+      if (!mounted || !_current) return;
+      setState(() {
+        _paymentStarted = false;
+        _draftRestored = true;
+        _draftUnreadable = false;
+        _draftError = null;
+        _receipt = null;
+        _receiptPickPending = false;
+        _requestId = null;
+        _attemptLocked = false;
+        _accepted = false;
+        _amount.clear();
+        _payerReference.clear();
+        _paidAt = null;
+      });
+    } catch (error) {
+      _notice(_walletError(error));
+      return;
+    } finally {
+      if (_current) setState(() => _discarding = false);
+    }
+    await _load();
+  }
+
+  Future<void> _load() async {
+    if (!_current || _reading || _moreLoading || _discarding) return;
+    _reading = true;
+    if (mounted && _current) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      _api ??= widget.api ?? await CustomerApi.restore();
+      if (!_current) return;
+      if (_api == null) {
+        throw CustomerApiException(
+          lt(
+            'Hisobingizga kiring.',
+            'Sign in to continue.',
+            'Войдите в аккаунт.',
+          ),
+        );
+      }
+      _draftStorage ??=
+          widget.draftStorage ??
+          EncryptedWalletDraftStorage(
+            owner: _api!.userId,
+            scope: _api!.baseUrl + (_editing ? '/topup/${widget.topupId}' : ''),
+          );
+      if (!_draftRestored) {
+        try {
+          final draft = await _draftStorage!.read();
+          if (!_current) return;
+          if (draft != null) {
+            if (draft['formatVersion'] != 1 ||
+                draft['amount'] is! String ||
+                draft['config'] is! Map) {
+              throw const FormatException('Invalid payment draft');
+            }
+            _paymentConfig = Map<String, dynamic>.from(draft['config']);
+            _amount.text = draft['amount'] as String;
+            _payerReference.text = draft['payerReference'] as String? ?? '';
+            _paidAt = draft['paidAt'] == null
+                ? null
+                : DateTime.parse(draft['paidAt'] as String).toLocal();
+            _receipt = draft['receipt'] == null
+                ? null
+                : base64Decode(draft['receipt'] as String);
+            _receiptPickPending = draft['receiptPickPending'] == true;
+            _requestId = draft['requestId'] as String?;
+            _attemptLocked = draft['submissionPending'] == true;
+            if (_attemptLocked && _requestId == null) {
+              throw const FormatException('Invalid pending request');
+            }
+            if (_editing) _editingRevision = draft['topupRevision'] as int;
+            _paymentStarted = true;
+          }
+          _draftRestored = true;
+        } catch (_) {
+          _draftUnreadable = true;
+          throw CustomerApiException(
+            lt(
+              'To‘lov qoralamasini ochib bo‘lmadi. U avtomatik o‘chirilmagan.',
+              'Could not open the payment draft. It has not been deleted.',
+              'Не удалось открыть черновик платежа. Он не удалён.',
+            ),
+          );
+        }
+      }
+      final wallet = await _api!.request('GET', '/wallet');
+      if (!_current) return;
+      final topups = await _api!.request('GET', '/wallet/topups');
+      if (!_current) return;
+      if (_editing && !_paymentStarted) {
+        final result = await _api!.request(
+          'GET',
+          '/wallet/topups/${widget.topupId}',
+        );
+        if (!_current) return;
+        final row = Map<String, dynamic>.from(result['topup']);
+        if (row['id'] != widget.topupId) {
+          throw const FormatException('Wrong top-up');
+        }
+        if (row['status'] != 'needs_info' && row['status'] != 'rejected') {
+          throw CustomerApiException(
+            lt(
+              'Bu so‘rov hozir tahrirlashga ochiq emas.',
+              'This request is not open for changes.',
+              'Этот запрос сейчас нельзя изменить.',
+            ),
+          );
+        }
+        final evidence = await _api!.request(
+          'GET',
+          '/wallet/topups/${widget.topupId}/receipt',
+        );
+        if (!_current) return;
+        if (evidence['revision'] != row['revision']) {
+          throw CustomerApiException(
+            lt(
+              'So‘rov o‘zgargan. Qayta yuklang.',
+              'This request changed. Please reload.',
+              'Запрос изменился. Обновите страницу.',
+            ),
+          );
+        }
+        _paymentConfig = {
+          ...Map<String, dynamic>.from(wallet['config']),
+          ...Map<String, dynamic>.from(evidence['paymentSnapshot']),
+          'qrActive': true,
+        };
+        _editingRevision = row['revision'] as int;
+        _amount.text = walletMoney(
+          row['amountMinor'] as int,
+        ).replaceAll(' so‘m', '');
+        _payerReference.text = row['payerReference'] as String? ?? '';
+        _paidAt = row['paidAt'] == null
+            ? null
+            : DateTime.parse(row['paidAt'] as String).toLocal();
+        _receipt = base64Decode(evidence['receipt'] as String);
+        _requestId = null;
+        _paymentStarted = true;
+        _paymentSubmitted = false;
+        await _saveDraftSafely();
+      }
+      if (mounted && _current) {
+        setState(() {
+          _wallet = wallet;
+          _topups = topups['topups'] as List;
+          _nextCursor = topups['nextCursor'] as String?;
+          if (!_paymentStarted) {
+            _paymentConfig = Map<String, dynamic>.from(wallet['config']);
+          }
+        });
+      }
+    } catch (error) {
+      if (mounted && _current) setState(() => _error = _walletError(error));
+    } finally {
+      _reading = false;
+      if (mounted && _current) setState(() => _loading = false);
+    }
+  }
+
+  String _walletError(Object error) {
+    if (error is CustomerApiException) return error.message;
+    return lt(
+      'Amal tasdiqlanmadi. Holatni yangilang yoki saqlangan so‘rovni takrorlang.',
+      'Could not confirm the operation. Refresh or retry the saved request.',
+      'Операция не подтверждена. Обновите данные или повторите сохранённый запрос.',
+    );
+  }
+
+  Future<T?> _navigate<T>(Route<T> route) async {
+    if (!_current || ModalRoute.of(context)?.isCurrent != true) return null;
+    return Navigator.of(context).push(route);
+  }
+
+  void _notice(String message) {
+    if (mounted && _current) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _more() async {
+    if (!_current ||
+        _discarding ||
+        _reading ||
+        _moreLoading ||
+        _nextCursor == null) {
+      return;
+    }
+    setState(() => _moreLoading = true);
+    try {
+      final page = await _api!.request(
+        'GET',
+        '/wallet/topups?cursor=${Uri.encodeComponent(_nextCursor!)}',
+      );
+      if (mounted && _current) {
+        setState(() {
+          _topups.addAll(page['topups'] as List);
+          _nextCursor = page['nextCursor'] as String?;
+        });
+      }
+    } catch (error) {
+      _notice(_walletError(error));
+    } finally {
+      if (mounted && _current) setState(() => _moreLoading = false);
+    }
+  }
+
+  Future<void> _pick() async {
+    if (!_current || _discarding || _attemptLocked || _picking || _sending) {
+      return;
+    }
+    setState(() => _picking = true);
+    var attempted = false;
+    var selected = false;
+    final wasInterrupted = _receiptPickPending;
+    try {
+      final source = await showOwnedSheet<ImageSource>(
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                key: const ValueKey('receiptGallery'),
+                leading: const Icon(Icons.photo_library),
+                title: Text(
+                  lt(
+                    'Galereyadan tanlash',
+                    'Choose from gallery',
+                    'Выбрать из галереи',
+                  ),
+                ),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              ListTile(
+                key: const ValueKey('receiptCamera'),
+                leading: const Icon(Icons.camera_alt),
+                title: Text(
+                  lt(
+                    'Chekni suratga olish',
+                    'Photograph receipt',
+                    'Сфотографировать чек',
+                  ),
+                ),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (source == null || !mounted || !_current) return;
+      // Preserve the previous receipt if Android destroys the activity while
+      // the external picker is open. Never silently attach another flow's
+      // globally cached lost-picker result to a financial request.
+      attempted = true;
+      _receiptPickPending = true;
+      _draftRevision++;
+      await _persistDraft();
+      if (!mounted || !_current) return;
+      Uint8List? bytes;
+      if (widget.pickReceipt != null) {
+        bytes = await widget.pickReceipt!(source);
+      } else {
+        final file = await ImagePicker().pickImage(
+          source: source,
+          maxWidth: 2400,
+          maxHeight: 2400,
+          imageQuality: 95,
+          requestFullMetadata: false,
+        );
+        if (_current && file != null) {
+          if (await file.length() > 3 * 1024 * 1024) {
+            throw const FormatException('size');
+          }
+          if (!_current) return;
+          bytes = await file.readAsBytes();
+        }
+      }
+      if (_current && bytes != null) {
+        await validateReceiptImage(bytes);
+        if (mounted && _current) {
+          setState(() {
+            _receipt = bytes;
+            selected = true;
+            _requestId = null;
+            _draftRevision++;
+          });
+          await _saveDraftSafely();
+        }
+      }
+    } on PlatformException {
+      _notice(
+        lt(
+          'Kamera yoki galereya ochilmadi. Ruxsatlarni tekshiring yoki boshqa usulni tanlang.',
+          'Could not open camera or gallery. Check permissions or choose another source.',
+          'Не удалось открыть камеру или галерею. Проверьте разрешения или выберите другой способ.',
+        ),
+      );
+    } on FormatException {
+      _notice(
+        lt(
+          'Chek to‘liq PNG, JPEG yoki WebP rasm bo‘lsin: 3 MB va 12 megapikseldan oshmasin.',
+          'Choose a complete PNG, JPEG or WebP receipt under 3 MB and 12 megapixels.',
+          'Выберите целое изображение PNG, JPEG или WebP до 3 МБ и 12 мегапикселей.',
+        ),
+      );
+    } catch (_) {
+      _notice(
+        lt(
+          'Chek ochilmadi yoki qoralama saqlanmadi. Oldingi ma’lumotlar saqlandi; qayta urinib ko‘ring.',
+          'Could not load the receipt or save the draft. Previous data is retained; please retry.',
+          'Не удалось открыть чек или сохранить черновик. Предыдущие данные сохранены; повторите попытку.',
+        ),
+      );
+    } finally {
+      if (mounted && _current) {
+        if (attempted) {
+          _receiptPickPending = wasInterrupted && !selected;
+          _draftRevision++;
+          await _saveDraftSafely();
+        }
+        if (mounted && _current) setState(() => _picking = false);
+      }
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_current ||
+        _discarding ||
+        _starting ||
+        _sending ||
+        _receiptPickPending ||
+        _receipt == null ||
+        !_accepted ||
+        _api == null) {
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      if (!_paymentSubmitted) {
+        final value = parseWalletAmount(_amount.text);
+        if (_paidAt == null && _payerReference.text.trim().isEmpty) {
+          throw CustomerApiException(
+            lt(
+              'Chekdagi to‘lov vaqtini yoki operatsiya ID raqamini kiriting.',
+              'Enter the payment time or transaction ID from the receipt.',
+              'Укажите время платежа или ID операции из чека.',
+            ),
+          );
+        }
+        final config = _paymentConfig!;
+        _attemptLocked = true;
+        _requestId ??= base64UrlEncode(
+          List<int>.generate(18, (_) => Random.secure().nextInt(256)),
+        );
+        _draftTimer?.cancel();
+        _draftRevision++;
+        await _persistDraft(); // Stable retry id must survive before sending money evidence.
+        if (!_current) return;
+        final hash = await Sha256().hash(_receipt!);
+        if (!_current) return;
+        final response = await _api!.request(
+          'POST',
+          _editing
+              ? '/wallet/topups/${widget.topupId}/amend'
+              : '/wallet/topups',
+          {
+            if (_editing) 'revision': _editingRevision,
+            'requestId': _requestId,
+            'amountMinor': value,
+            'payerReference': _payerReference.text.trim(),
+            'paidAt': _paidAt?.toUtc().toIso8601String(),
+            'receipt': base64Encode(_receipt!),
+            'qrVersion': config['version'],
+            'termsVersion': config['termsVersion'],
+            'acceptNonRefundable': true,
+          },
+        );
+        if (!_current) return;
+        final receipt = response['acknowledgement'], topup = response['topup'];
+        final originalRevision = _editing ? _editingRevision! + 1 : 0;
+        if (topup is! Map ||
+            topup['id'] is! String ||
+            topup['revision'] is! int ||
+            topup['revision'] < originalRevision ||
+            (_editing && topup['id'] != widget.topupId) ||
+            receipt is! Map ||
+            receipt['topupId'] != topup['id'] ||
+            receipt['requestId'] != _requestId ||
+            receipt['evidenceRevision'] != originalRevision ||
+            receipt['amountMinor'] != value ||
+            receipt['qrVersion'] != config['version'] ||
+            receipt['receiptSha256'] !=
+                hash.bytes
+                    .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                    .join()) {
+          throw const FormatException('Invalid receipt confirmation');
+        }
+        // Lifecycle/dispose saves must not recreate a successfully submitted draft
+        // while its queued clear is still completing.
+        _paymentSubmitted = true;
+      }
+      await _draftStorage!.clear();
+      if (!mounted || !_current) return;
+      setState(() {
+        _paymentStarted = false;
+        _receipt = null;
+        _requestId = null;
+        _attemptLocked = false;
+        _accepted = false;
+        _amount.clear();
+        _payerReference.clear();
+        _paidAt = null;
+      });
+      if (_editing) {
+        if (ModalRoute.of(context)?.isCurrent == true) {
+          Navigator.of(context).pop(true);
+        }
+        return;
+      }
+      _notice(
+        lt(
+          'Chek yuborildi. Balans admin tekshirganidan keyin to‘ldiriladi.',
+          'Receipt sent. Your balance changes after admin verification.',
+          'Чек отправлен. Баланс пополнится после проверки администратором.',
+        ),
+      );
+      await _load();
+    } catch (error) {
+      _notice(_walletError(error));
+    } finally {
+      if (mounted && _current) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _pickPaymentTime() async {
+    final current = DateTime.now();
+    if (!_current || _discarding || _attemptLocked) return;
+    final day = await showOwnedDatePicker(
+      initialDate: _paidAt ?? current,
+      firstDate: DateTime(2000),
+      lastDate: current,
+    );
+    if (day == null || !mounted || !_current) return;
+    final time = await showOwnedDialog<TimeOfDay>(
+      builder: (_) => TimePickerDialog(
+        initialTime: TimeOfDay.fromDateTime(_paidAt ?? current),
+      ),
+    );
+    if (time == null || !mounted || !_current) return;
+    final value = DateTime(
+      day.year,
+      day.month,
+      day.day,
+      time.hour,
+      time.minute,
+    );
+    if (value.isAfter(DateTime.now().add(const Duration(minutes: 5)))) {
+      _notice(
+        lt(
+          'Kelajakdagi vaqtni kiritmang.',
+          'Payment time cannot be in the future.',
+          'Время платежа не может быть в будущем.',
+        ),
+      );
+      return;
+    }
+    _paidAt = value;
+    _draftChanged();
+    await _saveDraftSafely();
+  }
+
+  String _status(String value) => switch (value) {
+    'needs_info' => lt(
+      'Aniqlashtirish kerak',
+      'More information needed',
+      'Нужно уточнение',
+    ),
+    'approved' => lt('Tasdiqlangan', 'Approved', 'Подтверждено'),
+    'rejected' => lt('Rad etilgan', 'Rejected', 'Отклонено'),
+    _ => lt('Tekshirilmoqda', 'Under review', 'На проверке'),
+  };
+
+  @override
+  Widget build(BuildContext context) => !_current
+      ? _expiredWallet()
+      : Scaffold(
+          appBar: AppBar(
+            title: Text(lt('Momiq balansi', 'Momiq balance', 'Баланс Momiq')),
+            actions: [
+              if (_paymentStarted || _draftUnreadable)
+                IconButton(
+                  tooltip: lt(
+                    'Qoralamani bekor qilish',
+                    'Discard draft',
+                    'Удалить черновик',
+                  ),
+                  onPressed: _sending || _picking || _starting
+                      ? null
+                      : _discardDraft,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              IconButton(
+                tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
+                onPressed: _loading || _sending || _starting ? null : _load,
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!),
+                        FilledButton(
+                          onPressed: _load,
+                          child: Text(
+                            lt('Qayta urinish', 'Retry', 'Повторить'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: _content(),
+                ),
+        );
+
+  List<Widget> _content() {
+    final wallet = _wallet!;
+    final config = _paymentConfig!;
+    final currentConfig = Map<String, dynamic>.from(wallet['config']);
+    final qr = config['qrImage'] as String?;
+    return [
+      Text(
+        walletMoney(wallet['balanceMinor'] as int),
+        key: const ValueKey('walletBalance'),
+        style: Theme.of(context).textTheme.headlineMedium,
+      ),
+      const SizedBox(height: 12),
+      Text(
+        lt(
+              'Yangi mijozlar uchun minimal balans: ',
+              'Minimum balance for new clients: ',
+              'Минимальный баланс для новых клиентов: ',
+            ) +
+            walletMoney(currentConfig['minimumBalanceMinor'] as int),
+      ),
+      Text(
+        '${lt('Komissiya', 'Commission', 'Комиссия')}: ${(currentConfig['commissionBps'] as int) / 100}%',
+      ),
+      const SizedBox(height: 12),
+      Text(
+        lt(
+          'Xizmat pulini mijoz bilan o‘zingiz kelishasiz. Momiq bu pulni qabul qilmaydi.',
+          'Arrange the service payment directly with the client. Momiq does not collect it.',
+          'Оплату услуги согласуйте с клиентом напрямую. Momiq её не принимает.',
+        ),
+      ),
+      const Divider(height: 32),
+      Text(
+        _editing
+            ? lt('Chekni aniqlashtirish', 'Clarify receipt', 'Уточнение чека')
+            : 'Paynet Xolis',
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
+      if (_editing)
+        Text(
+          lt(
+            'Bu avvalgi to‘lovni aniqlashtirish. Qayta pul o‘tkazmang.',
+            'This clarifies an existing payment. Do not pay again.',
+            'Это уточнение уже совершённого платежа. Не платите повторно.',
+          ),
+        ),
+      if (config['testOnly'] == true)
+        Text(
+          lt(
+            'TEST QR — haqiqiy to‘lov qilmang',
+            'TEST QR — do not make a real payment',
+            'ТЕСТОВЫЙ QR — не переводите реальные деньги',
+          ),
+          style: const TextStyle(color: Colors.red),
+        ),
+      if (qr == null || config['qrActive'] != true)
+        Text(
+          lt(
+            'QR orqali yangi to‘lovlar hozir ochilmagan. Oldingi to‘lov cheki bo‘lsa yordam xizmatiga murojaat qiling.',
+            'New QR payments are paused. Contact support if you already paid.',
+            'Новые оплаты по QR приостановлены. Если вы уже оплатили, обратитесь в поддержку.',
+          ),
+        )
+      else if (!_paymentStarted) ...[
+        Text(
+          lt(
+            'To‘lovni boshlash uchun QR kodni oching. Qoralama shu qurilmada saqlanadi.',
+            'Open the QR to start. Your draft will be saved on this device.',
+            'Откройте QR для оплаты. Черновик сохранится на этом устройстве.',
+          ),
+        ),
+        FilledButton(
+          onPressed: _starting ? null : _startPayment,
+          key: const ValueKey('startTopup'),
+          child: Text(lt('QR kodni ochish', 'Open QR code', 'Открыть QR-код')),
+        ),
+      ] else ...[
+        Text(
+          lt(
+            'To‘lov qoralamasi · QR v${config['version']}',
+            'Payment draft · QR v${config['version']}',
+            'Черновик платежа · QR v${config['version']}',
+          ),
+        ),
+        if (_draftError != null)
+          Text(_draftError!, style: const TextStyle(color: Colors.red)),
+        if (_draftError != null)
+          TextButton(
+            onPressed: _saveDraftSafely,
+            child: Text(
+              lt(
+                'Qoralamani qayta saqlash',
+                'Retry saving draft',
+                'Повторить сохранение',
+              ),
+            ),
+          )
+        else
+          Text(
+            _savedDraftRevision == _draftRevision
+                ? lt(
+                    'Qoralama shu qurilmada saqlandi. Hisobdan chiqishda o‘chiriladi.',
+                    'Draft saved on this device. Signing out removes it.',
+                    'Черновик сохранён. При выходе из аккаунта он удаляется.',
+                  )
+                : lt('Qoralama saqlanmoqda…', 'Saving draft…', 'Сохранение…'),
+          ),
+        Text(
+          '${lt('Oluvchi', 'Recipient', 'Получатель')}: ${config['recipientName'] ?? ''}',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        if (!_editing &&
+            (config['paymentInstructions'] as String? ?? '').isNotEmpty)
+          Text(config['paymentInstructions'] as String),
+        if (!_editing)
+          Text(
+            lt(
+              'Provayderdagi oluvchi nomi bilan solishtiring. Nom mos kelmasa to‘lov qilmang.',
+              'Check the recipient name in the provider app. Do not pay if it differs.',
+              'Сверьте имя получателя в приложении провайдера. При несовпадении не платите.',
+            ),
+          ),
+        if (!_editing)
+          PaymentQr(
+            bytes: base64Decode(qr),
+            version: config['version'] as int,
+            recipient: config['recipientName'] as String? ?? '',
+            testOnly: config['testOnly'] == true,
+          ),
+        if (!_editing)
+          Text(
+            lt(
+              'Provayder ilovasida QR kodni skanerlang. To‘lovdan keyin chekni shu yerga yuboring.',
+              'Scan the QR in the provider app, then submit your receipt here.',
+              'Отсканируйте QR в приложении провайдера, затем отправьте чек здесь.',
+            ),
+          ),
+        TextField(
+          key: const ValueKey('topupAmount'),
+          controller: _amount,
+          enabled:
+              !_discarding &&
+              !_attemptLocked &&
+              !_sending &&
+              !_paymentSubmitted,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          onChanged: (_) => _draftChanged(),
+          decoration: InputDecoration(
+            labelText: lt(
+              'To‘langan summa (so‘m)',
+              'Paid amount (UZS)',
+              'Оплаченная сумма (сум)',
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          key: const ValueKey('topupReference'),
+          controller: _payerReference,
+          enabled:
+              !_discarding &&
+              !_attemptLocked &&
+              !_sending &&
+              !_paymentSubmitted,
+          maxLength: 200,
+          onChanged: (_) => _draftChanged(),
+          decoration: InputDecoration(
+            labelText: lt(
+              'Chekdagi operatsiya ID / reference',
+              'Transaction ID / reference on receipt',
+              'ID операции из чека',
+            ),
+          ),
+        ),
+        Text(
+          lt(
+            'Chekdagi vaqt yoki operatsiya ID raqamidan kamida bittasini kiriting.',
+            'Provide at least the payment time or transaction ID from the receipt.',
+            'Укажите хотя бы время платежа или ID операции из чека.',
+          ),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('topupPaidAt'),
+          onPressed:
+              _discarding || _attemptLocked || _sending || _paymentSubmitted
+              ? null
+              : _pickPaymentTime,
+          icon: const Icon(Icons.schedule),
+          label: Text(
+            _paidAt == null
+                ? lt(
+                    'Chekdagi to‘lov vaqti',
+                    'Payment time on receipt',
+                    'Время платежа из чека',
+                  )
+                : '${MaterialLocalizations.of(context).formatMediumDate(_paidAt!)} ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(_paidAt!))} (UTC${_paidAt!.timeZoneOffset.isNegative ? '-' : '+'}${_paidAt!.timeZoneOffset.inHours.abs()}:${(_paidAt!.timeZoneOffset.inMinutes.abs() % 60).toString().padLeft(2, '0')})',
+          ),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('pickTopupReceipt'),
+          onPressed:
+              _discarding ||
+                  _attemptLocked ||
+                  _sending ||
+                  _picking ||
+                  _paymentSubmitted
+              ? null
+              : _pick,
+          icon: const Icon(Icons.receipt_long),
+          label: Text(lt('Chekni tanlash', 'Choose receipt', 'Выбрать чек')),
+        ),
+        if (_receiptPickPending && !_picking)
+          Text(
+            lt(
+              'Chek tanlash yakunlanmagan. Oldingi qoralama saqlandi; yuborishdan oldin chekni qayta tanlang.',
+              'Receipt selection was interrupted. Your previous draft is retained; choose the receipt again before submitting.',
+              'Выбор чека прерван. Предыдущий черновик сохранён; перед отправкой выберите чек заново.',
+            ),
+            key: const ValueKey('receiptPickInterrupted'),
+          ),
+        if (_receipt != null)
+          Image.memory(
+            _receipt!,
+            height: 160,
+            semanticLabel: lt(
+              'Tanlangan chek',
+              'Selected receipt',
+              'Выбранный чек',
+            ),
+            errorBuilder: (_, _, _) => const Icon(Icons.broken_image),
+          ),
+        CheckboxListTile(
+          key: const ValueKey('nonRefundableConsent'),
+          contentPadding: EdgeInsets.zero,
+          value: _accepted,
+          onChanged: _sending || _paymentSubmitted
+              ? null
+              : (value) => setState(() => _accepted = value == true),
+          title: Text(
+            lt(
+              'Ishlatilmagan balans qaytarilmasligini tushundim va roziman.',
+              'I understand and accept that unused balance is non-refundable.',
+              'Я понимаю и принимаю, что неиспользованный баланс не возвращается.',
+            ),
+          ),
+        ),
+        FilledButton(
+          key: const ValueKey('submitTopup'),
+          onPressed:
+              !_accepted ||
+                  _receipt == null ||
+                  _receiptPickPending ||
+                  _sending ||
+                  _picking
+              ? null
+              : _submit,
+          child: _sending
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(
+                  _paymentSubmitted
+                      ? lt(
+                          'Chek yuborildi — qoralamani tozalash',
+                          'Receipt sent — clear draft',
+                          'Чек отправлен — удалить черновик',
+                        )
+                      : lt(
+                          'Chekni tekshirishga yuborish',
+                          'Submit receipt for review',
+                          'Отправить чек на проверку',
+                        ),
+                ),
+        ),
+      ],
+      if (!_editing) ...[
+        const Divider(height: 32),
+        Text(
+          lt(
+            'To‘ldirish so‘rovlari',
+            'Top-up requests',
+            'Заявки на пополнение',
+          ),
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        for (final row in _topups) ...[
+          ListTile(
+            title: Text(walletMoney(row['amountMinor'] as int)),
+            subtitle: Text(
+              [
+                _status(row['status']),
+                if (row['reviewReason'] != null) row['reviewReason'],
+              ].join(' · '),
+            ),
+            onTap: () => _navigate(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    TopupHistoryPage(api: _api!, topupId: row['id'] as String),
+              ),
+            ),
+            trailing: const Icon(Icons.history),
+          ),
+          if (row['status'] == 'needs_info' || row['status'] == 'rejected')
+            TextButton(
+              key: ValueKey('amendTopup-${row['id']}'),
+              onPressed: () async {
+                final result = await _navigate<bool>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        WalletPage(api: _api, topupId: row['id'] as String),
+                  ),
+                );
+                if (mounted && _current && result == true) await _load();
+              },
+              child: Text(
+                lt(
+                  'Chekni to‘ldirib qayta yuborish',
+                  'Clarify and resubmit',
+                  'Уточнить и отправить повторно',
+                ),
+              ),
+            ),
+        ],
+        if (_nextCursor != null)
+          TextButton(
+            onPressed: _moreLoading ? null : _more,
+            child: Text(lt('Yana yuklash', 'Load more', 'Загрузить ещё')),
+          ),
+        const Divider(height: 32),
+        Text(
+          lt('Balans harakatlari', 'Balance history', 'История баланса'),
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        for (final row in wallet['entries'] as List)
+          ListTile(
+            title: Text(walletMoney(row['amountMinor'] as int)),
+            subtitle: Text(
+              row['kind'] == 'topup_correction'
+                  ? '${lt('Tushum tuzatishi', 'Top-up correction', 'Корректировка пополнения')}: ${row['reason']}'
+                  : row['reason'] as String,
+            ),
+            onTap: row['kind'] == 'topup_correction' && row['topupId'] is String
+                ? () => _navigate(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TopupHistoryPage(
+                        api: _api!,
+                        topupId: row['topupId'] as String,
+                      ),
+                    ),
+                  )
+                : null,
+          ),
+      ],
+    ];
+  }
+}

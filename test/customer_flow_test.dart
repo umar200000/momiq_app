@@ -138,15 +138,17 @@ void main() {
     await t.pumpAndSettle();
     expect(s.list('pets').last['name'], 'Luna');
   });
-  testWidgets('booking prevents skipping pet selection', (t) async {
+  testWidgets('legacy booking route cannot open an offline sample form', (
+    t,
+  ) async {
     final s = await store();
     await open(t, CustomerBookingForm(store: s, sitter: customerSitters.first));
-    await t.tap(find.byKey(const ValueKey('bookingNext')));
-    await t.pump();
-    await t.pump(const Duration(seconds: 1));
-    await t.pumpAndSettle();
-    expect(find.text('Hayvonni tanlang.'), findsOneWidget);
-    expect(find.text('Boni'), findsNothing);
+    expect(
+      find.textContaining('Hisobingizga kiring va katalogni yangilang'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('bookingNext')), findsNothing);
+    expect(find.textContaining('Oybek'), findsNothing);
   });
   testWidgets(
     'customer OTP opens manual registration then saves names before home',
@@ -191,6 +193,39 @@ void main() {
     );
     expect(find.text('Hali suhbat yo‘q'), findsOneWidget);
     expect(find.text('Hoji Sherhojiyiv'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets('operator reply is visibly attributed to Momiq support', (
+    t,
+  ) async {
+    final s = await store();
+    addTearDown(s.dispose);
+    await s.update(
+      (data) => data['messages'] = [
+        {
+          'id': 'test-support-message',
+          'sitter': 'hoji',
+          'text': 'TEST operator reply',
+          'mine': false,
+          'senderRole': 'support',
+          'time': '2026-10-28T00:00:00Z',
+        },
+      ],
+    );
+    await open(
+      t,
+      Scaffold(
+        body: SingleChildScrollView(child: CustomerChatList(store: s)),
+      ),
+    );
+    expect(
+      find.text('Momiq yordam xizmati: TEST operator reply'),
+      findsOneWidget,
+    );
+    await t.tap(find.text('Hoji Sherhojiyiv'));
+    await t.pumpAndSettle();
+    expect(find.text('Momiq yordam xizmati'), findsOneWidget);
+    expect(find.text('TEST operator reply'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
   testWidgets('conversation with unavailable sitter does not crash', (t) async {

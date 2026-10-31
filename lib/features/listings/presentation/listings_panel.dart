@@ -3,9 +3,11 @@ import '../../../core/theme/app_colors.dart';
 
 import '../../onboarding/presentation/widgets/onboarding_shell.dart';
 import '../data/listing_store.dart';
+import '../../customer/data/customer_api.dart';
 import 'care_location_page.dart';
 import 'listing_style.dart';
 import 'service_form_page.dart';
+import '../../support/support_page.dart';
 
 class ListingsPanel extends StatefulWidget {
   const ListingsPanel({
@@ -35,7 +37,7 @@ class _ListingsPanelState extends State<ListingsPanel> {
       _failed = false;
     });
     try {
-      await _store.load();
+      await _store.load(refresh: true);
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     } finally {
@@ -111,11 +113,13 @@ class _ListingsPanelState extends State<ListingsPanel> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              problemText(
-                error is ListingException
-                    ? error.problem
-                    : ListingProblem.storage,
-              ),
+              error is CustomerApiException
+                  ? error.message
+                  : problemText(
+                      error is ListingException
+                          ? error.problem
+                          : ListingProblem.storage,
+                    ),
             ),
           ),
         );
@@ -166,11 +170,22 @@ class _ListingsPanelState extends State<ListingsPanel> {
                   style: profileText(23, bold: true),
                 ),
                 const SizedBox(height: 3),
+                TextButton.icon(
+                  onPressed: _store.busy ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(
+                    lt(
+                      'Holatni yangilash',
+                      'Refresh status',
+                      'Обновить статус',
+                    ),
+                  ),
+                ),
                 Text(
                   lt(
-                    'Saqlangan e’lonlar hisobingizga bog‘lanadi va administratorga ko‘rinadi.',
-                    'Saved listings are linked to your account and visible to the administrator.',
-                    'Сохранённые объявления привязаны к вашему аккаунту и видны администратору.',
+                    'E’lon tekshiruvdan keyin va balans kamida 15 000 so‘m bo‘lganda mijozlarga ko‘rinadi.',
+                    'Listings appear after review with a balance of at least 15,000 UZS.',
+                    'Объявления видны после проверки при балансе от 15 000 сум.',
                   ),
                   style: profileText(13),
                 ),
@@ -304,6 +319,23 @@ class _ListingsPanelState extends State<ListingsPanel> {
                 ],
               ),
               const SizedBox(height: 12),
+              Text(_statusText(type), style: profileText(13, bold: true)),
+              if (_store.reason(type).isNotEmpty)
+                Text(_store.reason(type), style: profileText(12)),
+              if (_store.appealTarget(type) != null && !_store.busy)
+                PublicContentReportButton(
+                  api: _store.api,
+                  target: _store.appealTarget(type)!,
+                ),
+              if (_store.isTest(type))
+                Text(
+                  lt(
+                    'Test e’lon · MyID orqali tekshirilmagan',
+                    'Test listing · Not verified with MyID',
+                    'Тестовое объявление · MyID не проверен',
+                  ),
+                  style: profileText(12),
+                ),
               Row(
                 children: [
                   Expanded(
@@ -369,7 +401,7 @@ class _ListingsPanelState extends State<ListingsPanel> {
                           ),
                         _info(
                           Icons.toll_outlined,
-                          '${priceText(listing.dailyPrice)} ${lt('so‘m / kun', 'UZS / day', 'сум / день')}',
+                          '${priceText(listing.dailyPrice)} ${lt('so‘m / hayvon / kun', 'UZS / pet / day', 'сум / животное / день')}',
                         ),
                       ],
                     ),
@@ -377,6 +409,39 @@ class _ListingsPanelState extends State<ListingsPanel> {
                 ],
               ),
               const SizedBox(height: 10),
+              if (_store.status(type) != 'archived')
+                TextButton.icon(
+                  onPressed: _store.busy
+                      ? null
+                      : () async {
+                          try {
+                            await _store.archive(type);
+                          } catch (error) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    error is CustomerApiException
+                                        ? error.message
+                                        : problemText(ListingProblem.storage),
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  icon: const Icon(Icons.archive_outlined),
+                  label: Text(lt('Arxivlash', 'Archive', 'В архив')),
+                )
+              else
+                Text(
+                  lt(
+                    'Yoqish orqali qayta tekshiruvga yuboring.',
+                    'Turn on to resubmit for review.',
+                    'Включите для повторной проверки.',
+                  ),
+                  style: profileText(12),
+                ),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -400,6 +465,15 @@ class _ListingsPanelState extends State<ListingsPanel> {
             ],
           ),
   );
+
+  String _statusText(ServiceType type) => switch (_store.status(type)) {
+    'pending' => lt('Tekshiruvda', 'Under review', 'На проверке'),
+    'approved' => lt('Tasdiqlangan', 'Approved', 'Одобрено'),
+    'rejected' => lt('Rad etilgan', 'Rejected', 'Отклонено'),
+    'suspended' => lt('To‘xtatilgan', 'Paused', 'Приостановлено'),
+    'archived' => lt('Arxivlangan', 'Archived', 'В архиве'),
+    _ => lt('Qoralama', 'Draft', 'Черновик'),
+  };
 
   Widget _info(IconData icon, String text) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 7),

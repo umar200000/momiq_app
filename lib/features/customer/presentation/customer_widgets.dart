@@ -45,6 +45,86 @@ const _words = <String, List<String>>{
   'Bekor qilish': ['Cancel', 'Отменить'],
   'Ortga': ['Back', 'Назад'],
   'Filtrlar': ['Filters', 'Фильтры'],
+  'Hudud: Toshkent': ['Area: Tashkent', 'Город: Ташкент'],
+  'Masofa aniqlanmagan': ['Distance unavailable', 'Расстояние неизвестно'],
+  'Joylashuvsiz Toshkent bo‘yicha qidiruv. Masofa hisoblanmaydi.': [
+    'Searching all of Tashkent without a location. Distances are unavailable.',
+    'Поиск по всему Ташкенту без геолокации. Расстояния недоступны.',
+  ],
+  'Yaqin enagalar avval. Masofa taxminiy, to‘g‘ri chiziq bo‘yicha; yo‘l uzunligi emas.': [
+    'Nearby sitters appear first. Distances are approximate and measured in a straight line.',
+    'Сначала показаны няни поблизости. Расстояние приблизительное, по прямой.',
+  ],
+  'Joylashuvsiz Toshkent bo‘yicha qidirish': [
+    'Search Tashkent without my location',
+    'Искать по Ташкенту без геолокации',
+  ],
+  'Kelish va ketish sanasini tanlash': [
+    'Choose arrival and departure dates',
+    'Выбрать даты начала и окончания',
+  ],
+  'Jadval bo‘yicha mos enagalar. Bo‘sh joy va qabul bron vaqtida qayta tekshiriladi. Toshkent vaqti.': [
+    'These sitters match your dates. Availability is checked again when booking. Times are in Tashkent.',
+    'Няни подходят по расписанию. При бронировании доступность проверяется ещё раз. Время ташкентское.',
+  ],
+  'Keyingi sahifa yuklanmadi. Qayta urinib ko‘ring.': [
+    'Could not load the next page. Please retry.',
+    'Не удалось загрузить следующую страницу. Попробуйте ещё раз.',
+  ],
+  'Yana enagalarni ko‘rsatish': ['Show more sitters', 'Показать ещё нянь'],
+  'Toshkent vaqti': ['Tashkent time', 'Ташкентское время'],
+  'Kelish va ketish vaqti': [
+    'Arrival and departure',
+    'Время начала и окончания',
+  ],
+  'Toshkent vaqti. Tunab qolish mumkin; enaganing jadvali faqat kelish va ketish vaqtlariga qo‘llanadi.': [
+    'Times are in Tashkent. Overnight stays are allowed. The sitter’s hours apply to arrival and departure.',
+    'Время ташкентское. Можно остаться на ночь. Часы работы няни относятся к началу и окончанию услуги.',
+  ],
+  'Kelish': ['Arrival', 'Начало'],
+  'Ketish': ['Departure', 'Окончание'],
+  'Sana va vaqtni tanlang': ['Choose a date and time', 'Выберите дату и время'],
+  'Kelajakdagi kelish va undan keyingi ketish vaqtini tanlang (365 kungacha).': [
+    'Choose a future arrival and a later departure, up to 365 days apart.',
+    'Выберите будущее начало и более позднее окончание. Максимальный срок — 365 дней.',
+  ],
+  'Enagalarni ko‘rsatish': ['Show sitters', 'Показать нянь'],
+  'Narx oralig‘ini to‘g‘ri kiriting.': [
+    'Enter a valid price range.',
+    'Введите допустимый диапазон цен.',
+  ],
+  'Natijalarni ko‘rsatish': ['Show results', 'Показать результаты'],
+  'Hayvonlar soni': ['Number of pets', 'Количество питомцев'],
+  'Faqat MyID orqali tekshirilgan enagalar': [
+    'Only sitters verified through MyID',
+    'Только няни с проверкой MyID',
+  ],
+  'TEST tasdiq shaxs tekshiruvi hisoblanmaydi.': [
+    'Test approvals do not verify identity.',
+    'Тестовое подтверждение не удостоверяет личность.',
+  ],
+  'Minimal narx (so‘m)': ['Minimum price (UZS)', 'Минимальная цена (сум)'],
+  'Maksimal narx (so‘m)': ['Maximum price (UZS)', 'Максимальная цена (сум)'],
+  'Bu faqat qidiruv filtri. Toshkent ichida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.': [
+    'This filters search results. Sitters can travel anywhere in Tashkent. Listings without a known distance stay visible.',
+    'Фильтр влияет на поиск. Няни могут выезжать по всему Ташкенту. Объявления без расстояния остаются в выдаче.',
+  ],
+  'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Toshkent bo‘yicha qidiruv ochiq.': [
+    'Enable location on the home screen to filter by distance. You can search all of Tashkent now.',
+    'Чтобы искать по расстоянию, включите геолокацию на главном экране. Поиск по всему Ташкенту уже доступен.',
+  ],
+  'Reyting 4.8 va yuqori': ['Rating of 4.8 or higher', 'Оценка 4,8 и выше'],
+  'Tozalash': ['Clear', 'Сбросить'],
+  'Buyurtma berish hali ochilmagan': [
+    'Booking is not available yet',
+    'Бронирование пока недоступно',
+  ],
+  'Test e’lon · MyID tekshiruvi yo‘q': [
+    'Test listing · No MyID verification',
+    'Тестовое объявление · Без проверки MyID',
+  ],
+  'Men haqimda': ['About me', 'Обо мне'],
+  'Ma’lumot kiritilmagan': ['No information provided', 'Информация не указана'],
   'Hayvon turi': ['Pet type', 'Вид питомца'],
   'Mushuk': ['Cat', 'Кошка'],
   'It': ['Dog', 'Собака'],
@@ -103,8 +183,9 @@ Widget cText(
   double size = 15,
   bool bold = false,
   Color? color,
+  bool translate = true,
 }) => Text(
-  ct(text),
+  translate ? ct(text) : text,
   style: profileText(
     size,
     bold: bold,
@@ -175,6 +256,7 @@ Widget cField(
   int lines = 1,
   bool required = false,
   bool number = false,
+  int? limit,
 }) => Padding(
   padding: const EdgeInsets.only(bottom: 16),
   child: TextFormField(
@@ -194,6 +276,12 @@ Widget cField(
     ),
     validator: (value) => required && (value == null || value.trim().isEmpty)
         ? lt('To‘ldiring', 'Required', 'Обязательное поле')
+        : limit != null && (value?.runes.length ?? 0) > limit
+        ? lt(
+            'Eng ko‘pi $limit belgi',
+            'At most $limit characters',
+            'Не более $limit символов',
+          )
         : null,
   ),
 );

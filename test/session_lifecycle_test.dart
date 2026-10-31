@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'package:momiq_app/core/storage/session_vault.dart';
+import 'package:momiq_app/core/config/app_environment.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
@@ -21,7 +23,7 @@ class SessionApi extends CustomerApi {
     String path, [
     Map<String, dynamic>? body,
   ]) async {
-    if (path == '/auth/logout') revoked = true;
+    if (path == '/auth/logout' || path == '/auth/logout-all') revoked = true;
     if (error != null) throw error!;
     return {'account': account};
   }
@@ -61,10 +63,15 @@ void main() {
     );
   });
   test('process restart restores token user and role', () async {
+    await SessionVault.save(
+      token: 'saved-token',
+      userId: 'saved-user',
+      scope: AppEnvironment.current.sessionScope,
+    );
     SharedPreferences.setMockInitialValues({
-      'momiq.api.token': 'saved-token',
       'momiq.api.user': 'saved-user',
       'momiq.api.role': 'sitter',
+      'momiq.api.scope': AppEnvironment.current.sessionScope,
     });
     final restored = await CustomerApi.restore();
     expect(restored!.token, 'saved-token');
@@ -147,4 +154,19 @@ void main() {
       },
     );
   }
+  test(
+    'all-device logout requires server confirmation and keeps session on failure',
+    () async {
+      final api = SessionApi(customer, error: CustomerApiException('offline'));
+      CustomerApi.active = api;
+      await expectLater(
+        CustomerApi.logout(allDevices: true),
+        throwsA(isA<CustomerApiException>()),
+      );
+      expect(CustomerApi.active, same(api));
+      CustomerApi.active = SessionApi(customer);
+      await CustomerApi.logout(allDevices: true);
+      expect(CustomerApi.active, isNull);
+    },
+  );
 }

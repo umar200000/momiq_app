@@ -1,0 +1,481 @@
+import '../data/notification_data.dart';
+import '../../../core/config/app_environment.dart';
+import '../../listings/data/listing_store.dart';
+import '../../support/support_page.dart';
+import 'package:flutter/material.dart';
+import '../../customer/data/customer_api.dart';
+import '../../listings/presentation/listing_style.dart' show lt;
+import '../../listings/presentation/listings_panel.dart';
+import '../../wallet/presentation/topup_history_page.dart';
+import '../../bookings/presentation/bookings_page.dart';
+import '../../chat/presentation/conversation_page.dart';
+import '../../care/presentation/booking_care_page.dart';
+
+class NotificationsPage extends StatefulWidget {
+  const NotificationsPage({
+    super.key,
+    this.api,
+    this.bookingBuilder,
+    this.careBuilder,
+    this.supportBuilder,
+    this.conversationBuilder,
+  });
+  final CustomerApi? api;
+  final Widget Function(CustomerApi api, String id)? bookingBuilder;
+  final Widget Function(CustomerApi api, String id)? careBuilder,
+      conversationBuilder,
+      supportBuilder;
+  @override
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage>
+    with WidgetsBindingObserver {
+  CustomerApi? _api;
+  DialogRoute<bool>? _dialog;
+
+  void _closeDialog() {
+    final dialog = _dialog;
+    _dialog = null;
+    if (dialog == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navigator = dialog.navigator;
+      if (navigator != null && navigator.mounted && dialog.isActive) {
+        navigator.removeRoute(dialog);
+      }
+    });
+  }
+
+  final List<Map<String, dynamic>> _items = [];
+  bool _busy = false;
+  String? _error, _cursor;
+  int _unread = 0;
+  final Set<String> _reading = {};
+  int _session = CustomerApi.sessionVersion, _generation = 0;
+  bool get _live =>
+      mounted &&
+      _session == CustomerApi.sessionVersion &&
+      (_api == null ||
+          CustomerApi.active == null ||
+          identical(_api, CustomerApi.active));
+
+  @override
+  void didUpdateWidget(NotificationsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.api, widget.api)) {
+      _closeDialog();
+      _generation++;
+      _session = CustomerApi.sessionVersion;
+      _api = widget.api;
+      _items.clear();
+      _reading.clear();
+      _cursor = null;
+      _error = null;
+      _unread = 0;
+      _busy = false;
+      _load();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _closeDialog();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _load();
+  }
+
+  Future<void> _load({bool more = false}) async {
+    if (!_live || _busy || _reading.isNotEmpty || (more && _cursor == null)) {
+      return;
+    }
+    final generation = _generation;
+    bool current() => _live && generation == _generation;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final api = _api ?? widget.api ?? await CustomerApi.restore();
+      if (!current()) return;
+      _api = api;
+      if (_api == null) {
+        throw CustomerApiException(
+          lt(
+            'Hisobingizga kiring.',
+            'Sign in to continue.',
+            'Войдите в аккаунт.',
+          ),
+        );
+      }
+      final data = await _api!.request(
+        'GET',
+        '/notifications${more ? '?before=${Uri.encodeQueryComponent(_cursor!)}' : ''}',
+      );
+      if (!current()) return;
+      final parsed = notificationPage(data, before: more ? _cursor : null);
+      setState(() {
+        if (!more) _items.clear();
+        final ids = _items.map((e) => e['id']).toSet();
+        _items.addAll(
+          (parsed['items'] as List)
+              .map((e) => Map<String, dynamic>.from(e))
+              .where((e) => ids.add(e['id'])),
+        );
+        _cursor = parsed['nextCursor'] as String?;
+        _unread = parsed['unreadCount'] as int;
+      });
+    } catch (_) {
+      if (current()) {
+        setState(
+          () => _error = lt(
+            'Bildirishnomalar yuklanmadi. Qayta urinib ko‘ring.',
+            'Could not load notifications. Please retry.',
+            'Не удалось загрузить уведомления. Повторите.',
+          ),
+        );
+      }
+    } finally {
+      if (current()) setState(() => _busy = false);
+    }
+  }
+
+  String _title(Map<String, dynamic> item) {
+    if (item['kind'] == 'support') {
+      return lt('Yordam xizmatidan javob', 'Support reply', 'Ответ поддержки');
+    }
+    if (item['kind'] == 'conversation') {
+      return lt('Yangi chat xabari', 'New chat message', 'Новое сообщение');
+    }
+    if (item['kind'] == 'care') {
+      if (item['status'] == 'video_reminder') {
+        return lt(
+          'Video yuborishni unutmang',
+          'Video report is due soon',
+          'Скоро срок видеоотчёта',
+        );
+      }
+      if (item['status'] == 'video_missing') {
+        return lt(
+          'Video muddati o‘tgan',
+          'Video report is overdue',
+          'Срок видеоотчёта истёк',
+        );
+      }
+      if (item['status'] == 'video_explanation') {
+        return lt(
+          'Enaga video haqida sabab yozdi',
+          'Sitter explained the missing video',
+          'Няня указала причину отсутствия видео',
+        );
+      }
+      return item['status'] == 'instructions'
+          ? lt(
+              'Parvarish ko‘rsatmasi yangilandi',
+              'Care instructions updated',
+              'Инструкции по уходу обновлены',
+            )
+          : lt(
+              'Parvarish hisoboti yangilandi',
+              'Care report updated',
+              'Отчёт по уходу обновлён',
+            );
+    }
+    if (item['kind'] == 'booking') {
+      if (item['status'] == 'contact_reminder') {
+        return lt(
+          'Boshlanishni tekshiring',
+          'Check the service start',
+          'Проверьте начало ухода',
+        );
+      }
+      if (item['status'] == 'complaint_available') {
+        return lt(
+          'Kelmaslik bo‘yicha murojaat qilish mumkin',
+          'No-show report available',
+          'Можно сообщить о неявке',
+        );
+      }
+      return '${lt('Buyurtma', 'Booking', 'Заказ')} · ${bookingStateLabel(item['status'])}';
+    }
+    if (item['kind'] != 'wallet_topup' && item['kind'] != 'listing') {
+      return lt('Bildirishnoma', 'Notification', 'Уведомление');
+    }
+    final topic = item['kind'] == 'wallet_topup'
+        ? lt('Balans to‘ldirish', 'Balance top-up', 'Пополнение баланса')
+        : lt('E’lon moderatsiyasi', 'Listing review', 'Проверка объявления');
+    final status = switch (item['status']) {
+      'corrected' => lt('Tuzatilgan', 'Corrected', 'Исправлено'),
+      'approved' => lt('Tasdiqlangan', 'Approved', 'Одобрено'),
+      'rejected' => lt('Rad etilgan', 'Rejected', 'Отклонено'),
+      'suspended' => lt('To‘xtatilgan', 'Suspended', 'Приостановлено'),
+      'needs_info' => lt(
+        'Aniqlashtirish kerak',
+        'More information needed',
+        'Нужно уточнение',
+      ),
+      _ => lt('Yangilangan', 'Updated', 'Обновлено'),
+    };
+    return '$topic · $status';
+  }
+
+  String _date(String value) {
+    final date = DateTime.parse(value).toLocal();
+    final labels = MaterialLocalizations.of(context);
+    return '${labels.formatMediumDate(date)} ${labels.formatTimeOfDay(TimeOfDay.fromDateTime(date))}';
+  }
+
+  bool _hasDestination(Map<String, dynamic> item) {
+    final target = item['targetId'];
+    if (target is! String) return false;
+    return switch (item['kind']) {
+      'wallet_topup' ||
+      'booking' ||
+      'conversation' ||
+      'support' ||
+      'care' => RegExp(r'^[a-f0-9]{32}$').hasMatch(target),
+      'listing' => const {'boarding', 'homeVisit', 'personal'}.contains(target),
+      _ => false,
+    };
+  }
+
+  Future<void> _open(Map<String, dynamic> item) async {
+    final id = item['id'] as String;
+    if (!_live || _busy || _reading.isNotEmpty || _api == null) return;
+    final generation = _generation, api = _api!;
+    bool current() =>
+        _live && generation == _generation && identical(api, _api);
+    _reading.add(id);
+    setState(() {});
+    try {
+      if (item['readAt'] == null) {
+        final response = await api.request(
+          'POST',
+          '/notifications/${Uri.encodeComponent(id)}/read',
+          {},
+        );
+        if (!current()) return;
+        final receipt = notificationReceipt(
+          response,
+          id,
+          allowLegacy: AppEnvironment.current.name == 'local',
+        );
+        setState(() {
+          item['readAt'] =
+              receipt?['readAt'] ?? DateTime.now().toUtc().toIso8601String();
+          _unread = receipt?['unreadCount'] ?? (_unread > 0 ? _unread - 1 : 0);
+        });
+      }
+      if (!mounted || !current()) return;
+      final dialog = DialogRoute<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          scrollable: true,
+          title: Text(_title(item)),
+          content: Text(item['reason'] as String? ?? ''),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(lt('Yopish', 'Close', 'Закрыть')),
+            ),
+            if (_hasDestination(item))
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(
+                  lt('Sahifani ochish', 'Open page', 'Открыть страницу'),
+                ),
+              ),
+          ],
+        ),
+      );
+      _dialog = dialog;
+      final target = await Navigator.of(context).push(dialog);
+      if (identical(_dialog, dialog)) _dialog = null;
+      if (!mounted || target != true || !current() || !_hasDestination(item)) {
+        return;
+      }
+      // Only local, known destinations are accepted; no server-provided URLs.
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => item['kind'] == 'support'
+              ? (widget.supportBuilder?.call(api, item['targetId'] as String) ??
+                    SupportThreadPage(api: api, id: item['targetId'] as String))
+              : item['kind'] == 'conversation'
+              ? (widget.conversationBuilder?.call(
+                      api,
+                      item['targetId'] as String,
+                    ) ??
+                    ConversationPage(
+                      api: api,
+                      conversationId: item['targetId'] as String,
+                    ))
+              : item['kind'] == 'care'
+              ? (widget.careBuilder?.call(api, item['targetId'] as String) ??
+                    BookingCarePage(
+                      api: api,
+                      bookingId: item['targetId'] as String,
+                    ))
+              : item['kind'] == 'booking'
+              ? (widget.bookingBuilder?.call(api, item['targetId'] as String) ??
+                    BookingDetailPage(api: api, id: item['targetId'] as String))
+              : item['kind'] == 'wallet_topup'
+              ? TopupHistoryPage(api: api, topupId: item['targetId'] as String)
+              : Scaffold(
+                  appBar: AppBar(
+                    title: Text(lt('E’lonlar', 'Listings', 'Объявления')),
+                  ),
+                  body: _NoticeListings(api: api),
+                ),
+        ),
+      );
+    } catch (_) {
+      if (mounted && current()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              lt(
+                'Xabar ochilmadi. Qayta urinib ko‘ring.',
+                'Could not open the notice. Please retry.',
+                'Не удалось открыть уведомление. Повторите.',
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (current()) {
+        _reading.remove(id);
+        setState(() {});
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_live) _closeDialog();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(lt('Bildirishnomalar', 'Notifications', 'Уведомления')),
+        actions: [
+          IconButton(
+            tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
+            onPressed: _busy ? null : _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: !_live
+          ? Center(
+              child: Text(
+                lt(
+                  'Hisobingizga qayta kiring.',
+                  'Sign in again.',
+                  'Войдите снова.',
+                ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Text(
+                    lt(
+                      'O‘qilmagan: $_unread',
+                      'Unread: $_unread',
+                      'Непрочитанных: $_unread',
+                    ),
+                    key: const ValueKey('noticeUnreadCount'),
+                  ),
+                  Text(
+                    lt(
+                      'Qarorlar tarixi shu yerda saqlanadi. Push xabarlar hali ulanmagan.',
+                      'Decision history is kept here. Push notifications are not connected yet.',
+                      'История решений хранится здесь. Push-уведомления пока не подключены.',
+                    ),
+                  ),
+                  if (_busy) const LinearProgressIndicator(),
+                  if (_error != null) ...[
+                    Text(_error!),
+                    TextButton(
+                      onPressed: _busy ? null : _load,
+                      child: Text(lt('Qayta urinish', 'Retry', 'Повторить')),
+                    ),
+                  ],
+                  if (!_busy && _error == null && _items.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        lt(
+                          'Hozircha bildirishnoma yo‘q.',
+                          'No notifications yet.',
+                          'Уведомлений пока нет.',
+                        ),
+                      ),
+                    ),
+                  for (final item in _items)
+                    Card(
+                      child: ListTile(
+                        key: ValueKey('notice-${item['id']}'),
+                        onTap: _busy || _reading.isNotEmpty
+                            ? null
+                            : () => _open(item),
+                        leading: Icon(
+                          item['readAt'] == null
+                              ? Icons.mark_email_unread_outlined
+                              : Icons.drafts_outlined,
+                        ),
+                        title: Text(_title(item)),
+                        subtitle: Text(
+                          '${item['reason']}\n${_date(item['created'] as String)}',
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  if (_cursor != null)
+                    TextButton(
+                      key: const ValueKey('moreNotices'),
+                      onPressed: _busy ? null : () => _load(more: true),
+                      child: Text(
+                        lt('Yana yuklash', 'Load more', 'Загрузить ещё'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _NoticeListings extends StatefulWidget {
+  const _NoticeListings({required this.api});
+  final CustomerApi api;
+  @override
+  State<_NoticeListings> createState() => _NoticeListingsState();
+}
+
+class _NoticeListingsState extends State<_NoticeListings> {
+  late final store = ListingStore(api: widget.api);
+  @override
+  void dispose() {
+    store.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      SingleChildScrollView(child: ListingsPanel(store: store));
+}
