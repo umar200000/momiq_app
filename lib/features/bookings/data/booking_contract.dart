@@ -31,6 +31,10 @@ void checkBookingQuote(BookingData quote, String listingId, BookingData draft) {
   if (!_id(quote['id']) ||
       snapshot is! Map ||
       snapshot['listingId'] != listingId ||
+      (listingId.endsWith(':homeVisit') &&
+          (draft['addressId'] is! String ||
+              (draft['addressId'] as String).isEmpty ||
+              snapshot['addressId'] != draft['addressId'])) ||
       snapshot['datePolicy'] != 'elapsed-24h-v1' ||
       snapshot['customerPaysSitterDirectly'] != true ||
       (draft['instructions'] != null && draft['instructions'] is! String) ||

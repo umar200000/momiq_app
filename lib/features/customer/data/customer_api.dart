@@ -369,6 +369,7 @@ class CustomerApi {
       final req = await client
           .openUrl(method, Uri.parse('$baseUrl$path'))
           .timeout(const Duration(seconds: 8));
+      req.followRedirects = false;
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       if (token.isNotEmpty) {
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
@@ -380,6 +381,12 @@ class CustomerApi {
         req.add(bytes);
       }
       final response = await req.close().timeout(const Duration(seconds: 15));
+      if (response.statusCode >= 300 && response.statusCode < 400) {
+        throw CustomerApiException(
+          'Server manzili kutilmaganda o‘zgardi.',
+          response.statusCode,
+        );
+      }
       final text = await utf8.decoder
           .bind(response)
           .join()

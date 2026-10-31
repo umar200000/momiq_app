@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:momiq_app/features/bookings/data/booking_contract.dart';
 import 'package:momiq_app/features/bookings/data/booking_composer.dart';
 import 'package:momiq_app/features/bookings/data/booking_controller.dart';
 import 'booking_composer_test.dart' show ComposerApi, formFields;
@@ -36,6 +37,25 @@ class AlteredActionApi extends BookingApiFake {
 }
 
 void main() {
+  test('home visit quote must belong to the selected saved address', () async {
+    final draft = {...formFields(), 'addressId': 'home'};
+    final quote = await ComposerApi().request('POST', '/bookings/quotes', {
+      ...draft,
+      'listingId': 'abc:homeVisit',
+    });
+    final snapshot = quote['snapshot'];
+    snapshot['listingId'] = 'abc:homeVisit';
+    snapshot['price']['service'] = 'homeVisit';
+    for (final invalid in [null, 'other']) {
+      snapshot['addressId'] = invalid;
+      expect(
+        () => checkBookingQuote(quote, 'abc:homeVisit', draft),
+        throwsFormatException,
+      );
+    }
+    snapshot['addressId'] = 'home';
+    checkBookingQuote(quote, 'abc:homeVisit', draft);
+  });
   test(
     'wrong listing, swapped pets, interval or bill cannot be submitted',
     () async {
