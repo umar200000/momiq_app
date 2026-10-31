@@ -50,6 +50,10 @@ void main() {
       final confirm = find.byKey(const ValueKey('confirmAccountRequest'));
       await t.ensureVisible(confirm);
       await t.pumpAndSettle();
+      expect(
+        find.textContaining('enaga balansida qolgan pul qaytarilmaydi'),
+        findsOneWidget,
+      );
       await t.tap(confirm);
       await t.pumpAndSettle();
       await t.ensureVisible(button);

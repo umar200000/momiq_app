@@ -619,9 +619,9 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                 ),
                 subtitle: Text(
                   lt(
-                    'Yordam xizmati so‘rovingizni ko‘rib chiqadi. Shu vaqt davomida hisobingiz faol qoladi.',
-                    'Support will review your request. Your account stays active during review.',
-                    'Поддержка рассмотрит запрос. Во время рассмотрения аккаунт останется активным.',
+                    'Yordam xizmati so‘rovingizni ko‘rib chiqadi. Shu vaqt davomida hisobingiz faol qoladi. Hisob o‘chirilganda enaga balansida qolgan pul qaytarilmaydi.',
+                    'Support will review your request. Your account stays active during review. Any unused sitter balance is non-refundable when the account is deleted.',
+                    'Поддержка рассмотрит запрос. Во время рассмотрения аккаунт останется активным. При удалении аккаунта остаток на балансе няни не возвращается.',
                   ),
                 ),
               ),
