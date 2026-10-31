@@ -21,6 +21,11 @@ class PackageTests(unittest.TestCase):
         (self.root/'pubspec.lock').write_text('TEST locked dependencies')
         (self.root/'config').mkdir()
         (self.root/'config/local.json').write_text('{"MOMIQ_ENV":"local"}')
+        self.fonts = {'assets/fonts/OFL.txt': b'TEST Quicksand notice',
+                      'assets/fonts/Baloo2-OFL.txt': b'TEST Baloo notice'}
+        (self.root/'assets/fonts').mkdir(parents=True)
+        for name, data in self.fonts.items():
+            (self.root/name).write_bytes(data)
 
     def android(self):
         path = self.root/'build/app/outputs/flutter-apk/app-debug.apk'
@@ -29,6 +34,8 @@ class PackageTests(unittest.TestCase):
             archive.writestr('AndroidManifest.xml', 'TEST manifest')
             archive.writestr('lib/arm64-v8a/libflutter.so', 'TEST engine')
             archive.writestr('assets/flutter_assets/NOTICES.Z', gzip.compress(b'TEST notices'))
+            for name, data in self.fonts.items():
+                archive.writestr('assets/flutter_assets/'+name, data)
         return path
 
     @patch('package_build.apk_badging', return_value=badging)
@@ -42,11 +49,19 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(result['packagedFlutterNotices']['sha256'], hashlib.sha256(b'TEST notices').hexdigest())
         self.assertEqual(result['nativeLibrariesSha256']['lib/arm64-v8a/libflutter.so'],hashlib.sha256(b'TEST engine').hexdigest())
         self.assertFalse(result['releaseReady'])
+        self.assertEqual(result['fontNoticesSha256'], {k: hashlib.sha256(v).hexdigest() for k,v in self.fonts.items()})
         output = self.root/'ci-artifacts/android/manifest.json'
         before = output.read_bytes()
         with self.assertRaisesRegex(ValueError, 'existing artifact'):
             package(self.root, 'android', 'a'*40, 'c'*40)
         self.assertEqual(output.read_bytes(), before)
+
+    def test_replaced_font_notice_blocks_packaging(self):
+        self.android()
+        (self.root/'assets/fonts/Baloo2-OFL.txt').write_bytes(b'new source text')
+        with self.assertRaisesRegex(ValueError, 'font notice differs'):
+            package(self.root, 'android', 'a'*40, 'b'*40)
+        self.assertFalse((self.root/'ci-artifacts').exists())
 
     def test_android_binary_must_match_the_declared_identity(self):
         self.android()
@@ -66,6 +81,9 @@ class PackageTests(unittest.TestCase):
         framework = app/'Frameworks/App.framework'
         (framework/'flutter_assets').mkdir(parents=True)
         (framework/'flutter_assets/NOTICES.Z').write_bytes(gzip.compress(b'TEST notices'))
+        (framework/'flutter_assets/assets/fonts').mkdir(parents=True)
+        for name,data in self.fonts.items():
+            (framework/'flutter_assets'/name).write_bytes(data)
         (framework/'Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'App'}))
         (framework/'App').write_bytes(b'TEST native')
         with (app/'Info.plist').open('wb') as stream:

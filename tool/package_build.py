@@ -33,6 +33,18 @@ def notice_info(stream):
     return {'bytes':len(notices),'sha256':hashlib.sha256(notices).hexdigest()}
 
 
+def font_notices(root, open_asset):
+    result = {}
+    for name in ('assets/fonts/OFL.txt', 'assets/fonts/Baloo2-OFL.txt'):
+        expected = (root/name).read_bytes()
+        with open_asset(name) as stream:
+            actual = stream.read(len(expected) + 1)
+        if not expected.strip() or actual != expected:
+            raise ValueError('Packaged font notice differs from source: '+name)
+        result[name] = hashlib.sha256(actual).hexdigest()
+    return result
+
+
 def apk_badging(apk):
     sdk = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
     candidates = []
@@ -70,6 +82,7 @@ def package(root, platform, checkout_sha, source_sha):
                 raise ValueError('Expected ARM64 Android APK')
             with archive.open('assets/flutter_assets/NOTICES.Z') as stream:
                 notices = notice_info(stream)
+            fonts = font_notices(root, lambda name: archive.open('assets/flutter_assets/'+name))
             native = {}
             for member in archive.infolist():
                 if re.fullmatch(r'lib/[\w-]+/[\w.+-]+\.so',member.filename):
@@ -106,6 +119,7 @@ def package(root, platform, checkout_sha, source_sha):
             raise ValueError('Bundle link escapes application')
         with (source/'Frameworks/App.framework/flutter_assets/NOTICES.Z').open('rb') as stream:
             notices = notice_info(stream)
+        fonts = font_notices(root, lambda name: (source/'Frameworks/App.framework/flutter_assets'/name).open('rb'))
         native = {}
         for plist in (source/'Frameworks').glob('*.framework/Info.plist'):
             with plist.open('rb') as stream:
@@ -130,7 +144,7 @@ def package(root, platform, checkout_sha, source_sha):
         'releaseReady': False, 'signing': 'android-debug-key' if platform == 'android' else 'unsigned-simulator',
         'checkoutSha': checkout_sha, 'sourceSha': source_sha, 'declaredVersion': version[1],
         'binaryIdentity': binary_identity,
-        'packagedFlutterNotices': notices, 'nativeLibrariesSha256': native,
+        'packagedFlutterNotices': notices, 'fontNoticesSha256': fonts, 'nativeLibrariesSha256': native,
         'pubspecLockSha256': digest(root/'pubspec.lock'),
         'artifact': artifact.name, 'bytes': artifact.stat().st_size, 'sha256': digest(artifact),
     }

@@ -84,6 +84,8 @@ flutter:
   assets:
     - assets/svg/
     - assets/images/
+    - assets/fonts/OFL.txt
+    - assets/fonts/Baloo2-OFL.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:
