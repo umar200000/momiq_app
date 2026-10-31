@@ -135,3 +135,5 @@ Notification settings currently save preferences for future device push. They do
 
 
 Appeal replies may include a server-recorded moderation snapshot at closure. The support thread shows its status, source revision and reason in Uzbek, English and Russian, clearly marked as historical. Author withdrawal of a review remains separate from moderator hiding; incomplete visibility data is never presented as restored content. Internal operator event references are not displayed. Existing messages without a snapshot continue to render normally. Closing a support request does not itself change publication or money.
+
+QA packaging checks the built application identity before publishing its manifest. Android packaging requires a stable SDK Build Tools installation under `ANDROID_HOME` or `ANDROID_SDK_ROOT` and reads the APK application ID, version name/code and minimum/target SDK using aapt. Simulator packaging reads the matching bundle version, build number and minimum OS from Info.plist. Both compare the binary version with pubspec.yaml.
