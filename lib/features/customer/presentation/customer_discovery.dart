@@ -12,6 +12,15 @@ import '../../listings/presentation/care_location_preview.dart';
 import 'customer_widgets.dart';
 import '../../listings/presentation/external_map_picker.dart';
 
+String _dailyRate(int price) {
+  final amount = priceText(price);
+  return lt(
+    '$amount so‘m / hayvon / kun',
+    '$amount UZS per pet per day',
+    '$amount сум за питомца в день',
+  );
+}
+
 class SitterCard extends StatelessWidget {
   const SitterCard({
     super.key,
@@ -35,7 +44,7 @@ class SitterCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  cText(sitter['name'], bold: true, size: 17),
+                  cText(sitter['name'], bold: true, size: 17, translate: false),
                   const SizedBox(height: 6),
                   cRating(customerReviewSummary(store, sitter)),
                   cText(
@@ -48,7 +57,7 @@ class SitterCard extends StatelessWidget {
               ),
             ),
             IconButton(
-              tooltip: 'Saqlash',
+              tooltip: ct('Saqlash'),
               onPressed: store.busy
                   ? null
                   : () => cAction(context, () => store.favorite(sitter['id'])),
@@ -74,11 +83,7 @@ class SitterCard extends StatelessWidget {
         CustomerAvailability(store: store, sitter: sitter),
         if (sitter['testOnly'] == true)
           cText('Test e’lon · MyID tekshiruvi yo‘q', size: 12),
-        cText(
-          '${priceText(sitter['price'])} so‘m / hayvon / kun',
-          size: 18,
-          bold: true,
-        ),
+        cText(_dailyRate(sitter['price']), size: 18, bold: true),
       ],
     ),
     onTap: () async {
@@ -267,7 +272,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
                 setState(() => _filter['distance'] = null);
                 _refresh();
               },
-              child: const Text('Joylashuvsiz Toshkent bo‘yicha qidirish'),
+              child: Text(ct('Joylashuvsiz Toshkent bo‘yicha qidirish')),
             ),
           TextField(
             key: const ValueKey('customerSearch'),
@@ -321,7 +326,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
             icon: const Icon(Icons.date_range),
             label: Text(
               _startsAt == null
-                  ? 'Kelish va ketish sanasini tanlash'
+                  ? ct('Kelish va ketish sanasini tanlash')
                   : '${discoveryTime(_startsAt!)} — ${discoveryTime(_endsAt!)}',
             ),
           ),
@@ -408,7 +413,7 @@ class CatalogMoreButton extends StatelessWidget {
           onPressed: store.feedLoadingMore ? null : store.loadMoreSitters,
           child: store.feedLoadingMore
               ? const CircularProgressIndicator()
-              : const Text('Yana enagalarni ko‘rsatish'),
+              : Text(ct('Yana enagalarni ko‘rsatish')),
         ),
       ],
     );
@@ -443,7 +448,7 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
-      helpText: 'Toshkent vaqti',
+      helpText: ct('Toshkent vaqti'),
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
         child: child!,
@@ -473,9 +478,11 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
         !end!.isAfter(start!) ||
         end!.difference(start!) > const Duration(days: 365)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Kelajakdagi kelish va undan keyingi ketish vaqtini tanlang (365 kungacha).',
+            ct(
+              'Kelajakdagi kelish va undan keyingi ketish vaqtini tanlang (365 kungacha).',
+            ),
           ),
         ),
       );
@@ -494,10 +501,10 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
       for (final first in [true, false])
         ListTile(
           key: ValueKey(first ? 'discoveryStart' : 'discoveryEnd'),
-          title: Text(first ? 'Kelish' : 'Ketish'),
+          title: Text(ct(first ? 'Kelish' : 'Ketish')),
           subtitle: Text(
             (first ? start : end) == null
-                ? 'Sana va vaqtni tanlang'
+                ? ct('Sana va vaqtni tanlang')
                 : discoveryTime((first ? start : end)!),
           ),
           trailing: const Icon(Icons.calendar_month),
@@ -506,7 +513,7 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
       FilledButton(
         key: const ValueKey('applyDiscoveryDates'),
         onPressed: apply,
-        child: const Text('Enagalarni ko‘rsatish'),
+        child: Text(ct('Enagalarni ko‘rsatish')),
       ),
     ],
   );
@@ -583,7 +590,7 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       DropdownButtonFormField<int>(
         key: const ValueKey('filterAnimals'),
         initialValue: _animals,
-        decoration: const InputDecoration(labelText: 'Hayvonlar soni'),
+        decoration: InputDecoration(labelText: ct('Hayvonlar soni')),
         items: [
           for (var i = 1; i <= 30; i++)
             DropdownMenuItem(value: i, child: Text('$i')),
@@ -592,8 +599,8 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       ),
       SwitchListTile(
         key: const ValueKey('filterVerified'),
-        title: const Text('Faqat MyID orqali tekshirilgan enagalar'),
-        subtitle: const Text('TEST tasdiq shaxs tekshiruvi hisoblanmaydi.'),
+        title: Text(ct('Faqat MyID orqali tekshirilgan enagalar')),
+        subtitle: Text(ct('TEST tasdiq shaxs tekshiruvi hisoblanmaydi.')),
         value: _verified,
         onChanged: (value) => setState(() => _verified = value),
       ),
@@ -610,7 +617,11 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       cText(
         _distance == null
             ? lt('Masofa cheklanmagan', 'Any distance', 'Любое расстояние')
-            : 'Masofa: ${_distance!.round()} km',
+            : lt(
+                'Masofa: ${_distance!.round()} km',
+                'Distance: ${_distance!.round()} km',
+                'Расстояние: ${_distance!.round()} км',
+              ),
         bold: true,
       ),
       cText(
@@ -686,11 +697,7 @@ class SitterDetailPage extends StatelessWidget {
       bottom: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          cText(
-            '${priceText(sitter['price'])} so‘m / hayvon / kun',
-            bold: true,
-            size: 18,
-          ),
+          cText(_dailyRate(sitter['price']), bold: true, size: 18),
           cButton(
             sitter['bookingEnabled'] == true && store.api != null
                 ? 'So‘rov yuborish'
@@ -724,7 +731,12 @@ class SitterDetailPage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    cText(sitter['name'], size: 20, bold: true),
+                    cText(
+                      sitter['name'],
+                      size: 20,
+                      bold: true,
+                      translate: false,
+                    ),
                     cRating(customerReviewSummary(store, sitter)),
                     cText(
                       sitter['years'] == null
@@ -733,7 +745,11 @@ class SitterDetailPage extends StatelessWidget {
                               'Experience not specified',
                               'Стаж не указан',
                             )
-                          : '${sitter['years']} yillik tajriba',
+                          : lt(
+                              '${sitter['years']} yillik tajriba',
+                              'Experience in years: ${sitter['years']}',
+                              'Стаж в годах: ${sitter['years']}',
+                            ),
                       size: 13,
                     ),
                     if (sitter['testOnly'] == true)
@@ -750,12 +766,20 @@ class SitterDetailPage extends StatelessWidget {
             children: [
               cText('Men haqimda', bold: true, size: 19),
               const SizedBox(height: 8),
-              cText(sitter['about'] ?? 'Ma’lumot kiritilmagan'),
+              cText(
+                sitter['about'] ?? ct('Ma’lumot kiritilmagan'),
+                translate: false,
+              ),
               cRow(
                 Icons.home_outlined,
                 ct(customerServices[sitter['service']]),
               ),
-              cRow(Icons.pets_outlined, (sitter['pets'] as List).join(' · ')),
+              cRow(
+                Icons.pets_outlined,
+                (sitter['pets'] as List)
+                    .map((pet) => ct(pet as String))
+                    .join(' · '),
+              ),
               CustomerAvailability(store: store, sitter: sitter),
             ],
           ),

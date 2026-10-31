@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:momiq_app/core/localization/app_language.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,6 +48,86 @@ class ReviewedCatalog extends CustomerFeedRepository {
 }
 
 void main() {
+  for (final (
+        language,
+        dateTitle,
+        dateAction,
+        validation,
+        filterAction,
+        verified,
+      )
+      in [
+        (
+          'uz',
+          'Kelish va ketish vaqti',
+          'Enagalarni ko‘rsatish',
+          'Kelajakdagi kelish',
+          'Natijalarni ko‘rsatish',
+          'Faqat MyID orqali tekshirilgan enagalar',
+        ),
+        (
+          'en',
+          'Arrival and departure',
+          'Show sitters',
+          'Choose a future arrival',
+          'Show results',
+          'Only sitters verified through MyID',
+        ),
+        (
+          'ru',
+          'Время начала и окончания',
+          'Показать нянь',
+          'Выберите будущее начало',
+          'Показать результаты',
+          'Только няни с проверкой MyID',
+        ),
+      ]) {
+    testWidgets(
+      '$language catalog date validation and filters fit large text',
+      (t) async {
+        AppLanguage.current.value = language;
+        addTearDown(() => AppLanguage.current.value = 'uz');
+        t.view.physicalSize = const Size(320, 640);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        Widget frame(Widget child) => MaterialApp(
+          builder: (context, body) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: body!,
+          ),
+          home: child,
+        );
+        await t.pumpWidget(frame(const DiscoveryDatesPage()));
+        expect(find.text(dateTitle), findsOneWidget);
+        await t.scrollUntilVisible(
+          find.text(dateAction),
+          180,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await t.tap(find.text(dateAction));
+        await t.pumpAndSettle();
+        expect(find.textContaining(validation), findsOneWidget);
+        await t.pumpWidget(
+          frame(
+            const CustomerFilterPage(
+              initial: {'pet': '', 'min': 0, 'rating': false},
+            ),
+          ),
+        );
+        await t.pumpAndSettle();
+        expect(find.text(filterAction), findsOneWidget);
+        await t.scrollUntilVisible(
+          find.byKey(const ValueKey('filterVerified')),
+          180,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.text(verified), findsOneWidget);
+        expect(t.takeException(), isNull);
+      },
+    );
+  }
   testWidgets(
     'search validates dates, sends zoned endpoints and reset removes date filter',
     (t) async {
