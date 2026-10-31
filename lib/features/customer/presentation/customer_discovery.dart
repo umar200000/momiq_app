@@ -229,7 +229,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
                     widget.store.favorites.contains(s['id'])) &&
                 (_service == null || s['service'] == _service) &&
                 s['name'].toString().toLowerCase().contains(
-                  _search.text.toLowerCase(),
+                  _search.text.trim().toLowerCase(),
                 ) &&
                 (_filter['pet'] == '' ||
                     (s['pets'] as List).contains(_filter['pet'])) &&

@@ -33,6 +33,21 @@ class PagedFeed extends CustomerFeedRepository {
 class DiscoveryApi extends CustomerApi {
   DiscoveryApi() : super('test', 'customer');
   String? path;
+  Map<String, dynamic> response = {
+    'sitters': [
+      {
+        'id': 'abc:boarding',
+        'name': 'Test',
+        'service': 0,
+        'price': 10000,
+        'pets': ['It'],
+        'rating': 0,
+        'reviews': 0,
+        'capacity': 2,
+      },
+    ],
+    'nextCursor': 'next',
+  };
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -40,11 +55,64 @@ class DiscoveryApi extends CustomerApi {
     Map<String, dynamic>? body,
   ]) async {
     this.path = path;
-    return {'sitters': <dynamic>[], 'nextCursor': 'next'};
+    return response;
   }
 }
 
 void main() {
+  test(
+    'invalid second catalog page keeps existing rows and exact retry cursor',
+    () async {
+      final api = DiscoveryApi();
+      CustomerApi.active = api;
+      final store = CustomerStore(
+        feedRepository: const ApiCustomerFeedRepository(),
+      );
+      addTearDown(store.dispose);
+      await store.refreshSitters();
+      final row = Map<String, dynamic>.of(store.sitters.single);
+      for (final item in [
+        {...row, 'service': 2},
+        {...row, 'price': '0'},
+        {
+          ...row,
+          'pets': ['other'],
+        },
+        {
+          ...row,
+          'location': {'lat': 91, 'lon': 69, 'address': 'Test'},
+        },
+        {
+          ...row,
+          'availability': {
+            'schedule': {
+              'days': [true],
+              'start': 540,
+              'end': 600,
+            },
+          },
+        },
+      ]) {
+        api.response = {
+          'sitters': [item],
+          'nextCursor': null,
+        };
+        await store.loadMoreSitters();
+        expect(store.feedMoreError, isNotNull);
+        expect(store.sitters, [row]);
+        expect(store.feedNextCursor, 'next');
+      }
+      api.response = {
+        'sitters': [
+          {...row, 'id': 'def:boarding'},
+        ],
+        'nextCursor': null,
+      };
+      await store.loadMoreSitters();
+      expect(store.sitters, hasLength(2));
+      expect(store.feedNextCursor, isNull);
+    },
+  );
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     CustomerApi.active = null;
