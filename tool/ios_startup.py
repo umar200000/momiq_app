@@ -16,12 +16,12 @@ def sim(*args, timeout=90):
     return subprocess.check_output(['xcrun','simctl',*args],text=True,timeout=timeout).strip()
 
 
-def confirm_screen(device, checker, image):
+def confirm_screen(device, classes, image):
     deadline=time.monotonic()+240
     while time.monotonic()<deadline:
         try:
             sim('io',device,'screenshot',str(image),timeout=75)
-            if subprocess.run([checker,image],timeout=45).returncode==0:
+            if subprocess.run(['java','-Djava.awt.headless=true','-cp',classes,'RoleScreen',image],timeout=45).returncode==0:
                 return
         except subprocess.TimeoutExpired:
             print('Simulator capture or recognition timed out; retrying the same running app',flush=True)
@@ -49,9 +49,9 @@ def verify(bundle):
         raise ValueError('Expected the unsigned QA simulator bundle')
     devices=json.loads(sim('list','devices','available','--json'))['devices']
     phones=[(runtime,phone) for runtime,group in devices.items() if '.iOS-' in runtime
-            for phone in group if phone.get('isAvailable') and phone['name'].startswith('iPhone')]
+            for phone in group if phone.get('isAvailable') and phone['name']=='iPhone 16 Pro']
     if not phones:
-        raise RuntimeError('No available iPhone simulator runtime')
+        raise RuntimeError('No available iPhone 16 Pro for the reviewed role-screen fixture')
     # Prefer an installed iOS 18 runtime on this Intel CI host. Device signing
     # and the full release OS matrix are separate acceptance steps.
     runtime,phone=max(phones,key=lambda item:(item[0].split('.iOS-')[1].startswith('18-'),
@@ -60,8 +60,7 @@ def verify(bundle):
     evidence=Path('ci-artifacts/ios-startup')
     evidence.mkdir(parents=True,exist_ok=False)
     with TemporaryDirectory() as tmp:
-        checker=Path(tmp)/'role-screen'
-        subprocess.run(['xcrun','swiftc','tool/ios_role_screen.swift','-o',checker],check=True,timeout=120)
+        subprocess.run(['javac','-d',tmp,'tool/RoleScreen.java'],check=True,timeout=120)
         device=sim('create','Momiq QA '+secrets.token_hex(5),phone['deviceTypeIdentifier'],runtime)
         if not re.fullmatch('[A-Fa-f0-9-]{36}',device):
             raise RuntimeError('Unexpected simulator identifier')
@@ -72,7 +71,7 @@ def verify(bundle):
             for phase in ('first-launch','cold-restart'):
                 if phase=='cold-restart':sim('terminate',device,'net.momiq.app')
                 sim('launch',device,'net.momiq.app')
-                confirm_screen(device,checker,evidence/(phase+'.png'))
+                confirm_screen(device,tmp,evidence/(phase+'.png'))
             report={'sourceSha':os.environ['MOMIQ_SOURCE_SHA'],'bundleId':'net.momiq.app',
                     'runtime':runtime,'deviceType':phone['deviceTypeIdentifier'],
                     'verified':['first-launch','cold-restart'],'screen':'role-selection'}
