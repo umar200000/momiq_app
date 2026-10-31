@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/foundation.dart';
 import 'core/config/app_environment.dart';
+import 'features/profile/presentation/profile_export_tile.dart' show clearInterruptedProfileExports;
 
 import 'core/theme/app_colors.dart';
 import 'features/splash/presentation/pages/splash_page.dart';
@@ -10,6 +11,7 @@ import 'features/splash/presentation/pages/splash_page.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   AppEnvironment.current.validate(release: kReleaseMode);
+  await clearInterruptedProfileExports();
   await AppLanguage.restore();
   runApp(AppLanguage(child: const Momiq()));
 }

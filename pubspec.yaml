@@ -55,6 +55,7 @@ dependencies:
   cryptography_flutter: 2.3.4
   gal: 2.3.3
   video_player: 2.14.1
+  file_picker: 13.3.0
 
 dev_dependencies:
   flutter_test:

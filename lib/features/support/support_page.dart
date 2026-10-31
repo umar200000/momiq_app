@@ -2,6 +2,7 @@ import 'package:cryptography/cryptography.dart' show Sha256;
 import '../media/presentation/private_api_image.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../profile/presentation/profile_export_tile.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:image_picker/image_picker.dart';
 import '../customer/data/customer_api.dart';
@@ -308,6 +309,7 @@ class _SupportPageState extends State<_BoundSupportPage> {
               onPressed: busy ? null : () => load(more: true),
               child: Text(lt('Yana', 'More', 'Ещё')),
             ),
+          if (api != null) ProfileExportTile(key: ObjectKey(api), api: api!),
           ListTile(
             key: const ValueKey('softwareLicenses'),
             leading: const Icon(Icons.description_outlined),
