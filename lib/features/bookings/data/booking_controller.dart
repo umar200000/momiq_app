@@ -1,3 +1,4 @@
+import 'booking_contract.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -59,6 +60,7 @@ class BookingController extends ChangeNotifier {
       }
       final result = await api.request('GET', '/bookings/$id');
       check();
+      checkBookingIdentity(result, id);
       booking = result;
       ready = true;
     } catch (e) {
@@ -100,6 +102,7 @@ class BookingController extends ChangeNotifier {
         BookingJson.from(pending!['body']),
       );
       check();
+      checkBookingAction(result, id, pending!);
       booking = result;
       await storage.clear();
       check();
@@ -195,6 +198,7 @@ class BookingInboxController extends ChangeNotifier {
         ).toString(),
       );
       if (!current()) return;
+      checkBookingPage(result, more ? cursor : null);
       final merged = <String, BookingJson>{
         if (more)
           for (final item in items) item['id'] as String: item,

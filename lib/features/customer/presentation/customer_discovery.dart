@@ -64,7 +64,7 @@ class SitterCard extends StatelessWidget {
             ),
           ],
         ),
-        CustomerHomePhotos(sitter: sitter),
+        CustomerHomePhotos(sitter: sitter, api: store.api),
         const SizedBox(height: 12),
         cRow(Icons.home_outlined, ct(customerServices[sitter['service']])),
         cRow(
@@ -761,7 +761,7 @@ class SitterDetailPage extends StatelessWidget {
           ),
         ),
         if (sitter['service'] != 1) ...[
-          CustomerHomePhotos(sitter: sitter),
+          CustomerHomePhotos(sitter: sitter, api: store.api),
           const SizedBox(height: 16),
           if (sitter['location'] is Map)
             CareLocationPreview(
@@ -774,6 +774,16 @@ class SitterDetailPage extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         CustomerReviewsSection(store: store, sitter: sitter),
+        if (store.remote && sitter['photo'] is String)
+          PublicContentReportButton(
+            api: store.api,
+            target: {
+              'kind': 'listing',
+              'id': sitter['id'],
+              'media': 'portrait',
+            },
+            publicPhoto: sitter['photo'],
+          ),
         if (store.remote)
           PublicContentReportButton(
             api: store.api,

@@ -98,5 +98,20 @@ SupportData supportThread(
           !const ['report', 'appeal'].contains(target['purpose']))) {
     _invalid();
   }
+  if (target != null) {
+    final snapshot = target['snapshot'];
+    if (snapshot != null && snapshot is! Map) _invalid();
+    final media = snapshot?['media'];
+    if (media != null &&
+        (media is! Map ||
+            media['slot'] is! String ||
+            !RegExp(
+              r'^(portrait|home:(0|[1-9][0-9]?))$',
+            ).hasMatch(media['slot']) ||
+            media['sha256'] is! String ||
+            !RegExp(r'^[a-f0-9]{64}$').hasMatch(media['sha256']))) {
+      _invalid();
+    }
+  }
   return {...data, 'ticket': ticket, 'items': items, 'nextCursor': cursor};
 }

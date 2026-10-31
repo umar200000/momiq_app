@@ -23,8 +23,20 @@ class SupportController extends ChangeNotifier {
     CustomerApi api,
     String? id,
     Map<String, String>? target,
-  ) =>
-      '${api.baseUrl}/support/${id ?? 'new'}${id == null && target != null ? '/${target['kind']}/${Uri.encodeComponent(target['id']!)}${target['purpose'] == 'appeal' ? '/appeal/${target['revision']}' : ''}' : ''}';
+  ) {
+    final base = '${api.baseUrl}/support/${id ?? 'new'}';
+    if (id != null || target == null) return base;
+    final source =
+        '$base/${target['kind']}/${Uri.encodeComponent(target['id']!)}';
+    if (target.containsKey('media')) {
+      return '$source/photo/${target['media']}/${target['sha256']}';
+    }
+    if (target['purpose'] == 'appeal') {
+      return '$source/appeal/${target['revision']}';
+    }
+    return source;
+  }
+
   final Map<String, String>? target;
   final CustomerApi api;
   final String? id;
@@ -91,9 +103,16 @@ class SupportController extends ChangeNotifier {
     String? image, {
     String subject = '',
     String topic = 'general',
+    bool confirmAccountRequest = false,
     String? bookingId,
   }) async {
     if (!live || busy || !_restored || data == null) return false;
+    if (pending == null &&
+        id == null &&
+        topic == 'account_deletion' &&
+        (!confirmAccountRequest || bookingId != null || target != null)) {
+      return false;
+    }
     busy = true;
     error = null;
     changed();
@@ -107,6 +126,8 @@ class SupportController extends ChangeNotifier {
         if (id == null) ...{
           'subject': subject.trim(),
           'topic': topic,
+          if (topic == 'account_deletion')
+            'confirmAccountRequest': confirmAccountRequest,
           'bookingId': bookingId,
           if (target != null) 'target': target,
         },
@@ -120,6 +141,24 @@ class SupportController extends ChangeNotifier {
         id: id,
         minimumRevision: (pending!['revision'] as int) + 1,
       );
+      if (pending!['topic'] == 'account_deletion' &&
+          result['ticket']['topic'] != 'account_deletion') {
+        throw const FormatException('Account request confirmation mismatch');
+      }
+      final original = pending!['target'];
+      if (original is Map && original.containsKey('media')) {
+        final confirmed = result['target'];
+        final media = confirmed?['snapshot']?['media'];
+        if (confirmed?['kind'] != original['kind'] ||
+            confirmed?['id'] != original['id'] ||
+            media is! Map ||
+            media['slot'] != original['media'] ||
+            media['sha256'] != original['sha256']) {
+          throw const FormatException(
+            'Public photo report confirmation mismatch',
+          );
+        }
+      }
       data = result;
       await storage.clear();
       check();

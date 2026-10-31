@@ -1,3 +1,4 @@
+import 'booking_contract.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../customer/data/customer_api.dart';
@@ -53,6 +54,14 @@ class BookingComposer extends ChangeNotifier {
           throw const FormatException('Buyurtma qoralamasi noto‘g‘ri');
         }
       }
+      if (quote != null) {
+        try {
+          checkBookingQuote(quote!, listingId, draft);
+        } on FormatException {
+          quote =
+              null; // Keep the form and any already submitted request for exact retry.
+        }
+      }
       final loadedPolicy = await api.request('GET', '/bookings/policy');
       check();
       policy = loadedPolicy;
@@ -101,10 +110,11 @@ class BookingComposer extends ChangeNotifier {
       await persist();
       check();
       final loadedQuote = await api.request('POST', '/bookings/quotes', {
-        'listingId': listingId,
         ...draft,
+        'listingId': listingId,
       });
       check();
+      checkBookingQuote(loadedQuote, listingId, draft);
       quote = loadedQuote;
       await persist();
       check();
@@ -137,9 +147,10 @@ class BookingComposer extends ChangeNotifier {
       check();
       final response = await api.request('POST', '/bookings', pending);
       check();
-      result = response;
+      checkBookingCreated(response, pending!);
       await storage.clear();
       check();
+      result = response;
       pending = null;
       return true;
     } catch (e) {

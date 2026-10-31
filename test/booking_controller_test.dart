@@ -35,16 +35,22 @@ Map<String, dynamic> fixture() => {
   'myRole': 'sitter',
   'replyDeadline': '2026-10-28T12:00:00Z',
   'snapshot': {
+    'listingId': 'sitter:boarding',
     'sitterName': 'TEST sitter',
     'customerName': 'TEST client',
     'startsAt': '2026-11-01T13:00:00Z',
     'endsAt': '2026-11-02T05:00:00Z',
     'pets': [
-      {'name': 'TEST cat', 'notes': 'care'},
+      {'id': 'owned', 'type': 'Mushuk', 'name': 'TEST cat', 'notes': 'care'},
     ],
     'address': {'address': 'Toshkent'},
     'instructions': '',
     'price': {
+      'service': 'boarding',
+      'rounding': 'nearest_minor_half_up',
+      'rates': [
+        {'animal_id': 'owned', 'daily_minor': 50000000},
+      ],
       'billable_days': 1,
       'service_total_minor': 50000000,
       'commission_bps': 1000,
@@ -52,6 +58,19 @@ Map<String, dynamic> fixture() => {
     },
   },
   'history': [],
+};
+
+BookingJson inboxRow(String id, String status) => {
+  'id': id,
+  'status': status,
+  'peerName': 'TEST sitter',
+  'service': 'boarding',
+  'serviceTotalMinor': 50000000,
+  'startsAt': '2026-11-01T13:00:00Z',
+  'endsAt': '2026-11-02T05:00:00Z',
+  'pets': [
+    {'name': 'TEST cat', 'type': 'Mushuk'},
+  ],
 };
 
 class BookingApiFake extends CustomerApi {
@@ -75,12 +94,31 @@ class BookingApiFake extends CustomerApi {
       charges++;
       booking['revision'] = 1;
       booking['status'] = 'accepted';
+      booking['history'] = [
+        {
+          'action': path.split('/').last,
+          'revision': 1,
+          'created': '2026-11-01T00:00:00Z',
+          'reason': '',
+          'status': 'accepted',
+          'actor': 'TEST',
+        },
+      ];
     }
     if (loseResponse) {
       loseResponse = false;
       throw TimeoutException('response lost');
     }
-    return copy(booking);
+    return {
+      ...copy(booking),
+      'acknowledgement': {
+        'action': path.split('/').last,
+        'eventAction': path.split('/').last,
+        'eventRevision': 1,
+        'requestId': body['requestId'],
+        'bookingId': booking['id'],
+      },
+    };
   }
 }
 
@@ -98,8 +136,8 @@ class BookingListApi extends CustomerApi {
     if (fail) throw TimeoutException('offline');
     return {
       'items': [
-        {'id': 'a', 'status': path.contains('?') ? 'accepted' : 'pending'},
-        if (path.contains('?')) {'id': 'b', 'status': 'pending'},
+        inboxRow('a' * 32, path.contains('?') ? 'accepted' : 'pending'),
+        if (path.contains('?')) inboxRow('b' * 32, 'pending'),
       ],
       'nextCursor': path.contains('?') ? null : '1',
     };
@@ -211,9 +249,7 @@ void main() {
       addTearDown(c.dispose);
       final initial = c.load();
       api.replies[0].complete({
-        'items': [
-          {'id': 'old', 'status': 'pending'},
-        ],
+        'items': [inboxRow('a' * 32, 'pending')],
         'nextCursor': '10',
       });
       await initial;
@@ -233,9 +269,7 @@ void main() {
       final request = Uri.parse(api.requests[2]);
       expect(request.queryParameters, {'bucket': 'history', 'q': 'МомиҚ &_%'});
       api.replies[2].complete({
-        'items': [
-          {'id': 'new', 'status': 'completed'},
-        ],
+        'items': [inboxRow('b' * 32, 'completed')],
         'nextCursor': '5',
       });
       await newest;
@@ -247,7 +281,7 @@ void main() {
       });
       api.replies[3].complete({'items': [], 'nextCursor': null});
       await more;
-      expect(c.items.single['id'], 'new');
+      expect(c.items.single['id'], 'b' * 32);
       expect(c.loading, isFalse);
     },
   );
@@ -279,6 +313,7 @@ void main() {
             'peerName': 'TEST sitter',
             'service': 'boarding',
             'startsAt': '2026-11-01T13:00:00Z',
+            'endsAt': '2026-11-02T05:00:00Z',
             'serviceTotalMinor': 10000000,
             'pets': [
               {'name': 'Momi', 'type': 'Mushuk'},

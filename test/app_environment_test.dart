@@ -30,6 +30,48 @@ void main() {
     ).validate(release: true);
   });
 
+  test(
+    'hosted and local destinations cannot bypass isolation using DNS or IP aliases',
+    () {
+      for (final host in ['api.momiq.net.', 'API.MOMIQ.NET.']) {
+        for (final mode in ['local', 'staging']) {
+          expect(
+            AppEnvironment(mode, 'https://$host/api').validate,
+            throwsStateError,
+          );
+        }
+      }
+      for (final host in [
+        'localhost.',
+        'dev.localhost',
+        '127.0.0.5',
+        '127.1',
+        '2130706433',
+        '0x7f000001',
+        '0.0.0.0',
+        '[::]',
+        '[::ffff:127.0.0.1]',
+        'unconfigured.invalid',
+      ]) {
+        expect(
+          AppEnvironment('staging', 'https://$host/api').validate,
+          throwsStateError,
+        );
+      }
+      expect(
+        const AppEnvironment(
+          'production',
+          'https://api.momiq.net:8443/api',
+        ).validate,
+        throwsStateError,
+      );
+      const AppEnvironment(
+        'staging',
+        'https://stage.example:8443/api',
+      ).validate();
+    },
+  );
+
   test('production refuses test authentication and mismatched servers', () {
     const config = AppEnvironment('production', 'https://api.momiq.net/api');
     expect(

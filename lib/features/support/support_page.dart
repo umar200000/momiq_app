@@ -1,3 +1,4 @@
+import 'package:cryptography/cryptography.dart' show Sha256;
 import '../media/presentation/private_api_image.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -45,7 +46,11 @@ class PublicContentReportButton extends StatefulWidget {
     super.key,
     required this.api,
     required this.target,
+    this.publicPhoto,
+    this.compact = false,
   });
+  final String? publicPhoto;
+  final bool compact;
   final CustomerApi? api;
   final Map<String, String> target;
   @override
@@ -60,25 +65,75 @@ class _PublicContentReportButtonState extends State<PublicContentReportButton> {
       widget.api != null &&
       widget.api!.userId.isNotEmpty &&
       (CustomerApi.active == null || identical(CustomerApi.active, widget.api));
+  bool opening = false;
+
+  Future<void> open() async {
+    if (!live || opening) return;
+    final api = widget.api!, source = Map<String, String>.of(widget.target);
+    final photo = widget.publicPhoto;
+    final target = {...source};
+    if (photo != null) {
+      setState(() => opening = true);
+      try {
+        final digest = await Sha256().hash(base64Decode(photo));
+        target['sha256'] = digest.bytes
+            .map((b) => b.toRadixString(16).padLeft(2, '0'))
+            .join();
+      } on FormatException {
+        if (mounted && live) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(supportError())));
+        }
+        return;
+      } finally {
+        if (mounted) setState(() => opening = false);
+      }
+    }
+    if (!mounted ||
+        !live ||
+        !identical(api, widget.api) ||
+        widget.publicPhoto != photo ||
+        !mapEquals(source, widget.target) ||
+        !(ModalRoute.of(context)?.isCurrent ?? true)) {
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SupportThreadPage(api: api, target: target),
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => TextButton.icon(
-    onPressed: !live
-        ? null
-        : () {
-            if (!live) return;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    SupportThreadPage(api: widget.api!, target: widget.target),
-              ),
-            );
-          },
-    icon: const Icon(Icons.flag_outlined),
-    label: Text(
-      supportTargetLabel(widget.target['kind']!, widget.target['purpose']),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final label = widget.publicPhoto == null
+        ? supportTargetLabel(widget.target['kind']!, widget.target['purpose'])
+        : widget.target['media'] == 'portrait'
+        ? lt(
+            'Profil rasmiga shikoyat',
+            'Report profile photo',
+            'Пожаловаться на фото профиля',
+          )
+        : lt(
+            'Uy rasmiga shikoyat',
+            'Report home photo',
+            'Пожаловаться на фото жилья',
+          );
+    final callback = live && !opening ? open : null;
+    return widget.compact
+        ? IconButton(
+            onPressed: callback,
+            tooltip: label,
+            icon: const Icon(Icons.flag_outlined),
+          )
+        : TextButton.icon(
+            onPressed: callback,
+            icon: const Icon(Icons.flag_outlined),
+            label: Text(label),
+          );
+  }
 }
 
 Widget _supportSessionExpired() => Scaffold(
@@ -280,6 +335,8 @@ class SupportThreadPage extends StatelessWidget {
         target?['id'],
         target?['purpose'],
         target?['revision'],
+        target?['media'],
+        target?['sha256'],
       )),
       api: api,
       id: id,
@@ -314,6 +371,7 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
   final message = TextEditingController(), subject = TextEditingController();
   String? image;
   String topic = 'general';
+  bool confirmAccountRequest = false;
   bool picking = false;
   bool get live =>
       mounted &&
@@ -346,6 +404,7 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
         subject.text = p['subject'] ?? '';
         image = p['image'];
         topic = p['topic'] ?? topic;
+        confirmAccountRequest = p['confirmAccountRequest'] == true;
       });
     }
   }
@@ -407,6 +466,7 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
       image,
       subject: subject.text,
       topic: topic,
+      confirmAccountRequest: confirmAccountRequest,
       bookingId: widget.bookingId,
     );
     if (!mounted || !live || !sent) return;
@@ -465,6 +525,15 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                 '${supportTargetLabel(target['kind'], target['purpose'])} · #${target['id']}',
                 key: const ValueKey('supportTarget'),
               ),
+              if (target['media'] != null ||
+                  target['snapshot']?['media'] != null)
+                Text(
+                  lt(
+                    'Shikoyat tanlangan ommaviy rasmga bog‘langan.',
+                    'This report refers to the selected public photo.',
+                    'Обращение связано с выбранным публичным фото.',
+                  ),
+                ),
               Text(
                 target['purpose'] == 'appeal'
                     ? lt(
@@ -503,6 +572,12 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                       'Баланс / чек',
                     ),
                     'account': lt('Hisob', 'Account', 'Аккаунт'),
+                    if (widget.bookingId == null && c.target == null)
+                      'account_deletion': lt(
+                        'Hisobni o‘chirish so‘rovi',
+                        'Request account deletion',
+                        'Запрос на удаление аккаунта',
+                      ),
                     'safety': lt('Xavfsizlik', 'Safety', 'Безопасность'),
                     if (widget.bookingId != null || topic == 'booking')
                       'booking': lt('Buyurtma', 'Booking', 'Заказ'),
@@ -512,9 +587,44 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                       child: Text(entry.value),
                     ),
                 ],
-                onChanged: enabled ? (v) => setState(() => topic = v!) : null,
+                onChanged: enabled
+                    ? (v) => setState(() {
+                        topic = v!;
+                        confirmAccountRequest = false;
+                        if (topic == 'account_deletion' &&
+                            subject.text.trim().isEmpty) {
+                          subject.text = lt(
+                            'Hisobni o‘chirish so‘rovi',
+                            'Request account deletion',
+                            'Запрос на удаление аккаунта',
+                          );
+                        }
+                      })
+                    : null,
               ),
             ],
+            if (widget.id == null && topic == 'account_deletion')
+              CheckboxListTile(
+                key: const ValueKey('confirmAccountRequest'),
+                value: confirmAccountRequest,
+                onChanged: enabled
+                    ? (v) => setState(() => confirmAccountRequest = v == true)
+                    : null,
+                title: Text(
+                  lt(
+                    'Hisobimni o‘chirish bo‘yicha murojaat yuborishni tasdiqlayman.',
+                    'I confirm that I want to request account deletion.',
+                    'Подтверждаю отправку запроса на удаление моего аккаунта.',
+                  ),
+                ),
+                subtitle: Text(
+                  lt(
+                    'Yordam xizmati so‘rovingizni ko‘rib chiqadi. Shu vaqt davomida hisobingiz faol qoladi.',
+                    'Support will review your request. Your account stays active during review.',
+                    'Поддержка рассмотрит запрос. Во время рассмотрения аккаунт останется активным.',
+                  ),
+                ),
+              ),
             if ((c.pending?['bookingId'] ??
                     widget.bookingId ??
                     ticket?['bookingId']) !=
@@ -603,7 +713,10 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                   c.live &&
                       !c.busy &&
                       !picking &&
-                      (enabled || c.pending != null)
+                      (enabled || c.pending != null) &&
+                      (widget.id != null ||
+                          topic != 'account_deletion' ||
+                          confirmAccountRequest)
                   ? send
                   : null,
               child: Text(

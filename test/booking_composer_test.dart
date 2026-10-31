@@ -31,11 +31,28 @@ class ComposerApi extends CustomerApi {
       quotedBody = jsonDecode(jsonEncode(body));
       if (failQuote) throw CustomerApiException('Quote failed', 409);
       final snapshot = Map<String, dynamic>.from(fixture()['snapshot']);
+      snapshot.addAll({
+        'listingId': body!['listingId'],
+        'startsAt': body['startsAt'],
+        'endsAt': body['endsAt'],
+        'customerPaysSitterDirectly': true,
+        'datePolicy': 'elapsed-24h-v1',
+        'instructions': body['instructions'],
+      });
+      snapshot['price'] = <String, dynamic>{
+        ...snapshot['price'],
+        'service': 'boarding',
+        'rates': [
+          {'animal_id': 'owned', 'daily_minor': 50000000},
+        ],
+        'rounding': 'nearest_minor_half_up',
+      };
       snapshot['pets'] = [
-        {'id': 'owned', 'name': 'TEST cat'},
+        {'id': 'owned', 'name': 'TEST cat', 'type': 'Mushuk'},
       ];
       return {
-        'id': 'quote-$quoteCount',
+        'id': quoteCount.toRadixString(16).padLeft(32, '0'),
+        'created': '2029-12-31T23:50:00Z',
         'snapshot': snapshot,
         'expiresAt': '2030-01-01T00:00:00Z',
       };
@@ -47,7 +64,16 @@ class ComposerApi extends CustomerApi {
         loseResponse = false;
         throw TimeoutException('lost');
       }
-      return fixture();
+      final booking = fixture();
+      return {
+        ...booking,
+        'myRole': 'customer',
+        'acknowledgement': {
+          'action': 'request',
+          'bookingId': booking['id'],
+          ...body,
+        },
+      };
     }
     if (path == '/messages') return {'messages': []};
     if (path == '/me') {

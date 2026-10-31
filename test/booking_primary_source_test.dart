@@ -9,7 +9,7 @@ import 'package:momiq_app/features/bookings/data/booking_controller.dart';
 import 'package:momiq_app/features/bookings/presentation/bookings_page.dart';
 import 'package:momiq_app/features/bookings/presentation/booking_request_page.dart';
 import 'booking_controller_test.dart'
-    show BookingMemory, BookingApiFake, fixture;
+    show BookingMemory, BookingApiFake, fixture, inboxRow;
 
 class SourceApi extends CustomerApi {
   SourceApi(this.label) : super('TEST', 'owner');
@@ -29,11 +29,22 @@ class SourceApi extends CustomerApi {
     if (path == '/bookings/policy') {
       return {'version': 'elapsed-24h-v1', 'source': label};
     }
-    if (path == '/bookings' && method == 'POST') return fixture();
+    if (path == '/bookings' && method == 'POST') {
+      final booking = fixture();
+      return {
+        ...booking,
+        'myRole': 'customer',
+        'acknowledgement': {
+          'action': 'request',
+          'bookingId': booking['id'],
+          ...body!,
+        },
+      };
+    }
     if (path == '/bookings' || path.contains('/conversations/')) {
       return {
         'items': [
-          {'id': 'a' * 32, 'status': 'pending', 'peerName': label},
+          {...inboxRow('a' * 32, 'pending'), 'peerName': label},
         ],
         'nextCursor': null,
       };
