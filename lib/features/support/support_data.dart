@@ -124,8 +124,9 @@ SupportData supportThread(
         appeal['bookingId'] != ticket['bookingId'] ||
         !_number(appeal['eventId']) ||
         appeal['revision'] is! int ||
-        appeal['revision'] < 1)
+        appeal['revision'] < 1) {
       _invalid();
+    }
   }
   if (video != null &&
       (target != null ||

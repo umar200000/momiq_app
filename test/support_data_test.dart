@@ -40,12 +40,13 @@ void main() {
       await c.load();
       var revision = 3;
       api.transform = (method, _, result) {
-        if (method == 'POST')
+        if (method == 'POST') {
           result['disputeAppeal'] = {
             'eventId': '42',
             'bookingId': booking,
             'revision': revision,
           };
+        }
         return result;
       };
       expect(
