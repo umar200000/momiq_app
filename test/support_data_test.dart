@@ -144,6 +144,10 @@ void main() {
         'nextCursor': null,
       };
       expect(supportList(valid)['items'], [row]);
+      expect(
+        () => supportList({...valid}..remove('nextCursor')),
+        throwsFormatException,
+      );
       for (final bad in [
         {
           ...valid,
@@ -208,6 +212,10 @@ void main() {
         'nextCursor': null,
       };
       expect(supportThread(valid, id: 'a' * 32)['items'].length, 2);
+      expect(
+        () => supportThread({...valid}..remove('nextCursor')),
+        throwsFormatException,
+      );
       expect(() => supportThread(valid, id: 'b' * 32), throwsFormatException);
       expect(
         () => supportThread(valid, minimumRevision: 1),

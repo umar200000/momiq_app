@@ -90,13 +90,31 @@ void main() {
       }),
       throwsStateError,
     );
-    config.validateHealth({
+    final health = {
       'ok': true,
       'mode': 'production',
       'testLogin': false,
       'sms': true,
       'mobileFeatures': AppEnvironment.requiredMobileFeatures.toList(),
-    });
+    };
+    config.validateHealth(health);
+    expect(
+      () => config.validateHealth(health, forLogin: true),
+      throwsStateError,
+    );
+    for (final value in [false, 'true', null]) {
+      expect(
+        () => config.validateHealth({
+          ...health,
+          'clientLoginEnabled': value,
+        }, forLogin: true),
+        throwsStateError,
+      );
+    }
+    config.validateHealth({
+      ...health,
+      'clientLoginEnabled': true,
+    }, forLogin: true);
   });
 
   test('hosted builds cannot fall back to API-disabled preview behavior', () {

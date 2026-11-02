@@ -257,10 +257,10 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
           ),
         ],
         children: [
-          cText('Hudud: Toshkent', bold: true),
+          cText('Hudud: Toshkent shahri va Toshkent viloyati', bold: true),
           cText(
             widget.store.feedLocation == null
-                ? 'Joylashuvsiz Toshkent bo‘yicha qidiruv. Masofa hisoblanmaydi.'
+                ? 'Joylashuvsiz Toshkent shahri va viloyati bo‘yicha qidiruv. Masofa hisoblanmaydi.'
                 : 'Yaqin enagalar avval. Masofa taxminiy, to‘g‘ri chiziq bo‘yicha; yo‘l uzunligi emas.',
             size: 12,
           ),
@@ -272,7 +272,9 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
                 setState(() => _filter['distance'] = null);
                 _refresh();
               },
-              child: Text(ct('Joylashuvsiz Toshkent bo‘yicha qidirish')),
+              child: Text(
+                ct('Toshkent shahri va viloyatida joylashuvsiz qidirish'),
+              ),
             ),
           TextField(
             key: const ValueKey('customerSearch'),
@@ -626,8 +628,8 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
       ),
       cText(
         widget.hasLocation
-            ? 'Bu faqat qidiruv filtri. Toshkent ichida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.'
-            : 'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Toshkent bo‘yicha qidiruv ochiq.',
+            ? 'Bu faqat qidiruv filtri. Toshkent shahri va viloyatida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.'
+            : 'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Shahar va viloyat bo‘yicha qidiruv ochiq.',
         size: 12,
       ),
       Slider(

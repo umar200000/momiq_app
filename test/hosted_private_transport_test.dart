@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/core/config/app_environment.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'login_session_races_test.dart'
-    show LoginClient, LoginHarness, LoginHeaders, LoginRequest;
+    show DelayedVault, LoginClient, LoginHarness, LoginHeaders, LoginRequest;
 
 class ProbeHeaders extends LoginHeaders {
   final values = <String, String>{};
@@ -53,6 +55,29 @@ class Probe extends LoginHarness {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  test('closed hosted login stops before sending phone and OTP', () async {
+    if (AppEnvironment.current.name == 'local') return;
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStoragePlatform.instance = DelayedVault();
+    final probe = Probe()
+      ..healthy = true
+      ..compatible = true;
+    final requests = <ProbeRequest>[];
+    await HttpOverrides.runZoned(() async {
+      await expectLater(
+        CustomerApi.login('998000000000', 'TEST'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'reason',
+            contains('kirish vaqtincha yopiq'),
+          ),
+        ),
+      );
+      expect(requests.map((request) => request.path), ['/api/health']);
+    }, createHttpClient: (_) => ProbeClient(probe, requests));
+  });
   test(
     'a private session verifies its hosted API anonymously before sending a token',
     () async {

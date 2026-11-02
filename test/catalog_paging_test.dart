@@ -276,7 +276,7 @@ void main() {
       );
       expect(slider.onChanged, isNull);
       expect(
-        find.textContaining('Toshkent bo‘yicha qidiruv ochiq'),
+        find.textContaining('Shahar va viloyat bo‘yicha qidiruv ochiq'),
         findsOneWidget,
       );
     },

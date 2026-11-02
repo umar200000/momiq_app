@@ -194,6 +194,7 @@ class CustomerApi {
       AppEnvironment.current.validate();
       AppEnvironment.current.validateHealth(
         await anonymous.request('GET', '/health'),
+        forLogin: true,
       );
       check();
       final data = await anonymous.request('POST', '/auth/login', {
@@ -392,10 +393,14 @@ class CustomerApi {
     bool ownsSession() =>
         version == sessionVersion && identical(active, current);
     if (!ownsSession()) throw StateError('Sessiya o‘zgargan');
-    if (allDevices && current != null) {
+    if (allDevices) {
+      if (current == null) throw StateError('Qayta kiring');
       // An offline request must not claim that other devices were signed out.
-      await current.request('POST', '/auth/logout-all', {});
+      final receipt = await current.request('POST', '/auth/logout-all', {});
       if (!ownsSession()) throw StateError('Sessiya o‘zgargan');
+      if (receipt['ok'] != true) {
+        throw const FormatException('Invalid logout acknowledgement');
+      }
       await clearLocal();
       return;
     }

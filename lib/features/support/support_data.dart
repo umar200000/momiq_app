@@ -26,6 +26,7 @@ SupportData _ticket(Object? value) {
 }
 
 String? _cursor(SupportData data, String? before) {
+  if (!data.containsKey('nextCursor')) _invalid();
   final value = data['nextCursor'];
   if (value != null &&
       (!_number(value) ||

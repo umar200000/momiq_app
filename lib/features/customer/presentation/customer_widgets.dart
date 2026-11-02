@@ -45,19 +45,22 @@ const _words = <String, List<String>>{
   'Bekor qilish': ['Cancel', 'Отменить'],
   'Ortga': ['Back', 'Назад'],
   'Filtrlar': ['Filters', 'Фильтры'],
-  'Hudud: Toshkent': ['Area: Tashkent', 'Город: Ташкент'],
+  'Hudud: Toshkent shahri va Toshkent viloyati': [
+    'Area: Tashkent city and Tashkent region',
+    'Территория: Ташкент и Ташкентская область',
+  ],
   'Masofa aniqlanmagan': ['Distance unavailable', 'Расстояние неизвестно'],
-  'Joylashuvsiz Toshkent bo‘yicha qidiruv. Masofa hisoblanmaydi.': [
-    'Searching all of Tashkent without a location. Distances are unavailable.',
-    'Поиск по всему Ташкенту без геолокации. Расстояния недоступны.',
+  'Joylashuvsiz Toshkent shahri va viloyati bo‘yicha qidiruv. Masofa hisoblanmaydi.': [
+    'Searching Tashkent city and region without a location. Distances are unavailable.',
+    'Поиск по Ташкенту и Ташкентской области без геолокации. Расстояния недоступны.',
   ],
   'Yaqin enagalar avval. Masofa taxminiy, to‘g‘ri chiziq bo‘yicha; yo‘l uzunligi emas.': [
     'Nearby sitters appear first. Distances are approximate and measured in a straight line.',
     'Сначала показаны няни поблизости. Расстояние приблизительное, по прямой.',
   ],
-  'Joylashuvsiz Toshkent bo‘yicha qidirish': [
-    'Search Tashkent without my location',
-    'Искать по Ташкенту без геолокации',
+  'Toshkent shahri va viloyatida joylashuvsiz qidirish': [
+    'Search Tashkent city and region without my location',
+    'Искать по Ташкенту и области без геолокации',
   ],
   'Kelish va ketish sanasini tanlash': [
     'Choose arrival and departure dates',
@@ -105,13 +108,13 @@ const _words = <String, List<String>>{
   ],
   'Minimal narx (so‘m)': ['Minimum price (UZS)', 'Минимальная цена (сум)'],
   'Maksimal narx (so‘m)': ['Maximum price (UZS)', 'Максимальная цена (сум)'],
-  'Bu faqat qidiruv filtri. Toshkent ichida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.': [
-    'This filters search results. Sitters can travel anywhere in Tashkent. Listings without a known distance stay visible.',
-    'Фильтр влияет на поиск. Няни могут выезжать по всему Ташкенту. Объявления без расстояния остаются в выдаче.',
+  'Bu faqat qidiruv filtri. Toshkent shahri va viloyatida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.': [
+    'This filters search results. Sitters can travel throughout Tashkent city and Tashkent region. Listings without a known distance stay visible.',
+    'Фильтр влияет на поиск. Няни могут выезжать по Ташкенту и Ташкентской области. Объявления без расстояния остаются в выдаче.',
   ],
-  'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Toshkent bo‘yicha qidiruv ochiq.': [
-    'Enable location on the home screen to filter by distance. You can search all of Tashkent now.',
-    'Чтобы искать по расстоянию, включите геолокацию на главном экране. Поиск по всему Ташкенту уже доступен.',
+  'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Shahar va viloyat bo‘yicha qidiruv ochiq.': [
+    'Enable location on the home screen to filter by distance. You can search Tashkent city and region now.',
+    'Чтобы искать по расстоянию, включите геолокацию на главном экране. Поиск по Ташкенту и области уже доступен.',
   ],
   'Reyting 4.8 va yuqori': ['Rating of 4.8 or higher', 'Оценка 4,8 и выше'],
   'Tozalash': ['Clear', 'Сбросить'],

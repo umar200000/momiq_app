@@ -13,7 +13,12 @@ import 'package:momiq_app/features/onboarding/presentation/pages/sitter_registra
 import 'package:momiq_app/features/role_selection/presentation/pages/role_selection_page.dart';
 
 class SessionApi extends CustomerApi {
-  SessionApi(this.account, {this.error}) : super('token', 'account-id');
+  SessionApi(
+    this.account, {
+    this.error,
+    this.logoutReceipt = const {'ok': true},
+  }) : super('token', 'account-id');
+  final Map<String, dynamic> logoutReceipt;
   final Map<String, dynamic> account;
   final CustomerApiException? error;
   bool revoked = false;
@@ -25,6 +30,7 @@ class SessionApi extends CustomerApi {
   ]) async {
     if (path == '/auth/logout' || path == '/auth/logout-all') revoked = true;
     if (error != null) throw error!;
+    if (revoked) return logoutReceipt;
     return {'account': account};
   }
 }
@@ -164,6 +170,19 @@ void main() {
         throwsA(isA<CustomerApiException>()),
       );
       expect(CustomerApi.active, same(api));
+      for (final invalid in <Map<String, dynamic>>[
+        {},
+        {'ok': false},
+        {'ok': 'true'},
+      ]) {
+        final session = SessionApi(customer, logoutReceipt: invalid);
+        CustomerApi.active = session;
+        await expectLater(
+          CustomerApi.logout(allDevices: true),
+          throwsFormatException,
+        );
+        expect(CustomerApi.active, same(session));
+      }
       CustomerApi.active = SessionApi(customer);
       await CustomerApi.logout(allDevices: true);
       expect(CustomerApi.active, isNull);

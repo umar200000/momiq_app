@@ -89,13 +89,16 @@ class AppEnvironment {
     return false;
   }
 
-  void validateHealth(Map<String, dynamic> health) {
+  void validateHealth(Map<String, dynamic> health, {bool forLogin = false}) {
     if (health['mode'] != name || (name != 'local' && health['ok'] != true)) {
       throw StateError('Ilova va server muhiti mos emas.');
     }
     if (name == 'production' &&
         (health['testLogin'] != false || health['sms'] != true)) {
       throw StateError('Production kirish xizmati hali tayyor emas.');
+    }
+    if (forLogin && name != 'local' && health['clientLoginEnabled'] != true) {
+      throw StateError('Serverda hisobga kirish vaqtincha yopiq.');
     }
     final features = health['mobileFeatures'];
     if (name != 'local' &&
