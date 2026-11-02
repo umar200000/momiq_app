@@ -836,11 +836,17 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
           children: [
             if (widget.store.syncError != null)
               MaterialBanner(
-                content: Text(widget.store.syncError!),
+                content: Text(
+                  lt(
+                    'Xabarlarni yangilab bo‘lmadi.',
+                    'Could not refresh messages.',
+                    'Не удалось обновить сообщения.',
+                  ),
+                ),
                 actions: [
                   TextButton(
                     onPressed: widget.store.refreshRemote,
-                    child: const Text('Qayta urinish'),
+                    child: Text(ct('Qayta urinish')),
                   ),
                 ],
               ),

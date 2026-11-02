@@ -50,6 +50,22 @@ void main() {
     await t.pumpAndSettle();
   }
 
+  for (final (language, message, retry) in [
+    ('uz', 'Xabarlarni yangilab bo‘lmadi.', 'Qayta urinish'),
+    ('en', 'Could not refresh messages.', 'Retry'),
+    ('ru', 'Не удалось обновить сообщения.', 'Повторить'),
+  ]) {
+    testWidgets('customer chat localizes sync errors in $language', (t) async {
+      final s = await store();
+      s.syncError = 'INTERNAL_TEST_DETAIL';
+      AppLanguage.current.value = language;
+      await open(t, CustomerChatPage(store: s, sitter: customerSitters.first));
+      expect(find.text(message), findsOneWidget);
+      expect(find.widgetWithText(TextButton, retry), findsOneWidget);
+      expect(find.text('INTERNAL_TEST_DETAIL'), findsNothing);
+    });
+  }
+
   for (final remove in [false, true]) {
     testWidgets(
       'optional customer registration photo persists, remove=$remove',

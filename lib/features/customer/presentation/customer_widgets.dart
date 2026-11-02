@@ -30,6 +30,7 @@ String ct(String text) {
 }
 
 const _words = <String, List<String>>{
+  'Qayta urinish': ['Retry', 'Повторить'],
   'Bosh sahifa': ['Home', 'Главная'],
   'Buyurtmalar': ['Bookings', 'Заказы'],
   'Chatlar': ['Chats', 'Чаты'],
