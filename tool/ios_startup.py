@@ -47,7 +47,9 @@ def verify(bundle):
         info=plistlib.load(stream)
     if info['CFBundleIdentifier']!='net.momiq.app' or info['CFBundleSupportedPlatforms']!=['iPhoneSimulator']:
         raise ValueError('Expected the unsigned QA simulator bundle')
-    devices=json.loads(sim('list','devices','available','--json'))['devices']
+    # Cold CoreSimulator discovery can take several minutes on a fresh CI host.
+    print('Waiting for the installed simulator devices',flush=True)
+    devices=json.loads(sim('list','devices','available','--json',timeout=300))['devices']
     phones=[(runtime,phone) for runtime,group in devices.items() if '.iOS-' in runtime
             for phone in group if phone.get('isAvailable') and phone['name']=='iPhone 16 Pro']
     if not phones:
