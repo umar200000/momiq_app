@@ -3,8 +3,88 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/auth/presentation/pages/phone_page.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
+import 'package:momiq_app/core/localization/app_language.dart';
 
 void main() {
+  for (final (language, network, denied) in [
+    (
+      'uz',
+      'Backendga ulanib bo‘lmadi. Internet ulanishini tekshiring.',
+      'Telefon raqami yoki kod noto‘g‘ri.',
+    ),
+    (
+      'en',
+      'Could not reach Momiq. Check your internet connection.',
+      'Incorrect phone number or code.',
+    ),
+    (
+      'ru',
+      'Не удалось подключиться к Momiq. Проверьте подключение к интернету.',
+      'Неверный номер телефона или код.',
+    ),
+  ]) {
+    testWidgets(
+      '$language sign-in distinguishes a network error from an incorrect code',
+      (tester) async {
+        AppLanguage.current.value = language;
+        addTearDown(() => AppLanguage.current.value = 'uz');
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        var calls = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(2)),
+              child: child!,
+            ),
+            home: OtpPage(
+              phone: '998000000000',
+              authenticate: (_, _, _) async {
+                calls++;
+                if (calls == 1) {
+                  throw CustomerApiException(
+                    'Backendga ulanib bo‘lmadi. Internet ulanishini tekshiring.',
+                  );
+                }
+                throw CustomerApiException('internal diagnostic', 401);
+              },
+            ),
+          ),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('otpInput')),
+          '111111',
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.ensureVisible(find.text(network));
+        expect(
+          tester
+              .widgetList<Semantics>(
+                find.ancestor(
+                  of: find.text(network),
+                  matching: find.byType(Semantics),
+                ),
+              )
+              .any((widget) => widget.properties.liveRegion == true),
+          isTrue,
+        );
+        final button = find.byKey(const ValueKey('verifyOtp'));
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+        await tester.pump();
+        expect(find.text(denied), findsOneWidget);
+        expect(calls, 2);
+        expect(find.textContaining('internal diagnostic'), findsNothing);
+
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
   for (final replaceIdentity in [false, true]) {
     testWidgets(
       'verified OTP timer ignores replacement session, identity=$replaceIdentity',
@@ -110,7 +190,11 @@ void main() {
         await tester.pump();
         await tester.pump();
         expect(find.byType(CircularProgressIndicator), findsNothing);
-        expect(find.textContaining('Server unavailable'), findsOneWidget);
+        expect(
+          find.text('Kirishni tasdiqlab bo‘lmadi. Qayta urinib ko‘ring.'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Server unavailable'), findsNothing);
         expect(
           tester
               .widget<TextField>(find.byKey(const ValueKey('otpInput')))
