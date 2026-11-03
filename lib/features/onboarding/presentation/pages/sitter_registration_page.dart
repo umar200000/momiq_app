@@ -46,7 +46,8 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
     if (!_live) throw StateError('Sessiya o‘zgargan');
   }
 
-  late final Future<Map<String, dynamic>?> _initialAccount;
+  late Future<Map<String, dynamic>?> _initialAccount;
+  bool _accountLoadFailed = false;
 
   Future<Map<String, dynamic>?> _loadAccount() async {
     try {
@@ -85,9 +86,15 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
       _account = account;
       return account;
     } catch (_) {
-      // Saving requires a loaded snapshot; never refetch and overwrite a stale form.
+      if (_live) setState(() => _accountLoadFailed = true);
       return null;
     }
+  }
+
+  void _retryAccount() {
+    if (!_live || !_accountLoadFailed || _submitting) return;
+    setState(() => _accountLoadFailed = false);
+    _initialAccount = _loadAccount();
   }
 
   @override
@@ -244,9 +251,7 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
         throw StateError('Hisobingizga qayta kiring');
       }
       if (api != null) {
-        if (initial == null) {
-          throw StateError('Profil yuklanmagan. Sahifani qayta oching.');
-        }
+        if (initial == null) return; // The profile retry is shown on the form.
         final account = Map<String, dynamic>.from(initial);
         account['profile'] = {
           'first': _first.text.trim(),
@@ -385,6 +390,23 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
                 style: profileText(28, bold: true),
               ),
               const SizedBox(height: 24),
+              if (_accountLoadFailed) ...[
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    lt(
+                      'Profil yuklanmadi. Kiritgan ma’lumotlaringiz shu sahifada saqlanib turibdi.',
+                      'Could not load your profile. Your entries are still on this page.',
+                      'Не удалось загрузить профиль. Введённые данные остались на этой странице.',
+                    ),
+                  ),
+                ),
+                TextButton(
+                  key: const ValueKey('retrySitterProfile'),
+                  onPressed: _retryAccount,
+                  child: Text(lt('Qayta urinish', 'Retry', 'Повторить')),
+                ),
+              ],
               _section(
                 0,
                 Center(
@@ -761,7 +783,9 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
                 key: const ValueKey('registerSubmit'),
                 loading: _submitting,
                 label: context.tr('Ro‘yxatdan o‘tish'),
-                onPressed: _picking || _submitting ? null : _submit,
+                onPressed: _picking || _submitting || _accountLoadFailed
+                    ? null
+                    : _submit,
               ),
             ],
           ),

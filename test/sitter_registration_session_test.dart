@@ -13,7 +13,7 @@ class RegistrationApi extends CustomerApi {
   RegistrationApi(String user) : super('test-$user', user);
   Completer<void>? readGate, writeGate;
   int profileWrites = 0, listingWrites = 0;
-  bool failHousing = false;
+  bool failHousing = false, failProfileRead = false;
   Map<String, dynamic>? received;
   Map<String, dynamic> account = {
     '_revision': 8,
@@ -48,7 +48,10 @@ class RegistrationApi extends CustomerApi {
       }
       return {'housing': 'apartment', 'listings': [], '_revision': 0};
     }
-    if (method == 'GET') await readGate?.future;
+    if (method == 'GET') {
+      await readGate?.future;
+      if (failProfileRead) throw CustomerApiException('TEST offline', 503);
+    }
     if (method == 'PUT') {
       profileWrites++;
       received = body;
@@ -84,6 +87,28 @@ void main() {
     await tester.tap(button);
     await tester.pump();
   }
+
+  testWidgets('retry loads the saved revision and preserves typed fields', (
+    tester,
+  ) async {
+    final api = RegistrationApi('same')..failProfileRead = true;
+    await open(tester, api);
+    final retry = find.byKey(const ValueKey('retrySitterProfile'));
+    final first = find.byKey(const ValueKey('sitterFirst'));
+    expect(retry, findsOneWidget);
+    await tester.enterText(first, 'Draft');
+    api.failProfileRead = false;
+    await tester.ensureVisible(retry);
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(retry, findsNothing);
+    expect(tester.widget<TextFormField>(first).controller!.text, 'Draft');
+    expect(api.profileWrites, 0);
+    await submit(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(api.received!['_revision'], 8);
+    expect(api.received!['profile']['first'], 'Draft');
+  });
 
   for (final dispose in [false, true]) {
     testWidgets('late registration load is ignored, dispose=$dispose', (
