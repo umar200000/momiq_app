@@ -186,11 +186,8 @@ class CustomerStore extends ChangeNotifier {
         ..clear()
         ..addAll(result.sitters);
     } catch (_) {
-      if (!_disposed &&
-          version == _feedVersion &&
-          _sessionVersion == CustomerApi.sessionVersion) {
-        feedError = 'catalog_unavailable';
-      }
+      if (!_current || version != _feedVersion) return;
+      feedError = 'catalog_unavailable';
       rethrow;
     } finally {
       if (!_disposed &&

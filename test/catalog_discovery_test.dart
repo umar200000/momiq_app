@@ -263,6 +263,22 @@ void main() {
   );
 
   test(
+    'a superseded catalog failure does not report the latest search as failed',
+    () async {
+      final oldPage = Completer<List<CJson>>();
+      final store = CustomerStore(
+        feedRepository: QueuedCatalog([oldPage.future, Future.value([])]),
+      );
+      addTearDown(store.dispose);
+      final pending = store.refreshSitters();
+      await store.refreshSitters();
+      oldPage.completeError(StateError('old search failed'));
+      await pending;
+      expect(store.feedError, isNull);
+      expect(store.sitters, isEmpty);
+    },
+  );
+  test(
     'a late old response does not resurrect an ineligible listing',
     () async {
       final first = Completer<List<CJson>>();

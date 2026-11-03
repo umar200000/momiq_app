@@ -1,4 +1,4 @@
-import 'customer_store.dart' show CustomerPetSession;
+import 'customer_store.dart' show CustomerPetSession, customerSitters;
 import '../../listings/data/listing_store.dart';
 import 'package:flutter/painting.dart';
 import 'package:path_provider/path_provider.dart';
@@ -108,6 +108,7 @@ class CustomerApi {
       check();
       // Same person, token and wallet drafts; invalidate outgoing page stores.
       sessionVersion++;
+      customerSitters.clear();
       ListingStore.instance.resetSession();
     });
     return account;
@@ -238,6 +239,7 @@ class CustomerApi {
         checkOriginal();
         claimedVersion = ++sessionVersion;
         active = null;
+        customerSitters.clear();
         CustomerPetSession.current.clear();
         ListingStore.instance.resetSession();
         PaintingBinding.instance.imageCache.clear();
@@ -362,6 +364,7 @@ class CustomerApi {
   static Future<void> _clearLocal() async {
     sessionVersion++;
     active = null;
+    customerSitters.clear();
     CustomerPetSession.current.clear();
     ListingStore.instance.resetSession();
     PaintingBinding.instance.imageCache.clear();

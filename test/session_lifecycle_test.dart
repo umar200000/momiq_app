@@ -148,11 +148,16 @@ void main() {
           'type': 'Mushuk',
           'photo': 'image',
         });
+        customerSitters.add({'id': 'old-search:boarding', 'distance': 1.2});
         final store = CustomerStore();
         await CustomerApi.logout();
         expect(api.revoked, isTrue);
         expect(CustomerApi.active, isNull);
         expect(CustomerPetSession.current.pets, isEmpty);
+        final nextStore = CustomerStore();
+        addTearDown(nextStore.dispose);
+        expect(nextStore.sitters, isEmpty);
+        expect(customerSitter('old-search:boarding')['unavailable'], isTrue);
         expect((await SharedPreferences.getInstance()).getKeys(), {'language'});
         expect(await restoreDestination(), isA<RoleSelectionPage>());
         await expectLater(store.update((_) {}), throwsStateError);
