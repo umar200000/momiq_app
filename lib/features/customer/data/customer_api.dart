@@ -1,5 +1,6 @@
 import 'customer_store.dart' show CustomerPetSession, customerSitters;
 import '../../listings/data/listing_store.dart';
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/painting.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
@@ -34,7 +35,10 @@ class CustomerApi {
       !Platform.environment.containsKey('FLUTTER_TEST') &&
       const bool.fromEnvironment('MOMIQ_API_ENABLED', defaultValue: true);
   static CustomerApi? active;
-  static int sessionVersion = 0;
+  static final _sessionVersion = ValueNotifier<int>(0);
+  static ValueListenable<int> get sessionChanges => _sessionVersion;
+  static int get sessionVersion => _sessionVersion.value;
+  static set sessionVersion(int value) => _sessionVersion.value = value;
   // Credentials/cache cleanup cannot race a still-running platform write.
   static Future<void>? _storageWrites;
   static Future<T> _sessionStorage<T>(Future<T> Function() action) {
@@ -76,9 +80,12 @@ class CustomerApi {
   static Future<Map<String, dynamic>> _switchRole({
     required bool customer,
   }) async {
-    final api = await restore();
-    if (api == null) throw CustomerApiException('Qayta kiring', 401);
     final version = sessionVersion;
+    final api = await restore();
+    if (version != sessionVersion || !identical(active, api)) {
+      throw StateError('Sessiya o‘zgargan');
+    }
+    if (api == null) throw CustomerApiException('Qayta kiring', 401);
     final role = customer ? 'customer' : 'sitter';
     final response = await api.request('POST', '/me/role', {'role': role});
     if (!identical(active, api) || version != sessionVersion) {

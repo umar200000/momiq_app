@@ -218,14 +218,14 @@ void main() {
         await show('a' * 32);
         await t.pumpAndSettle();
         CustomerApi.sessionVersion++;
+        await t.pump();
+        final expired = find.textContaining(
+          support ? 'Sessiya o‘zgardi. Yordam' : 'Sessiya o‘zgardi. Suhbat',
+        );
+        expect(expired, findsOneWidget);
         await show('b' * 32);
         await t.pumpAndSettle();
-        expect(
-          find.textContaining(
-            support ? 'Sessiya o‘zgardi. Yordam' : 'Sessiya o‘zgardi. Suhbat',
-          ),
-          findsOneWidget,
-        );
+        expect(expired, findsOneWidget);
         if (api is SourceApi) {
           expect(api.calls.every((p) => !p.contains('b' * 32)), true);
         }

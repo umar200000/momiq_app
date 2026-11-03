@@ -1,4 +1,5 @@
 import 'package:momiq_app/core/widgets/button_progress.dart';
+import 'package:momiq_app/core/widgets/owned_dialogs.dart';
 import '../../customer/data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
@@ -24,7 +25,8 @@ class SitterProfilePage extends StatefulWidget {
   State<SitterProfilePage> createState() => _SitterProfilePageState();
 }
 
-class _SitterProfilePageState extends State<SitterProfilePage> {
+class _SitterProfilePageState extends State<SitterProfilePage>
+    with OwnedDialogs<SitterProfilePage> {
   final _form = GlobalKey<FormState>();
   late final _first = TextEditingController(text: widget.firstName);
   late final _last = TextEditingController(text: widget.lastName);
@@ -40,6 +42,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       _sessionVersion == CustomerApi.sessionVersion &&
       identical(_api, CustomerApi.active);
   bool _loadFailed = false;
+  bool _hasConflict = false;
   bool _loading = true,
       _saving = false,
       _orders = true,
@@ -64,8 +67,14 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     super.initState();
     _sessionVersion = CustomerApi.sessionVersion;
     _api = CustomerApi.active;
+    CustomerApi.sessionChanges.addListener(_sessionChanged);
     _photo = widget.avatar;
     _load();
+  }
+
+  void _sessionChanged() {
+    dismissOwnedRoutes();
+    setState(() {});
   }
 
   Future<void> _load() async {
@@ -116,7 +125,12 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
           _end = TimeOfDay(hour: end ~/ 60, minute: end % 60);
         }
         await AppLanguage.select(account['language'] ?? 'uz');
-        if (_current) setState(() => _loading = false);
+        if (_current) {
+          setState(() {
+            _loading = false;
+            _hasConflict = false;
+          });
+        }
         return;
       }
 
@@ -285,6 +299,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       Navigator.pop(context, true);
     } catch (e) {
       if (_current) {
+        if (e is CustomerApiException && e.status == 409) _hasConflict = true;
         _notice(
           e is CustomerApiException
               ? e.message
@@ -321,8 +336,20 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
       }
       if (!_current) return;
       await AppLanguage.select(value);
+      if (_current) _hasConflict = false;
     } catch (e) {
-      if (_current) _notice(e.toString());
+      if (_current) {
+        if (e is CustomerApiException && e.status == 409) _hasConflict = true;
+        _notice(
+          e is CustomerApiException
+              ? e.message
+              : tr(
+                  'Til saqlanmadi. Qayta urinib ko‘ring.',
+                  'Could not save the language. Please retry.',
+                  'Не удалось сохранить язык. Повторите.',
+                ),
+        );
+      }
     } finally {
       if (_current) setState(() => _saving = false);
     }
@@ -407,6 +434,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
   );
   @override
   void dispose() {
+    CustomerApi.sessionChanges.removeListener(_sessionChanged);
     for (final c in [_first, _last, _years, _about, _message]) {
       c.dispose();
     }
@@ -419,7 +447,38 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
     builder: (context, language, _) => MomiqScaffold(
       backgroundColor: listingBackground,
       appBar: AppBar(backgroundColor: listingBackground, title: Text(title)),
-      body: _loading
+      bottomNavigationBar: _current && _hasConflict && !_loading && !_loadFailed
+          ? SafeArea(
+              child: TextButton(
+                key: const ValueKey('reloadProfileConflict'),
+                onPressed: _saving
+                    ? null
+                    : () {
+                        if (!_current || _loading || _saving) return;
+                        ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                        _load();
+                      },
+                child: Text(
+                  tr(
+                    'Tahrirlarni bekor qilib, serverdagi nusxani ochish',
+                    'Discard edits and load the server version',
+                    'Отменить правки и загрузить версию с сервера',
+                  ),
+                ),
+              ),
+            )
+          : null,
+      body: !_current
+          ? Center(
+              child: Text(
+                tr(
+                  'Sessiya o‘zgardi. Profilni qayta oching.',
+                  'Your session changed. Reopen your profile.',
+                  'Сессия изменилась. Откройте профиль заново.',
+                ),
+              ),
+            )
+          : _loading
           ? const Center(child: CircularProgressIndicator())
           : _loadFailed
           ? Center(
@@ -582,11 +641,16 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                               onTap: _saving
                                   ? null
                                   : () async {
-                                      final value = await showTimePicker(
-                                        context: context,
-                                        initialTime: start ? _start : _end,
-                                      );
-                                      if (value != null && mounted) {
+                                      if (!_current) return;
+                                      final value =
+                                          await showOwnedDialog<TimeOfDay>(
+                                            builder: (_) => TimePickerDialog(
+                                              initialTime: start
+                                                  ? _start
+                                                  : _end,
+                                            ),
+                                          );
+                                      if (value != null && _current) {
                                         setState(() {
                                           if (start) {
                                             _start = value;
@@ -645,8 +709,8 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                                 final now = DateTime.now().toUtc().add(
                                   const Duration(hours: 5),
                                 );
-                                final selected = await showDatePicker(
-                                  context: context,
+                                if (!_current) return;
+                                final selected = await showOwnedDatePicker(
                                   initialDate: DateTime(
                                     now.year,
                                     now.month,
@@ -663,7 +727,7 @@ class _SitterProfilePageState extends State<SitterProfilePage> {
                                     now.day,
                                   ),
                                 );
-                                if (selected == null || !mounted) return;
+                                if (selected == null || !_current) return;
                                 final date =
                                     '${selected.year.toString().padLeft(4, '0')}-${selected.month.toString().padLeft(2, '0')}-${selected.day.toString().padLeft(2, '0')}';
                                 if (!_closedDates.contains(date)) {

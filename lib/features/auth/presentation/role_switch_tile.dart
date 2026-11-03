@@ -11,22 +11,36 @@ class RoleSwitchTile extends StatefulWidget {
 }
 
 class _RoleSwitchTileState extends State<RoleSwitchTile> {
+  final _sessionVersion = CustomerApi.sessionVersion;
+  final _source = CustomerApi.active;
   bool _busy = false;
+
+  bool get _current =>
+      mounted &&
+      _sessionVersion == CustomerApi.sessionVersion &&
+      (_source == null || identical(_source, CustomerApi.active));
   Future<void> _switch() async {
-    if (_busy) return;
+    if (!_current || _busy || ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
+    final customer = widget.customer;
     setState(() => _busy = true);
     try {
-      final account = await CustomerApi.switchRole(customer: widget.customer);
-      if (!mounted) return;
+      final account = await CustomerApi.switchRole(customer: customer);
+      if (!mounted ||
+          CustomerApi.sessionVersion != _sessionVersion + 1 ||
+          (_source != null && !identical(CustomerApi.active, _source)) ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
-          builder: (_) =>
-              accountDestination(account, customer: widget.customer),
+          builder: (_) => accountDestination(account, customer: customer),
         ),
         (_) => false,
       );
     } catch (error) {
-      if (mounted) {
+      if (_current && ModalRoute.of(context)?.isCurrent != false) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -66,6 +80,6 @@ class _RoleSwitchTileState extends State<RoleSwitchTile> {
         'Ваш аккаунт и заказы сохраняются.',
       ),
     ),
-    onTap: _busy ? null : _switch,
+    onTap: _busy || !_current ? null : _switch,
   );
 }

@@ -88,6 +88,38 @@ void main() {
     expect(customerSitter('keep-role:boarding')['id'], 'keep-role:boarding');
     expect(customerSitter('keep-role:boarding')['unavailable'], isNull);
   });
+  test(
+    'role switch fails before sending if session changes during restore',
+    () async {
+      final old = RoleApi(), next = RoleApi();
+      CustomerApi.active = old;
+      final response = CustomerApi.switchRole(customer: false);
+      CustomerApi.sessionVersion++;
+      CustomerApi.active = next;
+      await expectLater(response, throwsStateError);
+      expect(old.calls, isEmpty);
+      expect(next.calls, isEmpty);
+      expect(await CustomerApi.customerRole(), isTrue);
+    },
+  );
+
+  testWidgets('a retained role action cannot switch the next account', (
+    t,
+  ) async {
+    final old = RoleApi(), next = RoleApi();
+    CustomerApi.active = old;
+    await t.pumpWidget(
+      const MaterialApp(home: Scaffold(body: RoleSwitchTile(customer: false))),
+    );
+    final action = t.widget<ListTile>(find.byType(ListTile)).onTap!;
+    CustomerApi.sessionVersion++;
+    CustomerApi.active = next;
+    action();
+    await t.pumpAndSettle();
+    expect(next.calls, isEmpty);
+    expect(find.byType(SitterRegistrationPage), findsNothing);
+  });
+
   test('late response cannot switch a replacement session', () async {
     final api = RoleApi()..pending = Completer();
     CustomerApi.active = api;

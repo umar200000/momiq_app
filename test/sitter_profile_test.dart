@@ -207,9 +207,39 @@ void main() {
     final api = ProfileApi();
     CustomerApi.active = api;
     await open(tester, 0);
+    final button = find.byKey(const ValueKey('saveProfileSection'));
+    await tester.scrollUntilVisible(
+      button,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final oldSave = tester.widget<FilledButton>(button).onPressed!;
     CustomerApi.sessionVersion++;
-    await save(tester);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('profileFirst')), findsNothing);
+    expect(button, findsNothing);
+    oldSave();
     expect(api.writes, 0);
+  });
+
+  testWidgets('session change closes the sitter schedule date picker', (
+    tester,
+  ) async {
+    CustomerApi.active = ProfileApi();
+    await open(tester, 1);
+    final add = find.byKey(const ValueKey('addClosedDate'));
+    await tester.scrollUntilVisible(
+      add,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    expect(find.byType(DatePickerDialog), findsOneWidget);
+    CustomerApi.sessionVersion++;
+    await tester.pumpAndSettle();
+    expect(find.byType(DatePickerDialog), findsNothing);
+    expect(add, findsNothing);
   });
 
   testWidgets(
@@ -257,6 +287,43 @@ void main() {
       expect(find.byType(InputChip), findsOneWidget);
       await save(tester);
       expect(api.account['sitterProfile']['closedDates'], hasLength(1));
+    },
+  );
+
+  testWidgets(
+    'a conflicting edit can reload the current server revision before saving',
+    (tester) async {
+      final api = ProfileApi();
+      CustomerApi.active = api;
+      await open(tester, 0);
+      final first = find.byKey(const ValueKey('profileFirst'));
+      await tester.enterText(first, 'My draft');
+      api.account = {
+        ...api.account,
+        '_revision': 12,
+        'profile': {
+          'first': 'New server name',
+          'last': 'Sitter',
+          'photo': null,
+        },
+      };
+      api.failWrite = true;
+      await save(tester);
+      expect(api.saved, isNull);
+      final reload = find.byKey(const ValueKey('reloadProfileConflict'));
+      await tester.ensureVisible(reload);
+      await tester.tap(reload);
+      await tester.pumpAndSettle();
+      expect(api.writes, 1);
+      expect(
+        tester.widget<TextFormField>(first).controller!.text,
+        'New server name',
+      );
+      api.failWrite = false;
+      await tester.enterText(first, 'Reviewed');
+      await save(tester);
+      expect(api.saved!['_revision'], 12);
+      expect(api.saved!['profile']['first'], 'Reviewed');
     },
   );
 

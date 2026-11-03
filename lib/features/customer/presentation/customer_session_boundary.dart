@@ -27,6 +27,9 @@ class _CustomerSessionBoundaryState extends State<CustomerSessionBoundary> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _session == CustomerApi.sessionVersion ? widget.child : widget.expired;
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+    valueListenable: CustomerApi.sessionChanges,
+    builder: (_, current, _) =>
+        _session == current ? widget.child : widget.expired,
+  );
 }
