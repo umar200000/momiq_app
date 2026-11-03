@@ -176,6 +176,40 @@ class _SitterProfilePageState extends State<SitterProfilePage>
   void _notice(String value) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(value)));
+  void _showSaveError(Object error) {
+    if (!_current) return;
+    if (error is CustomerApiException) {
+      if (error.status == 409) {
+        _hasConflict = true;
+        _notice(
+          tr(
+            'Profil boshqa joyda o‘zgargan. Yangilangan nusxani oching.',
+            'The profile changed elsewhere. Load the updated version.',
+            'Профиль изменился. Загрузите обновлённую версию.',
+          ),
+        );
+      } else if (error.status == 503) {
+        _notice(
+          tr(
+            'Xizmat vaqtincha band. Birozdan keyin qayta urining.',
+            'The service is busy. Please try again shortly.',
+            'Сервис временно занят. Попробуйте чуть позже.',
+          ),
+        );
+      } else {
+        _notice(error.message);
+      }
+      return;
+    }
+    _notice(
+      tr(
+        'Saqlanmadi. Qayta urinib ko‘ring.',
+        'Could not save. Retry.',
+        'Не удалось сохранить. Повторите.',
+      ),
+    );
+  }
+
   Future<void> _save() async {
     if (!_current ||
         _loading ||
@@ -302,18 +336,7 @@ class _SitterProfilePageState extends State<SitterProfilePage>
       if (!mounted || !_current) return;
       Navigator.pop(context, true);
     } catch (e) {
-      if (_current) {
-        if (e is CustomerApiException && e.status == 409) _hasConflict = true;
-        _notice(
-          e is CustomerApiException
-              ? e.message
-              : tr(
-                  'Saqlanmadi. Qayta urinib ko‘ring.',
-                  'Could not save. Retry.',
-                  'Не удалось сохранить. Повторите.',
-                ),
-        );
-      }
+      _showSaveError(e);
     } finally {
       if (_current) setState(() => _saving = false);
     }
@@ -342,18 +365,7 @@ class _SitterProfilePageState extends State<SitterProfilePage>
       await AppLanguage.select(value);
       if (_current) _hasConflict = false;
     } catch (e) {
-      if (_current) {
-        if (e is CustomerApiException && e.status == 409) _hasConflict = true;
-        _notice(
-          e is CustomerApiException
-              ? e.message
-              : tr(
-                  'Til saqlanmadi. Qayta urinib ko‘ring.',
-                  'Could not save the language. Please retry.',
-                  'Не удалось сохранить язык. Повторите.',
-                ),
-        );
-      }
+      _showSaveError(e);
     } finally {
       if (_current) setState(() => _saving = false);
     }

@@ -28,6 +28,7 @@ class ProfileApi extends CustomerApi {
   };
   Map<String, dynamic>? saved;
   bool failWrite = false;
+  int? failureStatus = 409;
   Completer<void>? readGate, writeGate;
   int writes = 0;
   @override
@@ -39,7 +40,9 @@ class ProfileApi extends CustomerApi {
     if (method == 'GET') await readGate?.future;
     if (method == 'PUT') {
       writes++;
-      if (failWrite) throw CustomerApiException('Conflict: reload', 409);
+      if (failWrite) {
+        throw CustomerApiException('TEST server error', failureStatus);
+      }
       saved = body;
       await writeGate?.future;
       account = {...body!, '_revision': 8};
@@ -272,7 +275,10 @@ void main() {
       await tester.pumpAndSettle();
       api.failWrite = true;
       await save(tester);
-      expect(find.text('Conflict: reload'), findsOneWidget);
+      expect(
+        find.text('Profil boshqa joyda o‘zgargan. Yangilangan nusxani oching.'),
+        findsOneWidget,
+      );
       expect(api.account['sitterProfile']['closedDates'], ['2026-11-03']);
       api.failWrite = false;
       await save(tester);
@@ -326,6 +332,59 @@ void main() {
       expect(api.saved!['profile']['first'], 'Reviewed');
     },
   );
+
+  for (final (language, conflict, busy) in [
+    (
+      'uz',
+      'Profil boshqa joyda o‘zgargan. Yangilangan nusxani oching.',
+      'Xizmat vaqtincha band. Birozdan keyin qayta urining.',
+    ),
+    (
+      'en',
+      'The profile changed elsewhere. Load the updated version.',
+      'The service is busy. Please try again shortly.',
+    ),
+    (
+      'ru',
+      'Профиль изменился. Загрузите обновлённую версию.',
+      'Сервис временно занят. Попробуйте чуть позже.',
+    ),
+  ]) {
+    testWidgets(
+      'profile conflict and busy responses fit at large text in $language',
+      (t) async {
+        t.view.physicalSize = const Size(320, 640);
+        t.view.devicePixelRatio = 1;
+        t.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(t.view.reset);
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        final api = ProfileApi()..failWrite = true;
+        api.account['language'] = language;
+        CustomerApi.active = api;
+        await open(t, 5);
+        final choice = find.byKey(
+          ValueKey(language == 'en' ? 'language-ru' : 'language-en'),
+        );
+        await t.ensureVisible(choice);
+        await t.tap(choice);
+        await t.pumpAndSettle();
+        expect(find.text(conflict), findsOneWidget);
+        final reload = find.byKey(const ValueKey('reloadProfileConflict'));
+        await t.tap(reload);
+        await t.pumpAndSettle();
+        expect(reload, findsNothing);
+        expect(api.writes, 1);
+        api.failureStatus = 503;
+        await t.ensureVisible(choice);
+        await t.tap(choice);
+        await t.pumpAndSettle();
+        expect(find.text(busy), findsOneWidget);
+        expect(reload, findsNothing);
+        expect(AppLanguage.current.value, language);
+        expect(t.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('profile edits persist', (tester) async {
     await open(tester, 0);
@@ -466,7 +525,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('language-ru')));
       await tester.pumpAndSettle();
       expect(AppLanguage.current.value, 'uz');
-      expect(find.text('Conflict: reload'), findsOneWidget);
+      expect(
+        find.text('Profil boshqa joyda o‘zgargan. Yangilangan nusxani oching.'),
+        findsOneWidget,
+      );
       api.failWrite = false;
       await tester.tap(find.byKey(const ValueKey('language-ru')));
       await tester.pumpAndSettle();
