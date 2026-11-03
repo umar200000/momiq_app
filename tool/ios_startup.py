@@ -70,7 +70,9 @@ def verify(bundle):
         try:
             sim('bootstatus',device,'-b',timeout=360)
             print('Simulator booted; installing the verified QA bundle',flush=True)
-            sim('install',device,str(bundle))
+            started = time.monotonic()
+            sim('install',device,str(bundle),timeout=360)
+            print(f'QA bundle installed in {time.monotonic()-started:.1f}s',flush=True)
             for phase in ('first-launch','cold-restart'):
                 if phase=='cold-restart':sim('terminate',device,'net.momiq.app')
                 sim('launch',device,'net.momiq.app')
