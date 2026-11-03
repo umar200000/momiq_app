@@ -7,6 +7,7 @@ import plistlib
 import re
 import secrets
 import subprocess
+import sys
 import tarfile
 from tempfile import TemporaryDirectory
 import time
@@ -68,7 +69,7 @@ def verify(bundle):
             raise RuntimeError('Unexpected simulator identifier')
         try:
             sim('bootstatus',device,'-b',timeout=360)
-            subprocess.run(['open','-g','-a','Simulator','--args','-CurrentDeviceUDID',device],check=True,timeout=40)
+            print('Simulator booted; installing the verified QA bundle',flush=True)
             sim('install',device,str(bundle))
             for phase in ('first-launch','cold-restart'):
                 if phase=='cold-restart':sim('terminate',device,'net.momiq.app')
@@ -80,7 +81,13 @@ def verify(bundle):
             (evidence/'result.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
             print(json.dumps(report))
         finally:
-            sim('delete',device)
+            original=sys.exc_info()[1]
+            try:
+                sim('delete',device)
+            except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as cleanup_error:
+                if original is None:
+                    raise
+                original.add_note(f'Simulator cleanup also failed: {cleanup_error}')
 
 
 if __name__=='__main__':
