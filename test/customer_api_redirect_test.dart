@@ -1,8 +1,56 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 
 void main() {
+  test('health, error and private image reads enforce wire limits', () async {
+    final http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => http.close(force: true));
+    final api = CustomerApi('', '', baseUrl: 'http://127.0.0.1:${http.port}');
+    const path = '/support/ticket/messages/1/image';
+    var body = '{"ok":true}', status = 200, declaredLength = true;
+    http.listen((req) async {
+      final bytes = utf8.encode(body);
+      req.response.statusCode = status;
+      if (declaredLength) req.response.contentLength = bytes.length;
+      try {
+        req.response.add(bytes);
+        await req.response.close();
+      } on SocketException {
+        // The client can reject the response before the server finishes.
+      }
+    });
+    expect((await api.request('GET', '/health'))['ok'], isTrue);
+    body = jsonEncode({'image': 'A' * (4 * 1024 * 1024)});
+    expect((await api.request('GET', path))['image'].length, 4 * 1024 * 1024);
+    for (final fixedLength in [true, false]) {
+      declaredLength = fixedLength;
+      body = jsonEncode({'image': 'A' * (4 * 1024 * 1024 + 1024)});
+      await expectLater(api.request('GET', path), throwsFormatException);
+      body = jsonEncode({'error': 'X' * (64 * 1024)});
+      await expectLater(api.request('GET', '/health'), throwsFormatException);
+      status = 403;
+      await expectLater(
+        api.request('GET', '/me'),
+        throwsA(
+          isA<CustomerApiException>()
+              .having((e) => e.status, 'status', 403)
+              .having((e) => e.message, 'message', 'Server xatosi'),
+        ),
+      );
+      status = 200;
+      expect((await api.request('GET', '/me'))['error'], isNotEmpty);
+    }
+    status = 403;
+    body = '{"error":"denied"}';
+    await expectLater(
+      api.request('GET', '/me'),
+      throwsA(
+        isA<CustomerApiException>().having((e) => e.status, 'status', 403),
+      ),
+    );
+  });
   test(
     'API redirects cannot forward a private request or acknowledge a write',
     () async {

@@ -422,16 +422,46 @@ class CustomerApi {
     String path, [
     Map<String, dynamic>? body,
   ]) => _http(method, path, body, 'application/json', (response) async {
-    final text = await utf8.decoder.bind(response).join();
-    final data = Map<String, dynamic>.from(jsonDecode(text));
     if (response.statusCode >= 400) {
-      throw CustomerApiException(
-        data['error'] ?? 'Server xatosi',
-        response.statusCode,
-      );
+      var message = 'Server xatosi';
+      try {
+        final body = await _boundedBytes(response, 64 * 1024);
+        final error = jsonDecode(utf8.decode(body));
+        if (error is Map && error['error'] is String) message = error['error'];
+      } on FormatException {
+        // An oversized or invalid error body must not hide a 401 or 429.
+      }
+      throw CustomerApiException(message, response.statusCode);
     }
-    return data;
+    int? limit;
+    if (path == '/health') {
+      limit = 64 * 1024;
+    } else if (method == 'GET' && path.endsWith('/image')) {
+      // A 3 MiB private attachment occupies at most 4 MiB in base64.
+      limit = 4 * 1024 * 1024 + 1024;
+    }
+    final text = limit == null
+        ? await utf8.decoder.bind(response).join()
+        : utf8.decode(await _boundedBytes(response, limit));
+    return Map<String, dynamic>.from(jsonDecode(text));
   });
+
+  static Future<Uint8List> _boundedBytes(
+    HttpClientResponse response,
+    int limit,
+  ) async {
+    if (response.contentLength > limit) {
+      throw const FormatException('Response too large');
+    }
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response) {
+      if (chunk.length > limit - bytes.length) {
+        throw const FormatException('Response too large');
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
+  }
 
   Future<Uint8List> videoPoster(String path) {
     if (!RegExp(
@@ -447,18 +477,7 @@ class CustomerApi {
           response.statusCode,
         );
       }
-      const limit = 2 * 1024 * 1024;
-      if (response.contentLength > limit) {
-        throw const FormatException('Poster too large');
-      }
-      final bytes = BytesBuilder(copy: false);
-      await for (final chunk in response) {
-        if (bytes.length + chunk.length > limit) {
-          throw const FormatException('Poster too large');
-        }
-        bytes.add(chunk);
-      }
-      final data = bytes.takeBytes();
+      final data = await _boundedBytes(response, 2 * 1024 * 1024);
       if (data.length < 4 ||
           data[0] != 0xff ||
           data[1] != 0xd8 ||

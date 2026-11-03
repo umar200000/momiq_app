@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:momiq_app/core/storage/session_vault.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
+import 'package:momiq_app/features/customer/data/customer_store.dart';
 import 'role_switch_test.dart' show RoleApi;
 
 class LoginHarness {
@@ -90,6 +91,8 @@ class LoginResponse extends Stream<List<int>> implements HttpClientResponse {
   final Map<String, dynamic> data;
   @override
   int get statusCode => 200;
+  @override
+  int get contentLength => -1;
   @override
   StreamSubscription<List<int>> listen(
     void Function(List<int>)? onData, {
@@ -195,6 +198,7 @@ void main() {
   );
   test('restore waits for an in-flight credential commit', () async {
     vault.gate = Completer<void>();
+    customerSitters.add({'id': 'before-login:boarding'});
     final login = LoginHarness().login();
     await vault.entered.future;
     var restored = false;
@@ -206,6 +210,7 @@ void main() {
     expect(restored, isFalse);
     vault.gate!.complete();
     await login;
+    expect(customerSitters, isEmpty);
     expect(await restore, same(CustomerApi.active));
     expect((await SessionVault.read())!['userId'], 'TEST-user');
   });

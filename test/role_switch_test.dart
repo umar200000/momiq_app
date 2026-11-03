@@ -56,6 +56,7 @@ void main() {
       final api = RoleApi();
       CustomerApi.active = api;
       final version = CustomerApi.sessionVersion;
+      customerSitters.add({'id': 'old-role:boarding'});
       final oldStore = CustomerStore();
       addTearDown(oldStore.dispose);
       final account = await CustomerApi.switchRole(customer: false);
@@ -63,6 +64,7 @@ void main() {
       expect(api.token, 'same-token');
       expect(await CustomerApi.customerRole(), isFalse);
       expect(CustomerApi.sessionVersion, version + 1);
+      expect(customerSitters, isEmpty);
       expect(account['_revision'], 4);
       expect(
         (await SharedPreferences.getInstance()).getString('unrelated.draft'),
@@ -74,6 +76,7 @@ void main() {
   );
   test('failed role request leaves mode and session unchanged', () async {
     final api = RoleApi()..fail = true;
+    customerSitters.add({'id': 'keep-role:boarding'});
     CustomerApi.active = api;
     final version = CustomerApi.sessionVersion;
     await expectLater(
@@ -82,6 +85,8 @@ void main() {
     );
     expect(await CustomerApi.customerRole(), isTrue);
     expect(CustomerApi.sessionVersion, version);
+    expect(customerSitter('keep-role:boarding')['id'], 'keep-role:boarding');
+    expect(customerSitter('keep-role:boarding')['unavailable'], isNull);
   });
   test('late response cannot switch a replacement session', () async {
     final api = RoleApi()..pending = Completer();
