@@ -191,14 +191,13 @@ void main() {
   );
 
   testWidgets(
-    'expired session ignores pending acknowledgement and hides old history on rebuild',
+    'expired session ignores pending acknowledgement and hides old history without parent rebuild',
     (t) async {
       final api = PendingNotices();
       await loaded(t, api);
       await read(t);
       CustomerApi.sessionVersion++;
       api.pending.last.complete(receipt);
-      await show(t, api);
       await t.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.textContaining('Private old account'), findsNothing);

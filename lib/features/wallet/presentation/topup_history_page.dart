@@ -1,3 +1,5 @@
+import '../../customer/presentation/customer_session_boundary.dart'
+    show RebuildOnSessionChange;
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../customer/data/customer_api.dart';
@@ -13,7 +15,8 @@ class TopupHistoryPage extends StatefulWidget {
   State<TopupHistoryPage> createState() => _TopupHistoryPageState();
 }
 
-class _TopupHistoryPageState extends State<TopupHistoryPage> {
+class _TopupHistoryPageState extends State<TopupHistoryPage>
+    with RebuildOnSessionChange<TopupHistoryPage> {
   final List<Map<String, dynamic>> _items = [];
   final Set<int> _opening = {};
   String? _cursor, _error;

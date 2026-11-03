@@ -1,3 +1,5 @@
+import '../../customer/presentation/customer_session_boundary.dart'
+    show RebuildOnSessionChange;
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import 'package:momiq_app/core/widgets/owned_dialogs.dart';
 import '../../customer/data/customer_api.dart';
@@ -26,7 +28,9 @@ class SitterProfilePage extends StatefulWidget {
 }
 
 class _SitterProfilePageState extends State<SitterProfilePage>
-    with OwnedDialogs<SitterProfilePage> {
+    with
+        OwnedDialogs<SitterProfilePage>,
+        RebuildOnSessionChange<SitterProfilePage> {
   final _form = GlobalKey<FormState>();
   late final _first = TextEditingController(text: widget.firstName);
   late final _last = TextEditingController(text: widget.lastName);
@@ -67,14 +71,14 @@ class _SitterProfilePageState extends State<SitterProfilePage>
     super.initState();
     _sessionVersion = CustomerApi.sessionVersion;
     _api = CustomerApi.active;
-    CustomerApi.sessionChanges.addListener(_sessionChanged);
     _photo = widget.avatar;
     _load();
   }
 
-  void _sessionChanged() {
+  @override
+  void onSessionChanged() {
     dismissOwnedRoutes();
-    setState(() {});
+    super.onSessionChanged();
   }
 
   Future<void> _load() async {
@@ -434,7 +438,6 @@ class _SitterProfilePageState extends State<SitterProfilePage>
   );
   @override
   void dispose() {
-    CustomerApi.sessionChanges.removeListener(_sessionChanged);
     for (final c in [_first, _last, _years, _about, _message]) {
       c.dispose();
     }

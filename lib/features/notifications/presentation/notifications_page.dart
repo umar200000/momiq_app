@@ -1,3 +1,5 @@
+import '../../customer/presentation/customer_session_boundary.dart'
+    show RebuildOnSessionChange;
 import '../data/notification_data.dart';
 import '../../../core/config/app_environment.dart';
 import '../../listings/data/listing_store.dart';
@@ -30,7 +32,7 @@ class NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<NotificationsPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RebuildOnSessionChange<NotificationsPage> {
   CustomerApi? _api;
   DialogRoute<bool>? _dialog;
 

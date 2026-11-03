@@ -169,10 +169,20 @@ void main() {
     (t) async {
       final api = DelayedHistory();
       await load(t, api);
+      await t.tap(find.text('Shu bosqichdagi chek'));
+      await t.pump();
+      api.pending.last.complete({'receipt': pixel});
+      await t.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
       CustomerApi.sessionVersion++;
+      await t.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
       await show(t, api, 'second');
       await t.pumpAndSettle();
-      expect(api.calls.length, 1);
+      expect(api.calls, [
+        '/wallet/topups/first/history',
+        '/wallet/topups/first/history/1/receipt',
+      ]);
       expect(find.text('Private first receipt'), findsNothing);
       expect(find.text('Hisobingizga qayta kiring.'), findsOneWidget);
     },

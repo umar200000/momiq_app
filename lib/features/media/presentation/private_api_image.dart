@@ -1,3 +1,5 @@
+import '../../customer/presentation/customer_session_boundary.dart'
+    show RebuildOnSessionChange;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -22,7 +24,8 @@ class PrivateApiImage extends StatefulWidget {
   State<PrivateApiImage> createState() => _PrivateApiImageState();
 }
 
-class _PrivateApiImageState extends State<PrivateApiImage> {
+class _PrivateApiImageState extends State<PrivateApiImage>
+    with RebuildOnSessionChange<PrivateApiImage> {
   int session = CustomerApi.sessionVersion, generation = 0;
   Uint8List? bytes;
   bool busy = false, failed = false;
@@ -30,6 +33,12 @@ class _PrivateApiImageState extends State<PrivateApiImage> {
       mounted &&
       session == CustomerApi.sessionVersion &&
       (CustomerApi.active == null || identical(CustomerApi.active, widget.api));
+
+  @override
+  void onSessionChanged() {
+    bytes = null;
+    super.onSessionChanged();
+  }
 
   @override
   void didUpdateWidget(PrivateApiImage oldWidget) {

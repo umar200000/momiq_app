@@ -1,6 +1,24 @@
 import 'package:flutter/material.dart';
 import '../data/customer_api.dart';
 
+/// Recheck the view as soon as logout, login or a role change invalidates it.
+mixin RebuildOnSessionChange<T extends StatefulWidget> on State<T> {
+  @override
+  void initState() {
+    super.initState();
+    CustomerApi.sessionChanges.addListener(onSessionChanged);
+  }
+
+  @protected
+  void onSessionChanged() => setState(() {});
+
+  @override
+  void dispose() {
+    CustomerApi.sessionChanges.removeListener(onSessionChanged);
+    super.dispose();
+  }
+}
+
 /// A target change must not re-authorize the API of an expired session.
 class CustomerSessionBoundary extends StatefulWidget {
   const CustomerSessionBoundary({
@@ -16,7 +34,8 @@ class CustomerSessionBoundary extends StatefulWidget {
       _CustomerSessionBoundaryState();
 }
 
-class _CustomerSessionBoundaryState extends State<CustomerSessionBoundary> {
+class _CustomerSessionBoundaryState extends State<CustomerSessionBoundary>
+    with RebuildOnSessionChange<CustomerSessionBoundary> {
   int _session = CustomerApi.sessionVersion;
   @override
   void didUpdateWidget(CustomerSessionBoundary oldWidget) {
@@ -27,9 +46,6 @@ class _CustomerSessionBoundaryState extends State<CustomerSessionBoundary> {
   }
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<int>(
-    valueListenable: CustomerApi.sessionChanges,
-    builder: (_, current, _) =>
-        _session == current ? widget.child : widget.expired,
-  );
+  Widget build(BuildContext context) =>
+      _session == CustomerApi.sessionVersion ? widget.child : widget.expired;
 }

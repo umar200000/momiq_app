@@ -89,7 +89,7 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byType(Image), findsOneWidget);
       CustomerApi.sessionVersion++;
-      await show(t, next, '/second');
+      await t.pump();
       expect(find.byType(Image), findsNothing);
     },
   );
