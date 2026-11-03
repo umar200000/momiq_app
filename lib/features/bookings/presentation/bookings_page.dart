@@ -37,6 +37,22 @@ String bookingTime(String value) {
   return '${pad(d.day)}.${pad(d.month)}.${d.year} ${pad(d.hour)}:${pad(d.minute)} (UTC+5)';
 }
 
+class BookingSignInNotice extends StatelessWidget {
+  const BookingSignInNotice({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    context.dependOnInheritedWidgetOfExactType<AppLanguage>();
+    return Text(
+      lt(
+        'Buyurtmalar uchun hisobingizga kiring.',
+        'Sign in to see bookings.',
+        'Войдите для просмотра заказов.',
+      ),
+    );
+  }
+}
+
 class BookingInbox extends StatelessWidget {
   const BookingInbox({super.key, this.api, this.conversationId});
   final CustomerApi? api;
@@ -45,13 +61,7 @@ class BookingInbox extends StatelessWidget {
   Widget build(BuildContext context) {
     final source = api ?? CustomerApi.active;
     if (source == null) {
-      return Text(
-        lt(
-          'Buyurtmalar uchun hisobingizga kiring.',
-          'Sign in to see bookings.',
-          'Войдите для просмотра заказов.',
-        ),
-      );
+      return const BookingSignInNotice();
     }
     return BookingSourceBoundary(
       api: source,
@@ -101,13 +111,7 @@ class _BookingInboxState extends State<_BookingInbox> {
     context.dependOnInheritedWidgetOfExactType<AppLanguage>();
     final c = controller;
     if (c == null) {
-      return Text(
-        lt(
-          'Buyurtmalar uchun hisobingizga kiring.',
-          'Sign in to see bookings.',
-          'Войдите для просмотра заказов.',
-        ),
-      );
+      return const BookingSignInNotice();
     }
     return ListenableBuilder(
       listenable: c,

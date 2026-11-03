@@ -18,13 +18,6 @@ CJson customerSitter(String id) => customerSitters.firstWhere(
   orElse: () => {'id': id, 'name': 'Enaga mavjud emas', 'unavailable': true},
 );
 DateTime calendarDate(DateTime v) => DateTime(v.year, v.month, v.day);
-int careDays(DateTime from, DateTime to) =>
-    DateTime.utc(
-      to.year,
-      to.month,
-      to.day,
-    ).difference(DateTime.utc(from.year, from.month, from.day)).inDays +
-    1;
 String shortDate(String value) {
   final d = DateTime.parse(value);
   return '${d.day}.${d.month.toString().padLeft(2, '0')}.${d.year}';
@@ -521,24 +514,6 @@ class CustomerStore extends ChangeNotifier {
   DateTime firstAvailableDate(CJson sitter, {DateTime? after}) =>
       calendarDate(after ?? DateTime.now());
 
-  Future<String> book({
-    required String sitterId,
-    String? petId,
-    List<String>? petIds,
-    Map<String, CJson>? petInstructions,
-    required DateTime from,
-    required DateTime to,
-    CJson instructions = const {},
-    Map<String, String> petPassports = const {},
-    required CJson address,
-  }) async {
-    throw StateError('Buyurtma berish xizmati hali ulanmagan.');
-  }
-
-  Future<void> cancel(String id, String reason) async {
-    throw StateError('Buyurtmalar xizmati hali ulanmagan.');
-  }
-
   Future<void> send(String sitter, String text) async {
     if (text.trim().isEmpty) return;
     await saveItem('messages', {
@@ -568,16 +543,6 @@ List<CJson> bookingPets(CJson booking) =>
     (booking['pets'] as List? ?? [booking['pet']])
         .map((p) => CJson.from(p))
         .toList();
-String bookingPetNames(CJson booking) =>
-    bookingPets(booking).map(customerPetName).join(', ');
-CJson bookingPetCare(CJson booking, CJson pet) => CJson.from(
-  booking['petInstructions']?[pet['id']] ?? booking['instructions'],
-);
-int bookingTotal(CJson booking) =>
-    (booking['price'] as num).toInt() *
-    bookingPets(booking).length *
-    careDays(DateTime.parse(booking['from']), DateTime.parse(booking['to']));
-
 int sitterCapacity(CJson sitter) => sitter['service'] == 2
     ? 1
     : sitter['service'] == 1

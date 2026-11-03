@@ -683,7 +683,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
                               : _home(),
                         1 => [
                           _store.api == null
-                              ? CustomerOrders(store: _store)
+                              ? const BookingSignInNotice()
                               : BookingInbox(api: _store.api),
                         ],
                         2 => [

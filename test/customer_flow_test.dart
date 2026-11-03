@@ -154,6 +154,17 @@ void main() {
     await t.pumpAndSettle();
     expect(s.list('pets').last['name'], 'Luna');
   });
+  testWidgets('orders tab requires a session before showing bookings', (
+    t,
+  ) async {
+    final s = await store();
+    await open(t, CustomerHomePage(store: s));
+    await t.tap(find.byKey(const ValueKey('customerNav-1')));
+    await t.pumpAndSettle();
+    expect(find.text('Buyurtmalar uchun hisobingizga kiring.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('bookingSearch')), findsNothing);
+    expect(s.list('bookings'), isEmpty);
+  });
   testWidgets('legacy booking route cannot open an offline sample form', (
     t,
   ) async {

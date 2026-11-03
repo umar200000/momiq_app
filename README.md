@@ -13,7 +13,7 @@ Flutter application for pet owners and pet sitters.
 5. For a USB-connected Android device, run `adb reverse tcp:8081 tcp:8081`.
 6. Run `./tool/flutter.ps1 run --dart-define-from-file=config/preview.json`. `config/local.json` still targets port 8080; preview uses the isolated database on 8081. Changing the API URL opens a recovery screen and preserves the previous session and encrypted drafts; it never sends those credentials to the new origin.
 
-The localhost backend uses development verification code `111111`; real SMS is not connected. `-Seed` explicitly creates marked test accounts in an isolated preview database; production never auto-seeds them. Profile, preferences and manual Paynet Xolis top-up requests use the backend. Booking/commission integration and real sitter publication are still incomplete.
+The localhost backend uses development verification code `111111`; real SMS is not connected. `-Seed` explicitly creates marked test accounts in an isolated preview database; production never auto-seeds them. Profile, preferences and manual Paynet Xolis top-up requests use the backend. In local/test, the server records bookings and debits commission on acceptance. Production publication awaits identity verification and rollout.
 
 ## Checks
 
@@ -36,11 +36,11 @@ Credentials, signing keys, build outputs and local configuration are excluded fr
 
 The existing hosted test server is `https://api.momiq.net/api`; it is not a production-ready customer launch. New environment-guarded builds must use a separate staging endpoint for hosted test login. SMS integration and production signing are deferred to the final phase.
 
-For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080/api` and USB adb reverse. Run local live integration tests with the same URL override. GitHub Actions runs analysis and tests on pushes/PRs; mobile store releases/signing are not configured.
+For localhost use `flutter run --dart-define=MOMIQ_API_URL=http://127.0.0.1:8080/api` and USB adb reverse. Run local live integration tests with the same URL override. GitHub Actions runs analysis and tests on main pushes, pull requests and manual dispatches; mobile store releases/signing are not configured.
 
 ## Data availability
 
-The backend sitter catalog starts empty. Listings and profiles are revisioned server data. Local/test moderation publishes explicitly marked test listings; this is not MyID verification. Discovery pages filter current calendar/capacity, prices, cat/dog and favorites on the server. Approximate GPS points enable server proximity order; browsing without GPS uses the Toshkent catalog. The exact city boundary remains a release gate. Bookings, commission debits/refunds, two-party care confirmations, daily care entries, immutable completed-booking reviews and administrator-reviewed disputes use server responses. Native and physical-device gaps remain in the checklist, particularly the blocked M055 test and real iPhone checks. Login code `111111` is confined to explicitly enabled test environments; hosted production activation remains closed.
+The backend sitter catalog starts empty. Listings and profiles are revisioned server data. Local/test moderation publishes explicitly marked test listings; this is not MyID verification. Discovery pages filter current calendar/capacity, prices, cat/dog and favorites on the server. Approximate GPS points enable server proximity order; browsing without GPS uses the Toshkent catalog. The launch area covers Tashkent city and Tashkent region. The release boundary dataset still needs approval. Bookings, commission debits/refunds, two-party care confirmations, daily care entries, immutable completed-booking reviews and administrator-reviewed disputes use server responses. Native and physical-device gaps remain in the checklist, particularly the blocked M055 test and real iPhone checks. Login code `111111` is confined to explicitly enabled test environments; hosted production activation remains closed.
 
 ## Manual wallet payment drafts
 
@@ -54,7 +54,7 @@ Rejected requests and requests needing clarification open an amendment form with
 
 The profile tab can switch customer/sitter mode without logout. Server enrollment is limited to the same account's two self-service roles; it grants no listing approval, MyID verification or admin access. The app waits for success, resets old route stores and restores the selected role after restart while keeping the token and encrypted payment drafts. Incomplete registration reopens with saved profile fields. Unsaved keystroke recovery remains M124.
 
-The customer and sitter bell buttons open server-backed notification history. Wallet and listing review events paginate, retain read state and open only known local wallet/listing destinations. Existing decisions before migration 6 have no retroactive notice. External push and booking/chat/care notifications remain unfinished; optional order/chat/care preferences do not hide transactional wallet/moderation history.
+The customer and sitter bell buttons open server-backed notification history. Wallet and listing review events paginate, retain read state and open only known local wallet/listing destinations. Existing decisions before migration 6 have no retroactive notice. Booking, chat and care events also appear in the in-app history. External push still awaits its provider and device checks. Optional order/chat/care preferences do not hide transactional wallet/moderation history.
 
 OTP login returns the existing server account. Completed profiles go straight to the selected role home; incomplete profiles resume registration. The token, selected role and last account snapshot persist across app restarts. Startup validates the session with `/api/me`; network failures keep the saved login, while expired/blocked sessions return to role selection.
 
