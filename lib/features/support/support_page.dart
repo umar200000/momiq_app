@@ -561,6 +561,23 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
             if (c.busy) const LinearProgressIndicator(),
             if (c.error != null) Text(supportError()),
             if (ticket != null) Text(supportState(ticket['status'])),
+            if (c.data?['deletionReview']?['state'] ==
+                'waiting_for_obligations')
+              Text(
+                lt(
+                  'So‘rovingiz qabul qilindi. Faol bron yoki ochiq nizo yakunlanishi kutilmoqda. Qayta murojaat qilishingiz shart emas.',
+                  'Your request was received. It will stay open until your booking or dispute ends. You do not need to submit it again.',
+                  'Запрос принят. Он останется открытым до завершения заказа или спора. Повторно подавать его не нужно.',
+                ),
+              ),
+            if (c.data?['deletionReview']?['state'] == 'awaiting_verification')
+              Text(
+                lt(
+                  'Faol bron yoki ochiq nizo yo‘q. So‘rovingiz tekshiruv navbatida.',
+                  'There is no active booking or open dispute. Your request is awaiting verification.',
+                  'Активных заказов и открытых споров нет. Запрос ожидает проверки.',
+                ),
+              ),
             if (target != null) ...[
               Text(
                 '${supportTargetLabel(target['kind'], target['purpose'])} · #${target['id']}',
@@ -661,9 +678,9 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
             if (widget.id == null && topic == 'account_deletion') ...[
               Text(
                 lt(
-                  'Yordam xizmati so‘rovingizni ko‘rib chiqadi. Shu vaqt davomida hisobingiz faol qoladi. Hisob o‘chirilganda enaga balansida qolgan pul qaytarilmaydi.',
-                  'Support will review your request. Your account stays active during review. Any unused sitter balance is non-refundable when the account is deleted.',
-                  'Поддержка рассмотрит запрос. Во время рассмотрения аккаунт останется активным. При удалении аккаунта остаток на балансе няни не возвращается.',
+                  'Faol bron yoki ochiq nizo bo‘lsa ham so‘rov qabul qilinadi. Ular yakunlangach o‘chirish jarayoni shu so‘rov bilan davom etadi. Hisob o‘chirilganda enaga balansida qolgan pul qaytarilmaydi.',
+                  'You may request deletion during a booking or dispute. Deletion can proceed on this request once they end. Any unused sitter balance is non-refundable.',
+                  'Запрос можно подать во время заказа или спора. После их завершения удаление продолжится по этому же запросу. Остаток на балансе няни не возвращается.',
                 ),
               ),
               CheckboxListTile(

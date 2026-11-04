@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/core/localization/app_language.dart';
 import 'package:momiq_app/features/support/support_page.dart';
 import 'package:momiq_app/features/support/support_controller.dart';
+import 'package:momiq_app/features/support/support_data.dart'
+    show supportThread;
 import 'conversation_test.dart' show ChatDraft;
 import 'support_test.dart' show SupportApi;
 
@@ -21,6 +23,26 @@ class AccountRequestApi extends SupportApi {
 }
 
 void main() {
+  test(
+    'deletion review accepts consistent holds and rejects a false ready status',
+    () async {
+      final api = AccountRequestApi()..wrong = false;
+      final page = await api.request('GET', '/support/test');
+      page['deletionReview'] = {
+        'state': 'waiting_for_obligations',
+        'openBooking': false,
+        'openDispute': true,
+      };
+      expect(supportThread(page)['deletionReview']['openDispute'], isTrue);
+      page['deletionReview']['state'] = 'awaiting_verification';
+      expect(() => supportThread(page), throwsFormatException);
+      page['deletionReview']['openDispute'] = false;
+      expect(
+        supportThread(page)['deletionReview']['state'],
+        'awaiting_verification',
+      );
+    },
+  );
   for (final language in {
     'uz': ['Hisobni o‘chirish so‘rovi', 'qolgan pul qaytarilmaydi'],
     'en': ['Request account deletion', 'non-refundable'],

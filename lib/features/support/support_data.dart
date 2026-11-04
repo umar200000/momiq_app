@@ -116,6 +116,21 @@ SupportData supportThread(
   }
   final video = data['videoReport'];
   final appeal = data['disputeAppeal'];
+  final deletion = data['deletionReview'];
+  if (deletion != null) {
+    if (ticket['topic'] != 'account_deletion' ||
+        deletion is! Map ||
+        deletion['openBooking'] is! bool ||
+        deletion['openDispute'] is! bool) {
+      _invalid();
+    }
+    final waiting =
+        deletion['openBooking'] == true || deletion['openDispute'] == true;
+    if (deletion['state'] !=
+        (waiting ? 'waiting_for_obligations' : 'awaiting_verification')) {
+      _invalid();
+    }
+  }
   if (ticket['topic'] == 'dispute_appeal' || appeal != null) {
     if (ticket['topic'] != 'dispute_appeal' ||
         appeal is! Map ||
