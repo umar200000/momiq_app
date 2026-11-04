@@ -105,6 +105,12 @@ void main() {
     testWidgets('address form and missing-address feedback in $language', (
       t,
     ) async {
+      t.view.devicePixelRatio = 1;
+      t.view.physicalSize = const Size(320, 640);
+      t.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(t.view.resetDevicePixelRatio);
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
       final previous = AppLanguage.current.value;
       AppLanguage.current.value = language;
       addTearDown(() => AppLanguage.current.value = previous);
