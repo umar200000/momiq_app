@@ -477,10 +477,30 @@ class _CareLocationPageState extends State<CareLocationPage>
     super.dispose();
   }
 
+  Future<void> _manual() async {
+    final result = await showDialog<CareLocation>(
+      context: context,
+      builder: (_) => _ManualLocationDialog(initial: _selected),
+    );
+    if (result != null && mounted) Navigator.pop(context, result);
+  }
+
   @override
   Widget build(BuildContext context) => MomiqScaffold(
     backgroundColor: listingBackground,
     appBar: AppBar(
+      actions: [
+        if (_ready)
+          IconButton(
+            icon: const Icon(Icons.edit_location_alt_outlined),
+            tooltip: lt(
+              'Manzilni qo‘lda kiritish',
+              'Enter address manually',
+              'Ввести адрес вручную',
+            ),
+            onPressed: _manual,
+          ),
+      ],
       backgroundColor: listingBackground,
       surfaceTintColor: Colors.transparent,
       foregroundColor: AppColors.chocolate,
@@ -505,6 +525,16 @@ class _CareLocationPageState extends State<CareLocationPage>
                           onPressed: _initialize,
                           child: Text(
                             lt('Qayta urinish', 'Retry', 'Повторить'),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _manual,
+                          child: Text(
+                            lt(
+                              'Manzilni qo‘lda kiritish',
+                              'Enter address manually',
+                              'Ввести адрес вручную',
+                            ),
                           ),
                         ),
                       ],
@@ -807,5 +837,109 @@ class _CareLocationPageState extends State<CareLocationPage>
         ),
       ],
     ),
+  );
+}
+
+class _ManualLocationDialog extends StatefulWidget {
+  const _ManualLocationDialog({required this.initial});
+  final CareLocation? initial;
+  @override
+  State<_ManualLocationDialog> createState() => _ManualLocationDialogState();
+}
+
+class _ManualLocationDialogState extends State<_ManualLocationDialog> {
+  late final _address = TextEditingController(text: widget.initial?.address);
+  late final _coordinates = TextEditingController(
+    text: widget.initial == null
+        ? ''
+        : '${widget.initial!.latitude}, ${widget.initial!.longitude}',
+  );
+  String? _error;
+
+  void _confirm() {
+    final parts = _coordinates.text.trim().split(RegExp(r'[,;\s]+'));
+    final lat = parts.length == 2 ? double.tryParse(parts.first) : null;
+    final lon = parts.length == 2 ? double.tryParse(parts.last) : null;
+    final address = _address.text.trim();
+    if (lat == null ||
+        lon == null ||
+        !lat.isFinite ||
+        !lon.isFinite ||
+        lat.abs() > 90 ||
+        lon.abs() > 180 ||
+        address.isEmpty ||
+        address.runes.length > 500) {
+      setState(
+        () => _error = lt(
+          'Manzil, kenglik va uzunlikni tekshiring.',
+          'Check the address, latitude and longitude.',
+          'Проверьте адрес, широту и долготу.',
+        ),
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      CareLocation(latitude: lat, longitude: lon, address: address),
+    );
+  }
+
+  @override
+  void dispose() {
+    _address.dispose();
+    _coordinates.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: Text(
+      lt(
+        'Manzilni qo‘lda kiritish',
+        'Enter address manually',
+        'Ввести адрес вручную',
+      ),
+    ),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          lt(
+            'Xaritadan nuqtaning koordinatalarini nusxalang. Avval kenglik, keyin uzunlik yoziladi.',
+            'Copy the coordinates of the point from your map. Enter latitude first, then longitude.',
+            'Скопируйте координаты точки с карты. Сначала введите широту, затем долготу.',
+          ),
+        ),
+        TextField(
+          key: const ValueKey('manualAddress'),
+          controller: _address,
+          maxLength: 500,
+          decoration: InputDecoration(
+            labelText: lt('Manzil', 'Address', 'Адрес'),
+          ),
+        ),
+        TextField(
+          key: const ValueKey('manualCoordinates'),
+          controller: _coordinates,
+          decoration: InputDecoration(
+            labelText: lt('Koordinatalar', 'Coordinates', 'Координаты'),
+            hintText: '41.3112, 69.2797',
+            errorText: _error,
+            errorMaxLines: 3,
+          ),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(lt('Ortga', 'Back', 'Назад')),
+      ),
+      FilledButton(
+        onPressed: _confirm,
+        child: Text(lt('Tanlash', 'Use location', 'Выбрать')),
+      ),
+    ],
   );
 }

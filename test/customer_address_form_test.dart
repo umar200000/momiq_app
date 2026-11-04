@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/customer/data/customer_store.dart';
 import 'package:momiq_app/features/customer/presentation/customer_account.dart';
-import 'package:momiq_app/features/listings/data/listing_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'account_revision_test.dart' show RevisionApi;
 
@@ -48,11 +47,6 @@ void main() {
                     builder: (_) => CustomerAddressForm(
                       store: store,
                       address: store.list('addresses').firstOrNull,
-                      locationPicker: (_, _) async => const CareLocation(
-                        latitude: 41.4689,
-                        longitude: 69.5822,
-                        address: 'TEST Chirchiq',
-                      ),
                     ),
                   ),
                 ),
@@ -75,6 +69,25 @@ void main() {
 
       await tap('Open form');
       await tap('Xaritadan tanlash');
+      await tap('Manzilni qo‘lda kiritish');
+      await t.enterText(
+        find.byKey(const ValueKey('manualAddress')),
+        'TEST Chirchiq',
+      );
+      await t.enterText(
+        find.byKey(const ValueKey('manualCoordinates')),
+        '100, 500',
+      );
+      await tap('Tanlash');
+      expect(
+        find.text('Manzil, kenglik va uzunlikni tekshiring.'),
+        findsOneWidget,
+      );
+      await t.enterText(
+        find.byKey(const ValueKey('manualCoordinates')),
+        '41.4689, 69.5822',
+      );
+      await tap('Tanlash');
       await t.enterText(find.byType(TextField).last, 'TEST gate');
       await tap('Saqlash');
       final id = api.saved.single['id'];

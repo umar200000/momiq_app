@@ -642,15 +642,9 @@ class CustomerAddressesPage extends StatelessWidget {
 }
 
 class CustomerAddressForm extends StatefulWidget {
-  const CustomerAddressForm({
-    super.key,
-    required this.store,
-    this.address,
-    this.locationPicker = pickCareLocation,
-  });
+  const CustomerAddressForm({super.key, required this.store, this.address});
   final CustomerStore store;
   final CJson? address;
-  final LocationPicker locationPicker;
   @override
   State<CustomerAddressForm> createState() => _CustomerAddressFormState();
 }
@@ -676,7 +670,7 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
   }
 
   Future<void> _map() async {
-    final value = await widget.locationPicker(context, _location);
+    final value = await pickCareLocation(context, _location);
     if (value != null && mounted) setState(() => _location = value);
   }
 
