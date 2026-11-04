@@ -615,10 +615,18 @@ class CustomerAddressesPage extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                cText(a['label'], bold: true, size: 19),
-                cRow(Icons.location_on_outlined, a['address']),
-                if ('${a['apartment']}'.isNotEmpty)
-                  cText('Xonadon ${a['apartment']}', size: 13),
+                cText(a['label'], bold: true, size: 19, translate: false),
+                cRow(
+                  Icons.location_on_outlined,
+                  a['address'],
+                  translate: false,
+                ),
+                if ((a['apartment'] ?? '').toString().isNotEmpty)
+                  cText(
+                    "${lt('Kirish ko‘rsatmasi', 'Entry instructions', 'Как попасть внутрь')}: ${a['apartment']}",
+                    size: 13,
+                    translate: false,
+                  ),
                 TextButton.icon(
                   onPressed: () => cPush(
                     context,
@@ -653,7 +661,7 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
     with OwnedDialogs<CustomerAddressForm> {
   late final int? _revision;
   late final _label = TextEditingController(
-    text: widget.address?['label'] ?? 'Uyim',
+    text: widget.address?['label'] ?? lt('Uyim', 'Home', 'Дом'),
   );
   late final _flat = TextEditingController(
     text: widget.address?['apartment'] ?? '',
@@ -731,7 +739,7 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
   Future<void> _save() async {
     if (_saving) return;
     if (_location == null || _label.text.trim().isEmpty) {
-      cNotice(context, 'Manzilni xaritadan belgilang va nomini kiriting.');
+      cNotice(context, 'Manzil va uning nomini kiriting.');
       return;
     }
     setState(() => _saving = true);

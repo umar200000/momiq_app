@@ -174,6 +174,16 @@ const _words = <String, List<String>>{
   'Rasmni almashtirish': ['Change photo', 'Изменить фото'],
   'Manzil qo‘shish': ['Add address', 'Добавить адрес'],
   'Manzilni belgilang': ['Choose address', 'Выберите адрес'],
+  'Xaritadan tanlash': ['Choose on map', 'Выбрать на карте'],
+  'Manzil nomi': ['Address label', 'Название адреса'],
+  'Manzil va uning nomini kiriting.': [
+    'Enter an address and a label.',
+    'Укажите адрес и его название.',
+  ],
+  'Manzil Toshkent shahri va Toshkent viloyatidan tashqarida': [
+    'This address is outside Tashkent city and Tashkent region.',
+    'Этот адрес находится за пределами Ташкента и Ташкентской области.',
+  ],
   'Baho va fikr': ['Rating and review', 'Оценка и отзыв'],
   'Fikrni yuborish': ['Send review', 'Отправить отзыв'],
   'Tahrirlash': ['Edit', 'Изменить'],
@@ -243,13 +253,13 @@ Widget cButton(
     ),
   ),
 );
-Widget cRow(IconData icon, String text) => Padding(
+Widget cRow(IconData icon, String text, {bool translate = true}) => Padding(
   padding: const EdgeInsets.symmetric(vertical: 5),
   child: Row(
     children: [
       Icon(icon, size: 19, color: AppColors.brown),
       const SizedBox(width: 10),
-      Expanded(child: cText(text, size: 13)),
+      Expanded(child: cText(text, size: 13, translate: translate)),
     ],
   ),
 );
