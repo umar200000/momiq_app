@@ -450,7 +450,23 @@ class CustomerApi {
     final text = limit == null
         ? await utf8.decoder.bind(response).join()
         : utf8.decode(await _boundedBytes(response, limit));
-    return Map<String, dynamic>.from(jsonDecode(text));
+    final result = Map<String, dynamic>.from(jsonDecode(text));
+    if (path == '/me' && (method == 'GET' || method == 'PUT')) {
+      final account = result['account'];
+      if (userId.isEmpty || result['userId'] != userId || account is! Map) {
+        throw const FormatException('Invalid account response');
+      }
+      final revision = account['_revision'];
+      final expected = body?['_revision'];
+      if ((account.containsKey('_revision') &&
+              (revision is! int || revision < 0)) ||
+          (method == 'PUT' &&
+              expected is int &&
+              (revision is! int || revision != expected + 1))) {
+        throw const FormatException('Invalid account revision');
+      }
+    }
+    return result;
   });
 
   static Future<Uint8List> _boundedBytes(

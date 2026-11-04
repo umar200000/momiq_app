@@ -4,6 +4,51 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 
 void main() {
+  test(
+    'profile reads and writes require the owner and matching revision',
+    () async {
+      final http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => http.close(force: true));
+      final api = CustomerApi(
+        'TEST-token',
+        'owner',
+        baseUrl: 'http://127.0.0.1:${http.port}',
+      );
+      String? owner = 'owner';
+      final account = <String, dynamic>{};
+      http.listen((request) async {
+        await request.drain<void>();
+        request.response.write(
+          jsonEncode({'userId': owner, 'account': account}),
+        );
+        await request.response.close();
+      });
+      // Older servers return an owner but have no profile revision.
+      expect((await api.request('GET', '/me'))['userId'], 'owner');
+      expect((await api.request('PUT', '/me', {}))['account'], isEmpty);
+      for (final foreign in ['another-owner', null]) {
+        owner = foreign;
+        await expectLater(api.request('GET', '/me'), throwsFormatException);
+        await expectLater(api.request('PUT', '/me', {}), throwsFormatException);
+      }
+      owner = 'owner';
+      const edit = {'_revision': 2};
+      await expectLater(api.request('PUT', '/me', edit), throwsFormatException);
+      for (final invalid in [-1, 2, 4, 3.0, '3']) {
+        account['_revision'] = invalid;
+        await expectLater(
+          api.request('PUT', '/me', edit),
+          throwsFormatException,
+        );
+      }
+      account['_revision'] = 3;
+      expect(
+        (await api.request('PUT', '/me', edit))['account']['_revision'],
+        3,
+      );
+    },
+  );
+
   test('health, error and private image reads enforce wire limits', () async {
     final http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => http.close(force: true));
@@ -40,7 +85,7 @@ void main() {
         ),
       );
       status = 200;
-      expect((await api.request('GET', '/me'))['error'], isNotEmpty);
+      expect((await api.request('GET', '/sitters'))['error'], isNotEmpty);
     }
     status = 403;
     body = '{"error":"denied"}';
