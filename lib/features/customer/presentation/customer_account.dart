@@ -10,6 +10,7 @@ import '../../listings/data/listing_store.dart' show CareLocation;
 import '../../listings/presentation/care_location_page.dart';
 import '../../listings/presentation/care_location_preview.dart';
 import 'customer_widgets.dart';
+import '../../../core/widgets/owned_dialogs.dart';
 
 class CustomerPetsPage extends StatelessWidget {
   const CustomerPetsPage({super.key, required this.store, this.select = false});
@@ -641,14 +642,21 @@ class CustomerAddressesPage extends StatelessWidget {
 }
 
 class CustomerAddressForm extends StatefulWidget {
-  const CustomerAddressForm({super.key, required this.store, this.address});
+  const CustomerAddressForm({
+    super.key,
+    required this.store,
+    this.address,
+    this.locationPicker = pickCareLocation,
+  });
   final CustomerStore store;
   final CJson? address;
+  final LocationPicker locationPicker;
   @override
   State<CustomerAddressForm> createState() => _CustomerAddressFormState();
 }
 
-class _CustomerAddressFormState extends State<CustomerAddressForm> {
+class _CustomerAddressFormState extends State<CustomerAddressForm>
+    with OwnedDialogs<CustomerAddressForm> {
   late final int? _revision;
   late final _label = TextEditingController(
     text: widget.address?['label'] ?? 'Uyim',
@@ -668,8 +676,62 @@ class _CustomerAddressFormState extends State<CustomerAddressForm> {
   }
 
   Future<void> _map() async {
-    final value = await pickCareLocation(context, _location);
+    final value = await widget.locationPicker(context, _location);
     if (value != null && mounted) setState(() => _location = value);
+  }
+
+  Future<void> _delete() async {
+    final address = widget.address;
+    if (_saving || address == null) return;
+    setState(() => _saving = true);
+    try {
+      final confirmed = await showOwnedDialog<bool>(
+        builder: (dialog) => AlertDialog(
+          title: Text(
+            lt('Manzil o‘chirilsinmi?', 'Delete address?', 'Удалить адрес?'),
+          ),
+          content: Text(
+            lt(
+              'Bu manzil yangi bronlar uchun ro‘yxatdan o‘chiriladi.',
+              'This address will be removed from the list for new bookings.',
+              'Адрес будет удалён из списка для новых заказов.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: Text(lt('Ortga', 'Back', 'Назад')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(lt('O‘chirish', 'Delete', 'Удалить')),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+      await widget.store.update((data) {
+        (data['addresses'] as List).removeWhere(
+          (item) => item['id'] == address['id'],
+        );
+      }, expectedRevision: _revision);
+      if (widget.store
+          .list('addresses')
+          .any((item) => item['id'] == address['id'])) {
+        throw StateError(
+          lt(
+            'Manzil o‘chirilmadi',
+            'Address was not deleted',
+            'Адрес не удалён',
+          ),
+        );
+      }
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) cNotice(context, e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _save() async {
@@ -717,7 +779,21 @@ class _CustomerAddressFormState extends State<CustomerAddressForm> {
       ),
       const SizedBox(height: 18),
       cField(_label, 'Manzil nomi'),
-      cField(_flat, 'Xonadon (ixtiyoriy)'),
+      cField(
+        _flat,
+        lt(
+          'Xonadon va kirish ko‘rsatmasi (ixtiyoriy)',
+          'Apartment and entry instructions (optional)',
+          'Квартира и инструкции по входу (необязательно)',
+        ),
+      ),
+      if (widget.address != null)
+        cButton(
+          lt('Manzilni o‘chirish', 'Delete address', 'Удалить адрес'),
+          _saving ? null : _delete,
+          secondary: true,
+          icon: Icons.delete_outline,
+        ),
     ],
   );
 }
