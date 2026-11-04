@@ -39,6 +39,7 @@ class Probe extends LoginHarness {
   bool compatible = false;
   @override
   Future<Map<String, dynamic>> response(String path) async {
+    if (path.endsWith('/me')) return {'userId': 'owner', 'account': {}};
     if (!path.endsWith('/health')) return {'ok': true};
     if (!healthEntered.isCompleted) healthEntered.complete();
     await healthGate?.future;
