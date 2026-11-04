@@ -4,11 +4,64 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../core/widgets/owned_dialogs.dart';
+import '../../customer/presentation/pet_safety.dart' show petSafetyFields;
 import '../../chat/data/conversation_controller.dart' show chatRequestId;
 import '../../customer/data/customer_api.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 
 final _exportName = RegExp(r'^momiq-profile-[A-Za-z0-9_-]{32}\.json$');
+
+Map<String, dynamic> _fields(Object? record, List<String> names) {
+  if (record is! Map) throw const FormatException('Invalid profile record');
+  final result = <String, dynamic>{};
+  for (final name in names) {
+    if (!record.containsKey(name)) continue;
+    final value = record[name];
+    if (value == null || value is String || value is num || value is bool) {
+      result[name] = value;
+    }
+  }
+  return result;
+}
+
+Map<String, dynamic>? _sitterFields(dynamic record) {
+  if (record == null) return null;
+  final result = _fields(record, ['housing', 'years', 'about']);
+  final schedule = record['schedule'];
+  if (schedule is Map) {
+    final days = schedule['days'];
+    if (days is List && days.length == 7 && days.every((day) => day is bool)) {
+      result['schedule'] = {
+        ..._fields(schedule, ['start', 'end', 'timezone']),
+        'days': days,
+      };
+    }
+  }
+  final closed = record['closedDates'];
+  if (closed is List) {
+    result['closedDates'] = closed
+        .whereType<String>()
+        .where(RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch)
+        .toList();
+  }
+  final services = record['services'];
+  if (services is List) {
+    result['services'] = [
+      for (final item in services)
+        if (item is Map &&
+            const ['boarding', 'personal', 'homeVisit'].contains(item['type']))
+          {
+            ..._fields(item, ['type', 'price', 'active', 'capacity']),
+            if (item['pets'] is List)
+              'pets': [
+                for (final pet in item['pets'])
+                  if (pet == 'cat' || pet == 'dog') pet,
+              ],
+          },
+    ];
+  }
+  return result;
+}
 
 Future<void> _removeTemporaryExport(File file) async {
   try {
@@ -88,9 +141,9 @@ class _ProfileExportState extends State<ProfileExportTile>
           ),
           content: Text(
             lt(
-              'JSON faylga telefon, saqlangan manzillar, hayvonlar va sozlamalar yoziladi. Fayl siz tanlagan joyda saqlanadi.',
-              'The JSON file includes your phone, saved addresses, pets and settings. Choose where to save it.',
-              'В JSON-файл войдут телефон, сохранённые адреса, питомцы и настройки. Выберите место сохранения.',
+              'JSON faylga telefon, manzillar, hayvonlar va sozlamalar yoziladi. Enaganing xizmatlari va narxlari ham qo‘shiladi. Fayl saqlanadigan joyni tanlang.',
+              'The JSON file includes your phone, addresses, pets and settings. Sitter profiles also include services and prices. Choose where to save the file.',
+              'В JSON-файл войдут телефон, адреса, питомцы и настройки. Для няни также сохранятся услуги и цены. Выберите место сохранения.',
             ),
           ),
           actions: [
@@ -123,17 +176,44 @@ class _ProfileExportState extends State<ProfileExportTile>
       final bytes = Uint8List.fromList(
         utf8.encode(
           const JsonEncoder.withIndent('  ').convert({
-            for (final key in [
-              'format',
-              'ownerId',
-              'generatedAt',
-              'profile',
-              'addresses',
-              'pets',
-              'sitterProfile',
-              'preferences',
-            ])
-              key: data[key],
+            ..._fields(data, ['format', 'ownerId', 'generatedAt']),
+            'profile': _fields(data['profile'], ['first', 'last', 'phone']),
+            'addresses': [
+              for (final item in data['addresses'])
+                _fields(item, [
+                  'id',
+                  'label',
+                  'address',
+                  'apartment',
+                  'lat',
+                  'lon',
+                ]),
+            ],
+            'pets': [
+              for (final item in data['pets'])
+                _fields(item, [
+                  'id',
+                  'type',
+                  'otherType',
+                  'name',
+                  'age',
+                  'sex',
+                  'breed',
+                  'notes',
+                  'archived',
+                  ...petSafetyFields,
+                ]),
+            ],
+            'sitterProfile': _sitterFields(data['sitterProfile']),
+            'preferences': {
+              ..._fields(data['preferences'], ['language']),
+              if (data['preferences']['notifications'] is Map)
+                'notifications': _fields(data['preferences']['notifications'], [
+                  'orders',
+                  'chat',
+                  'video',
+                ]),
+            },
           }),
         ),
       );

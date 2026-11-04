@@ -57,15 +57,64 @@ void main() {
         'format': 'momiq-profile-v1',
         'ownerId': scenario == 'foreign' ? 'other' : 'owner',
         'generatedAt': '2026-10-31T12:00:00Z',
-        'profile': {'first': 'TEST'},
-        'addresses': [],
-        'pets': [],
-        'preferences': {},
+        'profile': {'first': 'TEST', 'photo': 'PRIVATE'},
+        'addresses': [
+          {'label': 'Home', 'token': 'PRIVATE'},
+        ],
+        'pets': [
+          {
+            'name': 'Cat',
+            'passport': 'PRIVATE',
+            'notes': {'hidden': 'PRIVATE'},
+          },
+        ],
+        'preferences': {
+          'notifications': {'orders': true, 'extra': 'PRIVATE'},
+        },
+        'sitterProfile': {
+          'homePhotos': ['PRIVATE'],
+          'schedule': {
+            'start': 540,
+            'end': 1080,
+            'timezone': 'Asia/Tashkent',
+            'days': List.filled(7, true),
+            'extra': 'PRIVATE',
+          },
+          'closedDates': [
+            '2026-11-05',
+            {'secret': 'PRIVATE'},
+          ],
+          'services': [
+            {
+              'type': 'boarding',
+              'price': 500000,
+              'capacity': 2,
+              'active': true,
+              'pets': [
+                'cat',
+                {'secret': 'PRIVATE'},
+              ],
+              'location': {'address': 'PRIVATE'},
+              'internalNote': 'PRIVATE',
+            },
+          ],
+        },
         'unexpectedSecret': 'TEST token',
       });
       await t.pumpAndSettle();
       if (scenario == 'saved' || scenario == 'cancelled') {
         expect(files.single['profile']['first'], 'TEST');
+        expect(jsonEncode(files.single), isNot(contains('PRIVATE')));
+        final sitter = files.single['sitterProfile'];
+        expect(sitter['services'].single, {
+          'type': 'boarding',
+          'price': 500000,
+          'capacity': 2,
+          'active': true,
+          'pets': ['cat'],
+        });
+        expect(sitter['closedDates'], ['2026-11-05']);
+        expect(sitter['schedule']['days'], List.filled(7, true));
         expect(files.single.containsKey('unexpectedSecret'), false);
       } else {
         expect(files, isEmpty);
