@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:momiq_app/core/localization/app_language.dart';
 import 'package:momiq_app/features/care/data/booking_care_controller.dart';
 import 'package:momiq_app/features/care/presentation/booking_care_page.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
@@ -84,6 +85,79 @@ CareJson reportValues() => {
 };
 
 void main() {
+  for (final language in ['uz', 'en', 'ru']) {
+    testWidgets(
+      'care status remains readable and submits at 320px and 2x in $language',
+      (t) async {
+        final previousLanguage = AppLanguage.current.value;
+        AppLanguage.current.value = language;
+        addTearDown(() => AppLanguage.current.value = previousLanguage);
+        t.view.physicalSize = const Size(320, 640);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        final api = CareApi();
+        final c = BookingCareController(api, 'booking', storage: ChatDraft());
+        addTearDown(c.dispose);
+        await t.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2)),
+              child: child!,
+            ),
+            home: BookingCarePage(
+              api: api,
+              bookingId: 'booking',
+              controller: c,
+            ),
+          ),
+        );
+        await t.pumpAndSettle();
+        expect(c.error, isNull);
+        final report = find.byKey(const ValueKey('careReport-cat-food'));
+        await t.scrollUntilVisible(
+          report.hitTestable(),
+          150,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await t.pumpAndSettle();
+        await t.tap(report);
+        await t.pumpAndSettle();
+        final status = find.byType(DropdownButtonFormField<String>);
+        final selected = find.text(careState('done')).hitTestable();
+        expect(selected, findsOneWidget);
+        expect(t.getRect(status).contains(t.getRect(selected).topLeft), isTrue);
+        expect(
+          t
+              .getRect(status)
+              .contains(t.getRect(selected).bottomRight - const Offset(1, 1)),
+          isTrue,
+        );
+        await t.tap(status);
+        await t.pumpAndSettle();
+        await t.tap(find.text(careState('skipped')).last);
+        await t.pumpAndSettle();
+        final save = find.byKey(const ValueKey('careEditorSave'));
+        await t.ensureVisible(save);
+        await t.tap(save);
+        await t.pumpAndSettle();
+        expect(api.posts, isEmpty);
+        final note = find.byKey(const ValueKey('careField-note'));
+        await t.ensureVisible(note);
+        await t.enterText(note, 'TEST agreed reason');
+        await t.ensureVisible(save);
+        await t.tap(save);
+        await t.pumpAndSettle();
+        expect(api.posts.single['payload'], {
+          'state': 'skipped',
+          'note': 'TEST agreed reason',
+        });
+        expect(t.takeException(), isNull);
+        await t.pumpWidget(const SizedBox());
+      },
+    );
+  }
   testWidgets(
     'customer instruction form requires a reason and keeps each category',
     (t) async {
