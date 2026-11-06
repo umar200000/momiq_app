@@ -115,6 +115,14 @@ void main() {
         );
         await t.pumpAndSettle();
         expect(c.error, isNull);
+        expect(
+          find.byTooltip(switch (language) {
+            'en' => 'Refresh',
+            'ru' => 'Обновить',
+            _ => 'Yangilash',
+          }),
+          findsOneWidget,
+        );
         final report = find.byKey(const ValueKey('careReport-cat-food'));
         await t.scrollUntilVisible(
           report.hitTestable(),
@@ -122,6 +130,25 @@ void main() {
           scrollable: find.byType(Scrollable).first,
         );
         await t.pumpAndSettle();
+        final reportLabel = switch (language) {
+          'en' => 'Report',
+          'ru' => 'Отчёт',
+          _ => 'Hisobot',
+        };
+        final semantics = t.ensureSemantics();
+        try {
+          await t.pump();
+          expect(
+            t.getSemantics(report).tooltip,
+            contains('$reportLabel: TEST pet'),
+          );
+          expect(
+            t.getSemantics(report).tooltip,
+            contains(careCategory('food')),
+          );
+        } finally {
+          semantics.dispose();
+        }
         await t.tap(report);
         await t.pumpAndSettle();
         final status = find.byType(DropdownButtonFormField<String>);

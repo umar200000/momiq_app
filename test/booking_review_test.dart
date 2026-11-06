@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:momiq_app/core/localization/app_language.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'package:momiq_app/features/reviews/data/booking_review_controller.dart';
 import 'package:momiq_app/features/reviews/presentation/booking_review_page.dart';
@@ -68,6 +69,79 @@ class ReviewApi extends CustomerApi {
 }
 
 void main() {
+  for (final language in ['uz', 'en', 'ru']) {
+    testWidgets('review confirmation and retry fit 320px at 2x in $language', (
+      t,
+    ) async {
+      final previousLanguage = AppLanguage.current.value;
+      AppLanguage.current.value = language;
+      addTearDown(() => AppLanguage.current.value = previousLanguage);
+      t.view.physicalSize = const Size(320, 640);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final api = ReviewApi()..loseResponse = true;
+      final c = BookingReviewController(api, 'booking', storage: ChatDraft());
+      addTearDown(c.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: BookingReviewPage(
+            api: api,
+            bookingId: 'booking',
+            controller: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      Future<void> reach(Finder target) async {
+        await t.scrollUntilVisible(
+          target.hitTestable(),
+          100,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await t.pumpAndSettle();
+      }
+
+      final submit = find.byKey(const ValueKey('submitReview'));
+      final star = find.byKey(const ValueKey('reviewStar-4'));
+      await reach(star);
+      await t.tap(star);
+      final input = find.byKey(const ValueKey('reviewText'));
+      await reach(input);
+      await t.enterText(input, 'TEST original review');
+      t.view.viewInsets = const FakeViewPadding(bottom: 240);
+      await t.pumpAndSettle();
+      await reach(submit);
+      await t.tap(submit);
+      await t.pumpAndSettle();
+      expect(api.posts, isEmpty);
+      final confirm = find.byKey(const ValueKey('confirmReview'));
+      await t.ensureVisible(confirm);
+      await t.pumpAndSettle();
+      await t.tap(confirm);
+      await t.pumpAndSettle();
+      expect(api.posts.single['stars'], 4);
+      expect(c.pending, isNotNull);
+      t.view.viewInsets = const FakeViewPadding();
+      await t.pumpAndSettle();
+      expect(t.widget<TextField>(input).enabled, false);
+      await reach(submit);
+      await t.tap(submit);
+      await t.pumpAndSettle();
+      expect(api.posts, hasLength(2));
+      expect(api.posts.last, api.posts.first);
+      expect(api.saved, hasLength(1));
+      expect(c.pending, isNull);
+      expect(input, findsNothing);
+      expect(find.text('TEST original review'), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+  }
   testWidgets(
     'hidden review shows author decision and server appeal capability',
     (t) async {

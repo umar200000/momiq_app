@@ -224,6 +224,7 @@ class _BookingDisputePageState extends State<_BookingDisputePage>
           ),
           actions: [
             IconButton(
+              tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
               onPressed: c.busy ? null : load,
               icon: const Icon(Icons.refresh),
             ),

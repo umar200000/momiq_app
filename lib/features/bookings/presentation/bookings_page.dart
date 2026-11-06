@@ -517,6 +517,7 @@ class _BookingDetailPageState extends State<_BookingDetailPage>
           title: Text(lt('Buyurtma', 'Booking', 'Заказ')),
           actions: [
             IconButton(
+              tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
               onPressed: locked ? null : c.load,
               icon: const Icon(Icons.refresh),
             ),

@@ -869,6 +869,9 @@ class _PlaybackState extends State<_Playback> with WidgetsBindingObserver {
                 ValueListenableBuilder(
                   valueListenable: player!,
                   builder: (context, value, _) => IconButton(
+                    tooltip: value.isPlaying
+                        ? lt('Pauza', 'Pause', 'Пауза')
+                        : lt('Ijro etish', 'Play', 'Воспроизвести'),
                     icon: Icon(
                       value.isPlaying ? Icons.pause : Icons.play_arrow,
                     ),

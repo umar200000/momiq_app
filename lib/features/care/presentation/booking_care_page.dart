@@ -222,6 +222,7 @@ class _BookingCarePageState extends State<_BookingCarePage>
           ),
           actions: [
             IconButton(
+              tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
               onPressed: c.busy ? null : () => c.load(day: data?['day']),
               icon: const Icon(Icons.refresh),
             ),
@@ -361,6 +362,8 @@ class _BookingCarePageState extends State<_BookingCarePage>
                                     ),
                                     trailing: data['canReport'] == true
                                         ? IconButton(
+                                            tooltip:
+                                                '${lt('Hisobot', 'Report', 'Отчёт')}: ${pet['name']} · ${careCategory(category)}',
                                             key: ValueKey(
                                               'careReport-${pet['id']}-$category',
                                             ),
