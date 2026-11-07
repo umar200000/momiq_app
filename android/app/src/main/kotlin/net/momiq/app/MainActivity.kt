@@ -1,4 +1,4 @@
-package com.example.momiq_app
+package net.momiq.app
 
 import io.flutter.embedding.android.FlutterActivity
 

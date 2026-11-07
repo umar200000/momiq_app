@@ -31,6 +31,42 @@ extension Translation on BuildContext {
 }
 
 const _translations = <String, List<String>>{
+  'Telefon raqami yoki kod noto‘g‘ri.': [
+    'Incorrect phone number or code.',
+    'Неверный номер телефона или код.',
+  ],
+  'Hisobga kirish cheklangan. Yordam xizmatiga murojaat qiling.': [
+    'Account access is restricted. Contact support.',
+    'Доступ к аккаунту ограничен. Обратитесь в поддержку.',
+  ],
+  'Urinishlar ko‘p. Biroz kutib qayta urinib ko‘ring.': [
+    'Too many attempts. Wait a moment and try again.',
+    'Слишком много попыток. Подождите немного и попробуйте ещё раз.',
+  ],
+  'Kirish xizmati vaqtincha mavjud emas.': [
+    'Sign-in is temporarily unavailable.',
+    'Вход временно недоступен.',
+  ],
+  'Saqlangan sessiya boshqa muhitga tegishli.': [
+    'The saved session belongs to a different app environment.',
+    'Сохранённый сеанс относится к другой среде приложения.',
+  ],
+  'Kirishni tasdiqlab bo‘lmadi. Qayta urinib ko‘ring.': [
+    'Could not confirm sign-in. Please try again.',
+    'Не удалось подтвердить вход. Попробуйте ещё раз.',
+  ],
+  'Backendga ulanib bo‘lmadi. Internet ulanishini tekshiring.': [
+    'Could not reach Momiq. Check your internet connection.',
+    'Не удалось подключиться к Momiq. Проверьте подключение к интернету.',
+  ],
+  'Server bilan aloqa uzildi. Qayta urinib ko‘ring.': [
+    'The connection was interrupted. Please try again.',
+    'Связь с сервером прервалась. Попробуйте ещё раз.',
+  ],
+  'Server javob bermadi. Qayta urinib ko‘ring.': [
+    'The server did not respond. Please try again.',
+    'Сервер не ответил. Попробуйте ещё раз.',
+  ],
   'Davom etish uchun MyID orqali shaxsingizni tasdiqlang.': [
     'Verify your identity with MyID to continue.',
     'Подтвердите личность через MyID, чтобы продолжить.',

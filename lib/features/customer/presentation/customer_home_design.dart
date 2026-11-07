@@ -1,3 +1,5 @@
+import '../../support/support_page.dart' show PublicContentReportButton;
+import '../data/customer_api.dart' show CustomerApi;
 import 'dart:convert';
 import '../../../core/widgets/momiq_scaffold.dart';
 import 'dart:async';
@@ -331,10 +333,12 @@ class CustomerServiceTiles extends StatelessWidget {
 }
 
 class CustomerHomePhotos extends StatelessWidget {
-  const CustomerHomePhotos({super.key, required this.sitter});
+  const CustomerHomePhotos({super.key, required this.sitter, this.api});
+  final CustomerApi? api;
   final CJson sitter;
   @override
   Widget build(BuildContext context) {
+    final session = CustomerApi.sessionVersion;
     final photos = (sitter['homePhotos'] as List? ?? const [])
         .whereType<String>()
         .toList();
@@ -371,10 +375,19 @@ class CustomerHomePhotos extends StatelessWidget {
                       button: true,
                       child: GestureDetector(
                         key: ValueKey('sitterHomePhoto-${sitter['id']}-$i'),
-                        onTap: () => cPush(
-                          context,
-                          CustomerHomeGallery(photos: photos, initialIndex: i),
-                        ),
+                        onTap: () {
+                          if (session != CustomerApi.sessionVersion) return;
+                          cPush(
+                            context,
+                            CustomerHomeGallery(
+                              photos: photos,
+                              initialIndex: i,
+                              api: api,
+                              listingId: sitter['id'],
+                              sourceSession: session,
+                            ),
+                          );
+                        },
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
                           child: AspectRatio(
@@ -404,7 +417,13 @@ class CustomerHomeGallery extends StatefulWidget {
     super.key,
     required this.photos,
     required this.initialIndex,
+    this.api,
+    this.listingId,
+    this.sourceSession,
   });
+  final CustomerApi? api;
+  final String? listingId;
+  final int? sourceSession;
   final List<String> photos;
   final int initialIndex;
   @override
@@ -428,6 +447,22 @@ class _CustomerHomeGalleryState extends State<CustomerHomeGallery> {
     backgroundColor: listingBackground,
     appBar: AppBar(
       backgroundColor: listingBackground,
+      actions: [
+        if (widget.api != null &&
+            widget.listingId != null &&
+            (widget.sourceSession == null ||
+                widget.sourceSession == CustomerApi.sessionVersion))
+          PublicContentReportButton(
+            api: widget.api,
+            target: {
+              'kind': 'listing',
+              'id': widget.listingId!,
+              'media': 'home:$_index',
+            },
+            publicPhoto: widget.photos[_index],
+            compact: true,
+          ),
+      ],
       title: Text(
         '${_index + 1} / ${widget.photos.length}',
         key: const ValueKey('homePhotoCount'),

@@ -6,8 +6,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:momiq_app/features/customer/data/customer_store.dart';
 import 'package:momiq_app/features/customer/presentation/customer_account.dart';
-import 'package:momiq_app/features/customer/presentation/customer_booking_form.dart';
+import 'package:momiq_app/features/bookings/presentation/booking_request_page.dart';
+import 'package:momiq_app/features/bookings/data/booking_composer.dart';
+import 'booking_composer_test.dart' show ComposerApi;
+import 'booking_controller_test.dart' show BookingMemory;
 import 'support/pet_fixtures.dart';
+
+class BookingPetApi extends ComposerApi {
+  BookingPetApi(this.pets);
+  final List<CJson> pets;
+  @override
+  Future<CJson> request(String method, String path, [CJson? body]) async {
+    final result = await super.request(method, path, body);
+    if (path == '/me') result['account']['pets'] = pets;
+    return result;
+  }
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -53,7 +67,7 @@ void main() {
           'service': 1,
           'pets': ['It'],
         }),
-        ['It', 'Mushuk', 'Boshqa'],
+        ['It'],
       );
       expect(
         allowedCustomerPetTypes({
@@ -69,6 +83,15 @@ void main() {
         }),
         ['Mushuk'],
       );
+      for (final service in [0, 1, 2]) {
+        expect(
+          allowedCustomerPetTypes({
+            'service': service,
+            'pets': ['Boshqa', 'It', 'Mushuk', 'It'],
+          }),
+          ['It', 'Mushuk'],
+        );
+      }
     },
   );
   testWidgets(
@@ -177,9 +200,21 @@ void main() {
       );
       await s.load();
       await seedTestPets(s);
+      final api = BookingPetApi(s.list('pets'));
+      s.api =
+          api; // Booking composer and account use the same authenticated source.
+      await s.refreshRemote();
       await t.pumpWidget(
         MaterialApp(
-          home: CustomerBookingForm(store: s, sitter: customerSitters.first),
+          home: BookingRequestPage(
+            store: s,
+            sitter: customerSitters.first,
+            composer: BookingComposer(
+              api,
+              customerSitters.first['id'],
+              storage: BookingMemory(),
+            ),
+          ),
         ),
       );
       await t.pumpAndSettle();

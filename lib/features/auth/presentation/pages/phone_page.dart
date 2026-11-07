@@ -257,9 +257,38 @@ class _OtpPageState extends State<OtpPage> {
                 widget.phone,
                 _code.text,
                 customer: widget.customer,
+                isCurrent: () => mounted,
               );
       } catch (e) {
-        if (mounted) setState(() => _error = e.toString());
+        if (mounted) {
+          setState(
+            () => _error = switch (e) {
+              CustomerApiException(status: 401) =>
+                'Telefon raqami yoki kod noto‘g‘ri.',
+              CustomerApiException(status: 403) =>
+                'Hisobga kirish cheklangan. Yordam xizmatiga murojaat qiling.',
+              CustomerApiException(status: 429) =>
+                'Urinishlar ko‘p. Biroz kutib qayta urinib ko‘ring.',
+              CustomerApiException(status: 503) =>
+                'Kirish xizmati vaqtincha mavjud emas.',
+              CustomerApiException(status: null, :final message)
+                  when const {
+                    'Backendga ulanib bo‘lmadi. Internet ulanishini tekshiring.',
+                    'Server bilan aloqa uzildi. Qayta urinib ko‘ring.',
+                    'Server javob bermadi. Qayta urinib ko‘ring.',
+                  }.contains(message) =>
+                message,
+              StateError(
+                message: 'Serverda hisobga kirish vaqtincha yopiq.' ||
+                    'Production kirish xizmati hali tayyor emas.',
+              ) =>
+                'Kirish xizmati vaqtincha mavjud emas.',
+              SessionEnvironmentMismatch() =>
+                'Saqlangan sessiya boshqa muhitga tegishli.',
+              _ => 'Kirishni tasdiqlab bo‘lmadi. Qayta urinib ko‘ring.',
+            },
+          );
+        }
         return;
       } finally {
         if (mounted) setState(() => _authenticating = false);
@@ -272,8 +301,14 @@ class _OtpPageState extends State<OtpPage> {
       _verified = true;
       _error = null;
     });
+    final verifiedSession = CustomerApi.sessionVersion;
+    final verifiedApi = CustomerApi.active;
     _nextPage = Timer(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
+      if (!mounted ||
+          verifiedSession != CustomerApi.sessionVersion ||
+          !identical(verifiedApi, CustomerApi.active)) {
+        return;
+      }
       if (_account != null) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute<void>(
@@ -407,10 +442,13 @@ class _OtpPageState extends State<OtpPage> {
       if (_error != null)
         Padding(
           padding: const EdgeInsets.only(top: 12),
-          child: Text(
-            context.tr(_error!),
-            key: const ValueKey('otpError'),
-            style: authText(14, color: Colors.red.shade700),
+          child: Semantics(
+            liveRegion: true,
+            child: Text(
+              context.tr(_error!),
+              key: const ValueKey('otpError'),
+              style: authText(14, color: Colors.red.shade700),
+            ),
           ),
         ),
       const SizedBox(height: 16),
@@ -536,7 +574,15 @@ class AuthFrame extends StatelessWidget {
                                 children: [
                                   MomiqLogo(size: 30),
                                   const SizedBox(width: 8),
-                                  Text('Momiq', style: momiqWordmark(26)),
+                                  Flexible(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        'Momiq',
+                                        style: momiqWordmark(26),
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),

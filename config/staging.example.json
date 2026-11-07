@@ -1,0 +1,4 @@
+{
+  "MOMIQ_ENV": "staging",
+  "MOMIQ_API_URL": "https://replace-with-your-staging-host.invalid/api"
+}

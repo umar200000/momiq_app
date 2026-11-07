@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'package:momiq_app/core/storage/session_vault.dart';
+import 'package:momiq_app/core/config/app_environment.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
@@ -11,7 +13,12 @@ import 'package:momiq_app/features/onboarding/presentation/pages/sitter_registra
 import 'package:momiq_app/features/role_selection/presentation/pages/role_selection_page.dart';
 
 class SessionApi extends CustomerApi {
-  SessionApi(this.account, {this.error}) : super('token', 'account-id');
+  SessionApi(
+    this.account, {
+    this.error,
+    this.logoutReceipt = const {'ok': true},
+  }) : super('token', 'account-id');
+  final Map<String, dynamic> logoutReceipt;
   final Map<String, dynamic> account;
   final CustomerApiException? error;
   bool revoked = false;
@@ -21,8 +28,9 @@ class SessionApi extends CustomerApi {
     String path, [
     Map<String, dynamic>? body,
   ]) async {
-    if (path == '/auth/logout') revoked = true;
+    if (path == '/auth/logout' || path == '/auth/logout-all') revoked = true;
     if (error != null) throw error!;
+    if (revoked) return logoutReceipt;
     return {'account': account};
   }
 }
@@ -61,10 +69,15 @@ void main() {
     );
   });
   test('process restart restores token user and role', () async {
+    await SessionVault.save(
+      token: 'saved-token',
+      userId: 'saved-user',
+      scope: AppEnvironment.current.sessionScope,
+    );
     SharedPreferences.setMockInitialValues({
-      'momiq.api.token': 'saved-token',
       'momiq.api.user': 'saved-user',
       'momiq.api.role': 'sitter',
+      'momiq.api.scope': AppEnvironment.current.sessionScope,
     });
     final restored = await CustomerApi.restore();
     expect(restored!.token, 'saved-token');
@@ -135,11 +148,16 @@ void main() {
           'type': 'Mushuk',
           'photo': 'image',
         });
+        customerSitters.add({'id': 'old-search:boarding', 'distance': 1.2});
         final store = CustomerStore();
         await CustomerApi.logout();
         expect(api.revoked, isTrue);
         expect(CustomerApi.active, isNull);
         expect(CustomerPetSession.current.pets, isEmpty);
+        final nextStore = CustomerStore();
+        addTearDown(nextStore.dispose);
+        expect(nextStore.sitters, isEmpty);
+        expect(customerSitter('old-search:boarding')['unavailable'], isTrue);
         expect((await SharedPreferences.getInstance()).getKeys(), {'language'});
         expect(await restoreDestination(), isA<RoleSelectionPage>());
         await expectLater(store.update((_) {}), throwsStateError);
@@ -147,4 +165,32 @@ void main() {
       },
     );
   }
+  test(
+    'all-device logout requires server confirmation and keeps session on failure',
+    () async {
+      final api = SessionApi(customer, error: CustomerApiException('offline'));
+      CustomerApi.active = api;
+      await expectLater(
+        CustomerApi.logout(allDevices: true),
+        throwsA(isA<CustomerApiException>()),
+      );
+      expect(CustomerApi.active, same(api));
+      for (final invalid in <Map<String, dynamic>>[
+        {},
+        {'ok': false},
+        {'ok': 'true'},
+      ]) {
+        final session = SessionApi(customer, logoutReceipt: invalid);
+        CustomerApi.active = session;
+        await expectLater(
+          CustomerApi.logout(allDevices: true),
+          throwsFormatException,
+        );
+        expect(CustomerApi.active, same(session));
+      }
+      CustomerApi.active = SessionApi(customer);
+      await CustomerApi.logout(allDevices: true);
+      expect(CustomerApi.active, isNull);
+    },
+  );
 }

@@ -4,6 +4,8 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>CFBundleLocalizations</key>
+	<array><string>uz</string><string>en</string><string>ru</string></array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -27,9 +29,11 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
     <string>Parvarish manzilini belgilash uchun joriy joylashuvingiz kerak.</string>
     <key>NSMicrophoneUsageDescription</key><string>Parvarish videosiga ovoz yozish uchun mikrofon kerak.</string><key>NSCameraUsageDescription</key>
-	<string>Profil va uy rasmlarini olish uchun kameraga kirish kerak.</string>
+	<string>Profil, uy va to‘lov cheki rasmlarini olish uchun kameraga kirish kerak.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Paynet Xolis QR kodini galereyaga saqlash uchun ruxsat kerak.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Profil va uy rasmlarini tanlash uchun galereyaga kirish kerak.</string>
+	<string>Profil, uy va to‘lov cheki rasmlarini tanlash uchun galereyaga kirish kerak.</string>
     <key>LSApplicationQueriesSchemes</key>
     <array>
         <string>comgooglemaps</string>
