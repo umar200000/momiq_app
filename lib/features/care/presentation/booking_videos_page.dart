@@ -336,6 +336,35 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
     if (yes == true && live) await c.discard();
   }
 
+  Future<void> discardExplanation() async {
+    if (!live || c.busy || picking) return;
+    final yes = await showOwnedDialog<bool>(
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        content: Text(
+          lt(
+            'Faqat telefondagi sabab qoralamasi tozalanadi. Serverga yetib borgan sabab saqlanadi.',
+            'Only the local explanation draft is cleared. A server-confirmed explanation remains.',
+            'Удалится только черновик на телефоне. Сохранённая сервером причина останется.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(lt('Bekor', 'Cancel', 'Отмена')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(lt('Tozalash', 'Clear', 'Очистить')),
+          ),
+        ],
+      ),
+    );
+    if (yes == true && live) {
+      await c.discardExplanation();
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -402,6 +431,36 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
                 ),
               ),
             ),
+            if (c.invalidVideoDraft || c.invalidExplanationDraft)
+              Text(
+                lt(
+                  'Saqlangan qoralama ochilmadi. Qayta yuklang yoki faqat buzilgan qoralamani tozalang. Boshqa qoralama saqlanadi.',
+                  'A saved draft could not be opened. Refresh or clear only the damaged draft. The other draft is kept.',
+                  'Не удалось открыть черновик. Обновите или очистите только повреждённый черновик. Другой черновик сохранится.',
+                ),
+              ),
+            if (c.invalidVideoDraft)
+              TextButton(
+                onPressed: locked ? null : discard,
+                child: Text(
+                  lt(
+                    'Video qoralamasini tozalash',
+                    'Clear video draft',
+                    'Очистить черновик видео',
+                  ),
+                ),
+              ),
+            if (c.invalidExplanationDraft)
+              TextButton(
+                onPressed: locked ? null : discardExplanation,
+                child: Text(
+                  lt(
+                    'Sabab qoralamasini tozalash',
+                    'Clear explanation draft',
+                    'Очистить черновик причины',
+                  ),
+                ),
+              ),
             if (c.explanationDraft != null)
               Card(
                 child: Padding(
@@ -419,7 +478,9 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
                         '${c.explanationDraft!['day']} · ${c.explanationDraft!['reason']}',
                       ),
                       FilledButton(
-                        onPressed: locked ? null : c.sendExplanation,
+                        onPressed: locked || !c.draftsReady
+                            ? null
+                            : c.sendExplanation,
                         child: Text(
                           lt(
                             'Sababni qayta yuborish',
@@ -429,41 +490,7 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
                         ),
                       ),
                       TextButton(
-                        onPressed: locked
-                            ? null
-                            : () async {
-                                final yes = await showOwnedDialog<bool>(
-                                  builder: (context) => AlertDialog(
-                                    scrollable: true,
-                                    content: Text(
-                                      lt(
-                                        'Faqat telefondagi sabab qoralamasi tozalanadi. Serverga yetib borgan sabab saqlanadi.',
-                                        'Only the local explanation draft is cleared. A server-confirmed explanation remains.',
-                                        'Удалится только черновик на телефоне. Сохранённая сервером причина останется.',
-                                      ),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(context, false),
-                                        child: Text(
-                                          lt('Bekor', 'Cancel', 'Отмена'),
-                                        ),
-                                      ),
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(context, true),
-                                        child: Text(
-                                          lt('Tozalash', 'Clear', 'Очистить'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (yes == true && live) {
-                                  await c.discardExplanation();
-                                }
-                              },
+                        onPressed: locked ? null : discardExplanation,
                         child: Text(
                           lt(
                             'Sabab qoralamasini tozalash',
@@ -521,7 +548,7 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
                       ] else ...[
                         if (!c.selectionInterrupted)
                           FilledButton(
-                            onPressed: locked ? null : c.send,
+                            onPressed: locked || !c.draftsReady ? null : c.send,
                             child: Text(
                               lt(
                                 'Yuborish / qayta urinish',

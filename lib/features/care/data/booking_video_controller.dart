@@ -84,7 +84,9 @@ class VideoUpload {
         }
         throw CustomerApiException(message, response.statusCode);
       }
-      final data = VideoJson.from(jsonDecode(utf8.decode(responseBytes)) as Map);
+      final data = VideoJson.from(
+        jsonDecode(utf8.decode(responseBytes)) as Map,
+      );
       if (_cancelled) throw StateError('Server holatini qayta tekshiring');
       return data;
     } catch (error) {
@@ -134,6 +136,8 @@ class BookingVideoController extends ChangeNotifier {
   final _session = CustomerApi.sessionVersion;
   bool _dead = false, _restored = false;
   bool busy = false, uploading = false;
+  bool invalidVideoDraft = false, invalidExplanationDraft = false;
+  bool get draftsReady => _restored;
   double progress = 0;
   VideoJson? data, pending, explanationDraft;
   Object? error;
@@ -151,6 +155,7 @@ class BookingVideoController extends ChangeNotifier {
 
   bool canSelect(String pet, String slot) =>
       live &&
+      _restored &&
       !busy &&
       pending == null &&
       data?['canUpload'] == true &&
@@ -169,16 +174,28 @@ class BookingVideoController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        pending = await storage.read();
-        explanationDraft = await explanationStorage.read();
-        check();
-        if (pending != null &&
-            ((!selectionInterrupted && pending!['bytes'] is! String) ||
-                pending!['requestId'] is! String ||
-                pending!['petId'] is! String ||
-                pending!['day'] is! String ||
-                pending!['slot'] is! String)) {
-          throw const FormatException('Video qoralamasi ochilmadi');
+        pending = explanationDraft = null;
+        invalidVideoDraft = invalidExplanationDraft = false;
+        try {
+          final saved = await storage.read();
+          check();
+          pending = saved == null ? null : videoDraft(saved);
+        } on FormatException {
+          check();
+          invalidVideoDraft = true;
+        }
+        try {
+          final saved = await explanationStorage.read();
+          check();
+          explanationDraft = saved == null
+              ? null
+              : videoDraft(saved, explanation: true);
+        } on FormatException {
+          check();
+          invalidExplanationDraft = true;
+        }
+        if (invalidVideoDraft || invalidExplanationDraft) {
+          throw const FormatException('Video qoralamalari ochilmadi');
         }
         _restored = true;
       }
@@ -227,7 +244,13 @@ class BookingVideoController extends ChangeNotifier {
     String reason,
     bool emergency,
   ) async {
-    if (!live || busy || explanationDraft != null || data == null) return;
+    if (!live ||
+        busy ||
+        !_restored ||
+        explanationDraft != null ||
+        data == null) {
+      return;
+    }
     busy = true;
     error = null;
     changed();
@@ -241,6 +264,7 @@ class BookingVideoController extends ChangeNotifier {
         'requestId': chatRequestId(),
         'createdAt': data!['policy']['serverTime'],
       };
+      videoDraft(draft, explanation: true);
       await explanationStorage.write(draft);
       check();
       explanationDraft = draft;
@@ -254,7 +278,7 @@ class BookingVideoController extends ChangeNotifier {
   }
 
   Future<void> sendExplanation() async {
-    if (!live || busy || explanationDraft == null) return;
+    if (!live || busy || !_restored || explanationDraft == null) return;
     busy = true;
     error = null;
     changed();
@@ -307,8 +331,11 @@ class BookingVideoController extends ChangeNotifier {
       await explanationStorage.clear();
       check();
       explanationDraft = null;
+      invalidExplanationDraft = false;
+      _restored = false;
     } catch (e) {
       if (live) error = e;
+      return;
     } finally {
       busy = false;
       changed();
@@ -403,7 +430,13 @@ class BookingVideoController extends ChangeNotifier {
   }
 
   Future<void> send() async {
-    if (!live || busy || pending == null || selectionInterrupted) return;
+    if (!live ||
+        busy ||
+        !_restored ||
+        pending == null ||
+        selectionInterrupted) {
+      return;
+    }
     busy = uploading = true;
     progress = 0;
     error = null;
@@ -481,9 +514,11 @@ class BookingVideoController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
-      _restored = true;
+      invalidVideoDraft = false;
+      _restored = false;
     } catch (e) {
       if (live) error = e;
+      return;
     } finally {
       busy = false;
       changed();

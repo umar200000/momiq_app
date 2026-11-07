@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 typedef VideoData = Map<String, dynamic>;
 const _slots = ['morning', 'evening'];
 bool _text(Object? v, int max) => v is String && v.runes.length <= max;
@@ -11,6 +13,55 @@ DateTime? _time(Object? v) =>
     : null;
 bool _integer(Object? v, int min, int max) => v is int && v >= min && v <= max;
 Never _bad() => throw const FormatException('Invalid video overview');
+
+/// Local retry data must be complete before it becomes visible or sendable.
+VideoData videoDraft(VideoData value, {bool explanation = false}) {
+  const common = {'petId', 'day', 'slot', 'requestId', 'createdAt'};
+  final selection = !explanation && value['kind'] == 'selection';
+  final keys = {
+    ...common,
+    if (explanation) ...[
+      'reason',
+      'emergency',
+    ] else if (selection)
+      'kind'
+    else
+      'bytes',
+  };
+  void invalid() => throw const FormatException('Invalid video draft');
+  if (value.length != keys.length ||
+      !value.keys.every(keys.contains) ||
+      !_text(value['petId'], 120) ||
+      value['petId'] == '' ||
+      !_day(value['day']) ||
+      !_slots.contains(value['slot']) ||
+      value['requestId'] is! String ||
+      !RegExp(r'^[A-Za-z0-9_-]{16,100}$').hasMatch(value['requestId']) ||
+      _time(value['createdAt']) == null) {
+    invalid();
+  }
+  if (explanation) {
+    if (!_text(value['reason'], 1000) ||
+        (value['reason'] as String).trim().isEmpty ||
+        value['emergency'] is! bool) {
+      invalid();
+    }
+  } else if (!selection) {
+    const limit = 32 * 1024 * 1024;
+    final encoded = value['bytes'];
+    if (encoded is! String || encoded.length > ((limit + 2) ~/ 3) * 4) {
+      invalid();
+    }
+    try {
+      final bytes = base64Decode(encoded as String);
+      if (bytes.length < 12 || bytes.length > limit) invalid();
+    } on FormatException {
+      // Do not expose encoded private media through FormatException.source.
+      invalid();
+    }
+  }
+  return Map.of(value);
+}
 
 /// Validate the whole page before publishing any policy, media or follow-up.
 VideoData videoOverview(VideoData value, String bookingId, {String? day}) {
