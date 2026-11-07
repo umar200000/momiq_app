@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 typedef ConversationData = Map<String, dynamic>;
 bool chatNumber(Object? value, {bool zero = false}) =>
     value is String &&
@@ -12,6 +14,26 @@ bool _time(Object? value) =>
     value is String && value.length <= 64 && DateTime.tryParse(value) != null;
 Never _invalid() =>
     throw const FormatException('Invalid conversation response');
+
+ConversationData? chatOutbox(ConversationData? value) {
+  if (value == null) return null;
+  if (value.length != 3 ||
+      !value.keys.toSet().containsAll({'text', 'image', 'requestId'}) ||
+      !_text(value['text'], 4000) ||
+      value['requestId'] is! String ||
+      !RegExp(r'^[A-Za-z0-9_-]{16,100}$').hasMatch(value['requestId']) ||
+      (value['image'] != null && value['image'] is! String)) {
+    throw const FormatException('Invalid saved outbox');
+  }
+  final image = value['image'] as String?;
+  if ((image == null && (value['text'] as String).trim().isEmpty) ||
+      (image != null &&
+          (image.length > 4 * 1024 * 1024 || base64Decode(image).isEmpty))) {
+    throw const FormatException('Invalid saved outbox content');
+  }
+  return value;
+}
+
 ConversationData chatMessage(Object? value, {String? requestId}) {
   if (value is! Map ||
       !chatNumber(value['id']) ||

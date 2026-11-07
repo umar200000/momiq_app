@@ -22,6 +22,7 @@ class BookingCareController extends ChangeNotifier {
   Object? error;
   bool busy = false, _dead = false, _restored = false;
   bool invalidDraft = false;
+  bool savedNeedsRefresh = false;
   final history = <CareJson>[];
   String? historyCursor;
   bool historyLoaded = false;
@@ -59,6 +60,7 @@ class BookingCareController extends ChangeNotifier {
       );
       check();
       data = careOverview(result, bookingId, day: day);
+      savedNeedsRefresh = false;
     } catch (e) {
       if (live) error = e;
     } finally {
@@ -68,7 +70,9 @@ class BookingCareController extends ChangeNotifier {
   }
 
   Future<bool> save(CareJson values) async {
-    if (!live || busy || data == null || !_restored) return false;
+    if (!live || busy || data == null || !_restored || savedNeedsRefresh) {
+      return false;
+    }
     if (pending == null &&
         (data![values['kind'] == 'instructions'
                     ? 'canEditInstructions'
@@ -80,6 +84,7 @@ class BookingCareController extends ChangeNotifier {
     busy = true;
     error = null;
     changed();
+    var confirmed = false;
     try {
       pending ??= careDraft({...values, 'requestId': chatRequestId()});
       await storage.write(pending!);
@@ -90,16 +95,19 @@ class BookingCareController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
-      final result = await api.request('GET', '$path?day=${data!['day']}');
-      check();
-      data = careOverview(result, bookingId, day: data!['day']);
+      confirmed = true;
+      savedNeedsRefresh = true;
       history.clear();
       historyLoaded = false;
       historyCursor = null;
+      final result = await api.request('GET', '$path?day=${data!['day']}');
+      check();
+      data = careOverview(result, bookingId, day: data!['day']);
+      savedNeedsRefresh = false;
       return true;
     } catch (e) {
       if (live) error = e;
-      return false;
+      return live && confirmed;
     } finally {
       busy = false;
       changed();

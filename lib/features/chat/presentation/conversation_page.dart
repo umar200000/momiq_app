@@ -549,6 +549,43 @@ class _ConversationPageState extends State<_BoundConversationPage>
       return Scaffold(body: Center(child: Text(chatSessionExpired())));
     }
     final chat = _chat;
+    if (chat?.invalidDraft == true) {
+      final busy = _starting || chat!.loading || _actionBusy;
+      return MomiqScaffold(
+        appBar: AppBar(title: Text(lt('Suhbat', 'Conversation', 'Переписка'))),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  lt(
+                    'Saqlangan xabarni o‘qib bo‘lmadi. U yuborilmadi va o‘chirilmadi.',
+                    'The saved message could not be read. It was not sent or deleted.',
+                    'Не удалось прочитать сохранённое сообщение. Оно не отправлено и не удалено.',
+                  ),
+                ),
+                TextButton(
+                  onPressed: busy ? null : _start,
+                  child: Text(chatRetry()),
+                ),
+                TextButton(
+                  onPressed: busy ? null : () => _menu('discard'),
+                  child: Text(
+                    lt(
+                      'Qoralamani tozalash',
+                      'Clear outbox',
+                      'Очистить черновик',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final pending = chat?.pending != null;
     final disabled =
         chat == null ||

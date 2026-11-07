@@ -28,6 +28,7 @@ class ConversationController extends ChangeNotifier {
   final List<ChatJson> messages = [];
   ChatJson? conversation, pending;
   bool loading = false, sending = false, more = false, ready = false;
+  bool invalidDraft = false;
   Object? error;
   bool _dead = false, _reading = false;
   String readCursor = '0';
@@ -54,11 +55,14 @@ class ConversationController extends ChangeNotifier {
     error = null;
     changed();
     try {
-      pending = await storage.read();
-      check();
-      if (pending != null &&
-          (pending!['requestId'] is! String || pending!['text'] is! String)) {
-        throw const FormatException('Invalid saved outbox');
+      try {
+        final saved = await storage.read();
+        check();
+        pending = chatOutbox(saved);
+        invalidDraft = false;
+      } on FormatException {
+        if (live) invalidDraft = true;
+        rethrow;
       }
       final response = await api.request('GET', '$path/messages');
       check();
@@ -277,10 +281,12 @@ class ConversationController extends ChangeNotifier {
       check();
       pending = null;
       error = null;
+      invalidDraft = false;
       changed();
     } finally {
       _discarding = false;
     }
+    if (live && !ready) await initialize();
   }
 
   @override

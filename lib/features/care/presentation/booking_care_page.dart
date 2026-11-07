@@ -214,7 +214,12 @@ class _BookingCarePageState extends State<_BookingCarePage>
     builder: (context, _) {
       if (!c.live) return bookingSourceExpired();
       final data = c.data,
-          locked = c.busy || c.pending != null || c.error != null || !c.live;
+          locked =
+              c.busy ||
+              c.pending != null ||
+              c.error != null ||
+              c.savedNeedsRefresh ||
+              !c.live;
       return Scaffold(
         appBar: AppBar(
           title: Text(
@@ -234,7 +239,16 @@ class _BookingCarePageState extends State<_BookingCarePage>
             if (c.busy) const LinearProgressIndicator(),
             if (c.invalidDraft)
               BookingDraftRecovery(onClear: c.busy ? null : discard),
-            if (c.error != null)
+            if (c.savedNeedsRefresh)
+              Text(
+                lt(
+                  'Yozuv saqlandi. Yangilangan holat yuklanmadi. Qayta yuborish shart emas; sahifani yangilang.',
+                  'The entry was saved. The updated view could not be loaded. Do not resend; refresh the page.',
+                  'Запись сохранена. Не удалось загрузить обновлённые данные. Повторно отправлять не нужно; обновите страницу.',
+                ),
+                key: const ValueKey('careSavedRefresh'),
+              )
+            else if (c.error != null)
               Text(
                 lt(
                   'Yuklash yoki saqlash amalga oshmadi. Holatni yangilang yoki shu yozuvni qayta yuboring.',
