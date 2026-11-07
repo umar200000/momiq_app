@@ -63,15 +63,15 @@ class SupportController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        final saved = await storage.read();
-        check();
         try {
+          final saved = await storage.read();
+          check();
           pending = saved == null
               ? null
               : supportDraft(saved, creating: id == null);
           invalidDraft = false;
         } on FormatException {
-          invalidDraft = true;
+          if (live) invalidDraft = true;
           rethrow;
         }
         _restored = true;

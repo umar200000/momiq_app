@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../core/storage/session_vault.dart';
@@ -63,13 +64,19 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
   Future<SecretKey> _key({required bool create}) async {
     var encoded = await SessionVault.storage.read(key: keyName);
     if (encoded == null) {
-      if (!create) throw StateError('Qoralama kaliti mavjud emas');
+      if (!create) throw const FormatException('Qoralama kaliti mavjud emas');
       final key = await _cipher().newSecretKey();
       encoded = base64Encode(await key.extractBytes());
       _checkSession();
       await SessionVault.storage.write(key: keyName, value: encoded);
     }
-    final bytes = base64Decode(encoded);
+    late final List<int> bytes;
+    try {
+      bytes = base64Decode(encoded);
+    } on FormatException {
+      // FormatException.source must never contain secure-storage key material.
+      throw const FormatException('Qoralama kaliti noto‘g‘ri');
+    }
     if (bytes.length != 32) {
       throw const FormatException('Qoralama kaliti noto‘g‘ri');
     }
@@ -81,22 +88,45 @@ class EncryptedWalletDraftStorage implements WalletDraftStorage {
     _checkSession();
     final file = await _file();
     if (!await file.exists()) return null;
-    if (await file.length() > byteLimit + 64) {
-      throw const FormatException('Qoralama juda katta');
-    }
     final cipher = _cipher();
+    final overhead = cipher.nonceLength + cipher.macAlgorithm.macLength;
+    final maximum = byteLimit + overhead;
+    final buffer = BytesBuilder(copy: false);
+    // Read at most one byte past the accepted envelope, even if the file grows.
+    await for (final chunk in file.openRead(0, maximum + 1)) {
+      buffer.add(chunk);
+    }
+    _checkSession();
+    final encoded = buffer.takeBytes();
+    if (encoded.length < overhead || encoded.length > maximum) {
+      throw const FormatException('Qoralama hajmi noto‘g‘ri');
+    }
     final box = SecretBox.fromConcatenation(
-      await file.readAsBytes(),
+      encoded,
       nonceLength: cipher.nonceLength,
       macLength: cipher.macAlgorithm.macLength,
     );
-    final bytes = await cipher.decrypt(
-      box,
-      secretKey: await _key(create: false),
-      aad: utf8.encode(_binding),
-    );
+    late final List<int> bytes;
+    try {
+      bytes = await cipher.decrypt(
+        box,
+        secretKey: await _key(create: false),
+        aad: utf8.encode(_binding),
+      );
+    } on SecretBoxAuthenticationError {
+      throw const FormatException('Qoralama shifri tekshiruvdan o‘tmadi');
+    }
     _checkSession();
-    return Map<String, dynamic>.from(jsonDecode(utf8.decode(bytes)) as Map);
+    try {
+      final value = jsonDecode(utf8.decode(bytes));
+      if (value is! Map<String, dynamic>) {
+        throw const FormatException('Qoralama shakli noto‘g‘ri');
+      }
+      return value;
+    } on FormatException {
+      // Do not retain malformed private plaintext in the exception source.
+      throw const FormatException('Qoralama mazmuni o‘qilmadi');
+    }
   });
 
   @override

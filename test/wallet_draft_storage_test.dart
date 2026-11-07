@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:momiq_app/features/wallet/data/wallet_draft_storage.dart';
@@ -23,6 +24,173 @@ void main() {
     await EncryptedWalletDraftStorage.clearAll(directory: () async => root);
     await root.delete(recursive: true);
   });
+  Future<File> draftFile() async =>
+      (await Directory('${root.path}/wallet_drafts').list().toList()).single
+          as File;
+
+  test(
+    'encrypted envelope uses the exact configured plaintext limit',
+    () async {
+      final data = {'text': 'x' * 16};
+      final limit = utf8.encode(jsonEncode(data)).length;
+      final bounded = EncryptedWalletDraftStorage(
+        owner: 'a',
+        scope: 'local',
+        byteLimit: limit,
+        directory: () async => root,
+      );
+      await bounded.write(data);
+      expect(await bounded.read(), data);
+      final file = await draftFile();
+      final original = await file.readAsBytes();
+      await expectLater(
+        bounded.write({'text': 'x' * 17}),
+        throwsFormatException,
+      );
+      expect(await file.readAsBytes(), original);
+      await store().write({'text': 'x' * 17});
+      final larger = await file.readAsBytes();
+      await expectLater(bounded.read(), throwsFormatException);
+      expect(await file.readAsBytes(), larger);
+    },
+  );
+
+  for (final other in ['owner', 'environment']) {
+    test(
+      'copied ciphertext cannot cross $other binding after error normalization',
+      () async {
+        await store().write({'private': 'TEST source'});
+        final source = await draftFile();
+        final bytes = await source.readAsBytes();
+        final target = store(
+          owner: other == 'owner' ? 'b' : 'a',
+          scope: other == 'environment' ? 'production' : 'local',
+        );
+        await target.write({'private': 'TEST target'});
+        final targetFile =
+            (await Directory('${root.path}/wallet_drafts').list().toList())
+                .whereType<File>()
+                .singleWhere((file) => file.path != source.path);
+        await targetFile.writeAsBytes(bytes);
+        await expectLater(target.read(), throwsFormatException);
+        expect(await targetFile.readAsBytes(), bytes);
+        await target.clear();
+        expect(await store().read(), {'private': 'TEST source'});
+        expect(await source.readAsBytes(), bytes);
+      },
+    );
+  }
+
+  for (final length in [0, 1, 11, 27]) {
+    test(
+      'truncated encrypted draft ($length bytes) is recoverable without deleting evidence',
+      () async {
+        await store().write({'private': 'TEST'});
+        final file = await draftFile();
+        final bytes = (await file.readAsBytes()).take(length).toList();
+        await file.writeAsBytes(bytes);
+        await expectLater(store().read(), throwsFormatException);
+        expect(await file.readAsBytes(), bytes);
+      },
+    );
+  }
+  test(
+    'authentication failure becomes a safe recoverable format error',
+    () async {
+      await store().write({'private': 'TEST'});
+      final file = await draftFile();
+      final bytes = await file.readAsBytes();
+      bytes[20] ^= 1;
+      await file.writeAsBytes(bytes);
+      await expectLater(
+        store().read(),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.source,
+            'no private source',
+            isNull,
+          ),
+        ),
+      );
+      expect(await file.readAsBytes(), bytes);
+    },
+  );
+  test(
+    'a missing key never creates a replacement or deletes the draft on read',
+    () async {
+      await store().write({'private': 'TEST'});
+      final file = await draftFile();
+      final bytes = await file.readAsBytes();
+      const secure = FlutterSecureStorage();
+      await secure.delete(key: EncryptedWalletDraftStorage.keyName);
+      await expectLater(store().read(), throwsFormatException);
+      expect(
+        await secure.read(key: EncryptedWalletDraftStorage.keyName),
+        isNull,
+      );
+      expect(await file.readAsBytes(), bytes);
+    },
+  );
+  test(
+    'invalid key encoding does not appear in the exception source',
+    () async {
+      await store().write({'private': 'TEST'});
+      const secure = FlutterSecureStorage();
+      await secure.write(
+        key: EncryptedWalletDraftStorage.keyName,
+        value: 'TEST_PRIVATE_KEY!',
+      );
+      await expectLater(
+        store().read(),
+        throwsA(
+          isA<FormatException>()
+              .having((e) => e.source, 'no key source', isNull)
+              .having(
+                (e) => e.toString(),
+                'no key text',
+                isNot(contains('TEST_PRIVATE_KEY')),
+              ),
+        ),
+      );
+    },
+  );
+  for (final plaintext in [
+    '[]',
+    'null',
+    '17',
+    '"TEST_PRIVATE_TEXT"',
+    '{"TEST_PRIVATE_TEXT":',
+  ]) {
+    test(
+      'authenticated non-object or malformed JSON stays recoverable: $plaintext',
+      () async {
+        await store().write({'seed': true});
+        const secure = FlutterSecureStorage();
+        final encodedKey = await secure.read(
+          key: EncryptedWalletDraftStorage.keyName,
+        );
+        final box = await AesGcm.with256bits().encrypt(
+          utf8.encode(plaintext),
+          secretKey: SecretKey(base64Decode(encodedKey!)),
+          aad: utf8.encode(jsonEncode(['momiq.wallet-draft.v1', 'local', 'a'])),
+        );
+        final file = await draftFile();
+        final bytes = box.concatenation();
+        await file.writeAsBytes(bytes);
+        await expectLater(
+          store().read(),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.source,
+              'no plaintext source',
+              isNull,
+            ),
+          ),
+        );
+        expect(await file.readAsBytes(), bytes);
+      },
+    );
+  }
   test(
     'restart restores encrypted receipt, QR and retry id without plaintext files',
     () async {
