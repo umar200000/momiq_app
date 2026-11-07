@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/wallet/presentation/wallet_page.dart';
 import 'package:momiq_app/core/localization/app_language.dart';
 import 'package:momiq_app/features/wallet/data/wallet_snapshot.dart';
+import 'package:momiq_app/features/customer/data/customer_api.dart';
 import 'wallet_test.dart' show MemoryDraft, WalletApi, png;
 
 class SnapshotApi extends WalletApi {
+  String? failure;
   bool broken = true;
   bool repeatedPage = true;
   bool pagination = false;
@@ -24,6 +26,9 @@ class SnapshotApi extends WalletApi {
     String path, [
     Map<String, dynamic>? body,
   ]) async {
+    if (path == '/wallet' && failure != null) {
+      throw CustomerApiException(failure!);
+    }
     if (pagination && path.startsWith('/wallet/topups')) {
       if (!path.contains('?')) {
         return {
@@ -85,6 +90,43 @@ void main() {
     },
   );
   for (final language in ['uz', 'en', 'ru']) {
+    testWidgets('wallet network errors use the selected $language language', (
+      t,
+    ) async {
+      AppLanguage.current.value = language;
+      addTearDown(() => AppLanguage.current.value = 'uz');
+      for (final words in [
+        [
+          'Backendga ulanib bo‘lmadi. Internet ulanishini tekshiring.',
+          'Could not reach Momiq. Check your internet connection.',
+          'Не удалось подключиться к Momiq. Проверьте подключение к интернету.',
+        ],
+        [
+          'Server bilan aloqa uzildi. Qayta urinib ko‘ring.',
+          'The connection was interrupted. Please try again.',
+          'Связь с сервером прервалась. Попробуйте ещё раз.',
+        ],
+        [
+          'Server javob bermadi. Qayta urinib ko‘ring.',
+          'The server did not respond. Please try again.',
+          'Сервер не ответил. Попробуйте ещё раз.',
+        ],
+      ]) {
+        final api = SnapshotApi()..failure = words[0];
+        await t.pumpWidget(
+          MaterialApp(
+            home: WalletPage(api: api, draftStorage: MemoryDraft()),
+          ),
+        );
+        await t.pumpAndSettle();
+        expect(
+          find.text(words[['uz', 'en', 'ru'].indexOf(language)]),
+          findsOneWidget,
+        );
+        expect(t.takeException(), isNull);
+        expect(api.sent, isEmpty);
+      }
+    });
     testWidgets(
       'wallet error retry stays reachable at 320px and 2x with keyboard in $language',
       (t) async {

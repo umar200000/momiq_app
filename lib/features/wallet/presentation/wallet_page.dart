@@ -1,4 +1,5 @@
 import 'package:cryptography/cryptography.dart' show Sha256;
+import '../../../core/localization/app_language.dart';
 import '../../customer/presentation/customer_session_boundary.dart';
 import '../../../core/widgets/owned_dialogs.dart';
 import 'dart:convert';
@@ -469,7 +470,7 @@ class _WalletPageState extends State<_BoundWalletPage>
     if (mounted && _current) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showSnackBar(SnackBar(content: Text(context.tr(message))));
     }
   }
 
@@ -815,7 +816,7 @@ class _WalletPageState extends State<_BoundWalletPage>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(_error!),
+                        Text(context.tr(_error!)),
                         FilledButton(
                           onPressed: _load,
                           child: Text(
