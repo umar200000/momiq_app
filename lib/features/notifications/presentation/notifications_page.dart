@@ -438,6 +438,9 @@ class _NotificationsPageState extends State<NotificationsPage>
                           item['readAt'] == null
                               ? Icons.mark_email_unread_outlined
                               : Icons.drafts_outlined,
+                          semanticLabel: item['readAt'] == null
+                              ? lt('O‘qilmagan', 'Unread', 'Не прочитано')
+                              : lt('O‘qilgan', 'Read', 'Прочитано'),
                         ),
                         title: Text(_title(item)),
                         subtitle: Text(

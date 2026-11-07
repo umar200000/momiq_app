@@ -33,6 +33,38 @@ class PendingNotices extends NoticeApi {
 }
 
 void main() {
+  for (final entry in {
+    'uz': ['O‘qilmagan', 'O‘qilgan', 'Yopish'],
+    'en': ['Unread', 'Read', 'Close'],
+    'ru': ['Не прочитано', 'Прочитано', 'Закрыть'],
+  }.entries) {
+    testWidgets('notice read state has an accessible label in ${entry.key}', (
+      t,
+    ) async {
+      AppLanguage.current.value = entry.key;
+      final handle = t.ensureSemantics();
+      try {
+        final api = NoticeApi();
+        await t.pumpWidget(MaterialApp(home: NotificationsPage(api: api)));
+        await t.pumpAndSettle();
+        expect(
+          t.getSemantics(find.byKey(const ValueKey('notice-2'))).label,
+          contains(entry.value[0]),
+        );
+        await t.tap(find.byKey(const ValueKey('notice-2')));
+        await t.pumpAndSettle();
+        await t.tap(find.text(entry.value[2]));
+        await t.pumpAndSettle();
+        expect(
+          t.getSemantics(find.byKey(const ValueKey('notice-2'))).label,
+          contains(entry.value[1]),
+        );
+        expect(api.read, contains('2'));
+      } finally {
+        handle.dispose();
+      }
+    });
+  }
   setUp(() {
     CustomerApi.active = null;
     AppLanguage.current.value = 'uz';
