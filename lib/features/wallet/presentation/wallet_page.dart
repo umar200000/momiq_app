@@ -13,6 +13,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../listings/presentation/listing_style.dart' show lt;
 import '../../customer/data/customer_api.dart';
 import '../data/wallet_draft_storage.dart';
+import '../data/wallet_snapshot.dart';
 import 'topup_history_page.dart';
 
 int parseWalletAmount(String text) {
@@ -334,10 +335,14 @@ class _WalletPageState extends State<_BoundWalletPage>
           if (draft != null) {
             if (draft['formatVersion'] != 1 ||
                 draft['amount'] is! String ||
-                draft['config'] is! Map) {
+                draft['config'] is! Map ||
+                (draft['submissionPending'] != null &&
+                    draft['submissionPending'] is! bool) ||
+                (draft['receiptPickPending'] != null &&
+                    draft['receiptPickPending'] is! bool)) {
               throw const FormatException('Invalid payment draft');
             }
-            _paymentConfig = Map<String, dynamic>.from(draft['config']);
+            _paymentConfig = walletPaymentConfig(draft['config']);
             _amount.text = draft['amount'] as String;
             _payerReference.text = draft['payerReference'] as String? ?? '';
             _paidAt = draft['paidAt'] == null
@@ -349,7 +354,10 @@ class _WalletPageState extends State<_BoundWalletPage>
             _receiptPickPending = draft['receiptPickPending'] == true;
             _requestId = draft['requestId'] as String?;
             _attemptLocked = draft['submissionPending'] == true;
-            if (_attemptLocked && _requestId == null) {
+            if (_attemptLocked &&
+                (_requestId == null ||
+                    _requestId!.trim().isEmpty ||
+                    _requestId!.length > 100)) {
               throw const FormatException('Invalid pending request');
             }
             if (_editing) _editingRevision = draft['topupRevision'] as int;
@@ -367,9 +375,11 @@ class _WalletPageState extends State<_BoundWalletPage>
           );
         }
       }
-      final wallet = await _api!.request('GET', '/wallet');
+      final wallet = walletSnapshot(await _api!.request('GET', '/wallet'));
       if (!_current) return;
-      final topups = await _api!.request('GET', '/wallet/topups');
+      final topups = walletTopupPage(
+        await _api!.request('GET', '/wallet/topups'),
+      );
       if (!_current) return;
       if (_editing && !_paymentStarted) {
         final result = await _api!.request(
@@ -473,11 +483,16 @@ class _WalletPageState extends State<_BoundWalletPage>
     }
     setState(() => _moreLoading = true);
     try {
-      final page = await _api!.request(
+      final result = await _api!.request(
         'GET',
         '/wallet/topups?cursor=${Uri.encodeComponent(_nextCursor!)}',
       );
       if (mounted && _current) {
+        final page = walletTopupPage(
+          result,
+          previous: _topups,
+          cursor: _nextCursor,
+        );
         setState(() {
           _topups.addAll(page['topups'] as List);
           _nextCursor = page['nextCursor'] as String?;
@@ -795,7 +810,7 @@ class _WalletPageState extends State<_BoundWalletPage>
               ? const Center(child: CircularProgressIndicator())
               : _error != null
               ? Center(
-                  child: Padding(
+                  child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
