@@ -1,9 +1,90 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
 
 void main() {
+  test(
+    'stalled unauthorized JSON keeps its status after the body deadline',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final release = Completer<void>();
+      addTearDown(() async {
+        if (!release.isCompleted) release.complete();
+        await server.close(force: true);
+      });
+      final handling = server.first.then((request) async {
+        request.response.statusCode = 401;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write('{"error":');
+        try {
+          await request.response.flush();
+          await release.future;
+          await request.response.close();
+        } on SocketException {
+          // The timeout closes the client transport before the body finishes.
+        }
+      });
+      final api = CustomerApi(
+        'TEST',
+        'owner',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+      );
+      await expectLater(
+        api.request('GET', '/me'),
+        throwsA(
+          isA<CustomerApiException>().having(
+            (error) => error.status,
+            'known unauthorized status',
+            401,
+          ),
+        ),
+      );
+      release.complete();
+      await handling;
+    },
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
+  test(
+    'truncated HTTP error body preserves status while a truncated success stays unconfirmed',
+    () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close());
+      var status = 401;
+      server.listen((socket) {
+        var replied = false;
+        socket.listen((bytes) {
+          if (replied) return;
+          replied = true;
+          socket.add(
+            utf8.encode(
+              'HTTP/1.1 $status TEST\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{"error":',
+            ),
+          );
+          socket.close();
+        });
+      });
+      final api = CustomerApi(
+        'TEST',
+        'owner',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+      );
+      for (final responseStatus in [401, 403, 429, 503, 200]) {
+        status = responseStatus;
+        await expectLater(
+          api.request('GET', '/me'),
+          throwsA(
+            isA<CustomerApiException>().having(
+              (error) => error.status,
+              'known error status',
+              responseStatus >= 400 ? responseStatus : null,
+            ),
+          ),
+        );
+      }
+    },
+  );
   test(
     'profile reads and writes require the owner and matching revision',
     () async {

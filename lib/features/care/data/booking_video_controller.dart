@@ -13,6 +13,17 @@ typedef VideoJson = Map<String, dynamic>;
 class VideoUpload {
   HttpClient? _client;
   bool _cancelled = false;
+  static Future<Uint8List> _responseBytes(HttpClientResponse response) async {
+    final output = BytesBuilder(copy: false);
+    await for (final chunk in response) {
+      if (chunk.length > 65536 - output.length) {
+        throw const FormatException('Server javobi juda katta');
+      }
+      output.add(chunk);
+    }
+    return output.takeBytes();
+  }
+
   void cancel() {
     _cancelled = true;
     _client?.close(force: true);
@@ -32,6 +43,7 @@ class VideoUpload {
     }
     final client = _client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
+    int? failureStatus;
     try {
       final request = await client
           .postUrl(Uri.parse('${api.baseUrl}$path'))
@@ -56,24 +68,34 @@ class VideoUpload {
       final response = await request.close().timeout(
         const Duration(seconds: 150),
       );
-      final output = BytesBuilder(copy: false);
-      await for (final chunk in response.timeout(const Duration(seconds: 30))) {
-        output.add(chunk);
-        if (output.length > 65536) {
-          throw const FormatException('Server javobi juda katta');
-        }
-      }
-      final data = VideoJson.from(
-        jsonDecode(utf8.decode(output.takeBytes())) as Map,
-      );
+      if (response.statusCode >= 400) failureStatus = response.statusCode;
+      final responseBytes = await _responseBytes(
+        response,
+      ).timeout(const Duration(seconds: 30));
       if (response.statusCode != 200) {
-        throw CustomerApiException(
-          data['error'] ?? 'Video yuborilmadi',
-          response.statusCode,
-        );
+        var message = 'Video yuborilmadi';
+        try {
+          final error = jsonDecode(utf8.decode(responseBytes));
+          if (error is Map && error['error'] is String) {
+            message = error['error'];
+          }
+        } on FormatException {
+          // A proxy error page must not hide the actual HTTP failure.
+        }
+        throw CustomerApiException(message, response.statusCode);
       }
+      final data = VideoJson.from(jsonDecode(utf8.decode(responseBytes)) as Map);
       if (_cancelled) throw StateError('Server holatini qayta tekshiring');
       return data;
+    } catch (error) {
+      if (failureStatus != null &&
+          (error is FormatException ||
+              error is HttpException ||
+              error is SocketException ||
+              error is TimeoutException)) {
+        throw CustomerApiException('Video yuborilmadi', failureStatus);
+      }
+      rethrow;
     } finally {
       client.close(force: true);
       _client = null;

@@ -524,6 +524,7 @@ class CustomerApi {
       await verifyPrivateDestination();
     }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    int? failureStatus;
     try {
       final req = await client
           .openUrl(method, Uri.parse('$baseUrl$path'))
@@ -545,6 +546,7 @@ class CustomerApi {
         req.add(bytes);
       }
       final response = await req.close().timeout(const Duration(seconds: 15));
+      if (response.statusCode >= 400) failureStatus = response.statusCode;
       if (response.statusCode >= 300 && response.statusCode < 400) {
         throw CustomerApiException(
           'Server manzili kutilmaganda o‘zgardi.',
@@ -555,13 +557,18 @@ class CustomerApi {
     } on SocketException {
       throw CustomerApiException(
         'Backendga ulanib bo‘lmadi. Internet ulanishini tekshiring.',
+        failureStatus,
       );
     } on HttpException {
       throw CustomerApiException(
         'Server bilan aloqa uzildi. Qayta urinib ko‘ring.',
+        failureStatus,
       );
     } on TimeoutException {
-      throw CustomerApiException('Server javob bermadi. Qayta urinib ko‘ring.');
+      throw CustomerApiException(
+        'Server javob bermadi. Qayta urinib ko‘ring.',
+        failureStatus,
+      );
     } finally {
       client.close(force: true);
     }
