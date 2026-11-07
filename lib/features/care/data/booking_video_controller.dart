@@ -137,7 +137,9 @@ class BookingVideoController extends ChangeNotifier {
   bool _dead = false, _restored = false;
   bool busy = false, uploading = false;
   bool invalidVideoDraft = false, invalidExplanationDraft = false;
-  bool get draftsReady => _restored;
+  String? _savedDay;
+  bool get savedNeedsRefresh => _savedDay != null;
+  bool get draftsReady => _restored && !savedNeedsRefresh;
   double progress = 0;
   VideoJson? data, pending, explanationDraft;
   Object? error;
@@ -155,7 +157,7 @@ class BookingVideoController extends ChangeNotifier {
 
   bool canSelect(String pet, String slot) =>
       live &&
-      _restored &&
+      draftsReady &&
       !busy &&
       pending == null &&
       data?['canUpload'] == true &&
@@ -169,6 +171,9 @@ class BookingVideoController extends ChangeNotifier {
 
   Future<void> load({String? day}) async {
     if (!live || busy) return;
+    // A confirmed retry may belong to an earlier day than the visible page.
+    // Refresh that day before reopening any write controls.
+    day = _savedDay ?? day;
     busy = true;
     error = null;
     changed();
@@ -230,6 +235,7 @@ class BookingVideoController extends ChangeNotifier {
           explanationDraft = null;
         }
       }
+      _savedDay = null;
     } catch (e) {
       if (live) error = e;
     } finally {
@@ -246,7 +252,7 @@ class BookingVideoController extends ChangeNotifier {
   ) async {
     if (!live ||
         busy ||
-        !_restored ||
+        !draftsReady ||
         explanationDraft != null ||
         data == null) {
       return;
@@ -278,7 +284,7 @@ class BookingVideoController extends ChangeNotifier {
   }
 
   Future<void> sendExplanation() async {
-    if (!live || busy || !_restored || explanationDraft == null) return;
+    if (!live || busy || !draftsReady || explanationDraft == null) return;
     busy = true;
     error = null;
     changed();
@@ -313,6 +319,7 @@ class BookingVideoController extends ChangeNotifier {
       await explanationStorage.clear();
       check();
       explanationDraft = null;
+      _savedDay = draft['day'] as String;
     } catch (e) {
       if (live) error = e;
     } finally {
@@ -346,7 +353,7 @@ class BookingVideoController extends ChangeNotifier {
   /// Save the target before handing control to a camera/gallery activity. After
   /// process death its global lost-data cache cannot safely identify our flow.
   Future<String?> beginSelection(String pet, String slot) async {
-    if (!canSelect(pet, slot) || !_restored) return null;
+    if (!canSelect(pet, slot) || !draftsReady) return null;
     busy = true;
     error = null;
     changed();
@@ -397,7 +404,7 @@ class BookingVideoController extends ChangeNotifier {
         intent['slot'] == slot;
     if (!live ||
         busy ||
-        !_restored ||
+        !draftsReady ||
         (selectionId != null ? !fromPicker : !canSelect(pet, slot))) {
       return;
     }
@@ -432,7 +439,7 @@ class BookingVideoController extends ChangeNotifier {
   Future<void> send() async {
     if (!live ||
         busy ||
-        !_restored ||
+        !draftsReady ||
         pending == null ||
         selectionInterrupted) {
       return;
@@ -491,6 +498,7 @@ class BookingVideoController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
+      _savedDay = draft['day'] as String;
     } catch (e) {
       if (live) error = e;
     } finally {

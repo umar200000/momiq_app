@@ -80,6 +80,7 @@ void main() {
         final original = Map.of(c.pending!);
         await c.send();
         expect(c.error, isNotNull);
+        expect(c.savedNeedsRefresh, false);
         expect(c.pending, original);
         expect(storage.value, original);
         upload.broken = null;
@@ -111,6 +112,7 @@ void main() {
         await c.explain('cat', 'morning', 'TEST original reason', true);
         final original = Map.of(c.explanationDraft!);
         expect(c.error, isNotNull);
+        expect(c.savedNeedsRefresh, false);
         expect(storage.value, original);
         api.broken = null;
         await c.sendExplanation();

@@ -405,7 +405,15 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
               LinearProgressIndicator(
                 value: c.uploading && c.progress < 1 ? c.progress : null,
               ),
-            if (c.error != null)
+            if (c.savedNeedsRefresh)
+              Text(
+                lt(
+                  'Yuborilgan ma’lumot serverda saqlandi. Ro‘yxatni yangilang; qayta yuborish shart emas.',
+                  'Your submission was saved on the server. Refresh the list; there is no need to submit it again.',
+                  'Отправленные данные сохранены на сервере. Обновите список; повторная отправка не нужна.',
+                ),
+              )
+            else if (c.error != null)
               Text(
                 lt(
                   'Video holatini yuklash yoki saqlash amalga oshmadi. Yangilang yoki saqlangan so‘rovni qayta yuboring.',
@@ -579,7 +587,7 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
                   ),
                 ),
               ),
-            if (data != null) ...[
+            if (data != null && !c.savedNeedsRefresh) ...[
               Text('${data['day']} · Asia/Tashkent'),
               TextButton(
                 onPressed: locked ? null : changeDay,
