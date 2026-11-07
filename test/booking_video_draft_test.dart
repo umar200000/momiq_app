@@ -38,6 +38,55 @@ class ReadFailure extends ChatDraft {
 
 void main() {
   tearDown(() => AppLanguage.current.value = 'uz');
+  testWidgets(
+    'retained overview cannot open a new reason while drafts are unreadable',
+    (t) async {
+      final api = ExplanationApi()..open = false;
+      api.followups = [
+        {
+          'slot': 'morning',
+          'dueAt': '2026-10-28T11:00:00+05:00',
+          'canExplain': true,
+          'missingPetIds': ['cat'],
+          'explanations': <VideoJson>[],
+        },
+      ];
+      final notes = ChatDraft();
+      final c = BookingVideoController(
+        api,
+        'booking',
+        storage: ChatDraft(),
+        explanationStorage: notes,
+      );
+      addTearDown(c.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          home: BookingVideosPage(
+            api: api,
+            bookingId: 'booking',
+            controller: c,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      final label = find.text('Sabab / favqulodda holatni yozish');
+      await t.scrollUntilVisible(label, 200);
+      final button = find.ancestor(
+        of: label,
+        matching: find.byType(TextButton),
+      );
+      expect(t.widget<TextButton>(button).onPressed, isNotNull);
+      notes.value = {'bad': true};
+      await c.discard();
+      await t.pumpAndSettle();
+      expect(c.data, isNotNull);
+      expect(c.draftsReady, false);
+      await t.scrollUntilVisible(label, 200);
+      expect(t.widget<TextButton>(button).onPressed, isNull);
+      expect(api.sent, isEmpty);
+      await t.pumpWidget(const SizedBox());
+    },
+  );
   for (final explanation in [false, true]) {
     for (final change in <VideoJson>[
       {'petId': []},

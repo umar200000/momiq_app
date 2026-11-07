@@ -188,7 +188,13 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
   }
 
   Future<void> explain(String pet, String slot) async {
-    if (!live || c.busy || picking || c.explanationDraft != null) return;
+    if (!live ||
+        c.busy ||
+        picking ||
+        !c.draftsReady ||
+        c.explanationDraft != null) {
+      return;
+    }
     final day = c.data?['day'];
     var reason = '', emergency = false;
     final accepted = await showOwnedDialog<bool>(
@@ -289,7 +295,8 @@ class _BookingVideosPageState extends State<_BookingVideosPage>
       return const SizedBox.shrink();
     }
     return TextButton(
-      onPressed: c.busy || picking || c.explanationDraft != null
+      onPressed:
+          c.busy || picking || !c.draftsReady || c.explanationDraft != null
           ? null
           : () => explain(pet, slot),
       child: Text(
