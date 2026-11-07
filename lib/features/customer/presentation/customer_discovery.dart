@@ -57,7 +57,13 @@ class SitterCard extends StatelessWidget {
               ),
             ),
             IconButton(
-              tooltip: ct('Saqlash'),
+              tooltip: store.favorites.contains(sitter['id'])
+                  ? lt(
+                      'Saqlanganlardan olib tashlash',
+                      'Remove from saved',
+                      'Удалить из сохранённого',
+                    )
+                  : lt('Enagani saqlash', 'Save sitter', 'Сохранить няню'),
               onPressed: store.busy
                   ? null
                   : () => cAction(context, () => store.favorite(sitter['id'])),
@@ -682,6 +688,13 @@ class SitterDetailPage extends StatelessWidget {
       title: 'Enaga profili',
       actions: [
         IconButton(
+          tooltip: store.favorites.contains(sitter['id'])
+              ? lt(
+                  'Saqlanganlardan olib tashlash',
+                  'Remove from saved',
+                  'Удалить из сохранённого',
+                )
+              : lt('Enagani saqlash', 'Save sitter', 'Сохранить няню'),
           onPressed: store.busy
               ? null
               : () => cAction(context, () => store.favorite(sitter['id'])),

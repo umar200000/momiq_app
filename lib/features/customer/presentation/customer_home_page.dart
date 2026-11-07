@@ -407,6 +407,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         ),
         IconButton(
+          tooltip: lt('Bildirishnomalar', 'Notifications', 'Уведомления'),
           onPressed: () => cPush(context, const NotificationsPage()),
           icon: const Icon(Icons.notifications_none_rounded),
         ),
@@ -445,6 +446,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         ),
         IconButton(
+          tooltip: lt('Enagalarni qidirish', 'Search sitters', 'Поиск няни'),
           onPressed: () => _search(),
           icon: const Icon(Icons.arrow_forward_rounded),
         ),

@@ -757,6 +757,11 @@ class _ConversationPageState extends State<_BoundConversationPage>
                     ),
                   ),
                   IconButton(
+                    tooltip: lt(
+                      'Rasmni olib tashlash',
+                      'Remove image',
+                      'Удалить фото',
+                    ),
                     onPressed: disabled || pending
                         ? null
                         : () => setState(() => _image = null),

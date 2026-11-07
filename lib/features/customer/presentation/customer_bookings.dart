@@ -440,7 +440,11 @@ class _CustomerChatPageState extends State<CustomerChatPage> {
                     onPressed: _sending || widget.sitter['unavailable'] == true
                         ? null
                         : _attach,
-                    tooltip: 'Rasm yuborish',
+                    tooltip: lt(
+                      'Rasm yuborish',
+                      'Send image',
+                      'Отправить фото',
+                    ),
                     icon: const Icon(
                       Icons.add_photo_alternate_outlined,
                       color: listingGold,
