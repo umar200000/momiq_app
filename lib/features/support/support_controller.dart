@@ -43,6 +43,7 @@ class SupportController extends ChangeNotifier {
   final WalletDraftStorage storage;
   final session = CustomerApi.sessionVersion;
   bool busy = false, _dead = false, _restored = false;
+  bool invalidDraft = false;
   Object? error;
   SupportJson? data, pending;
   bool get live => !_dead && session == CustomerApi.sessionVersion;
@@ -62,8 +63,17 @@ class SupportController extends ChangeNotifier {
     changed();
     try {
       if (!_restored) {
-        pending = await storage.read();
+        final saved = await storage.read();
         check();
+        try {
+          pending = saved == null
+              ? null
+              : supportDraft(saved, creating: id == null);
+          invalidDraft = false;
+        } on FormatException {
+          invalidDraft = true;
+          rethrow;
+        }
         _restored = true;
       }
       final before = more ? data!['nextCursor'] as String : null;
@@ -106,7 +116,9 @@ class SupportController extends ChangeNotifier {
     bool confirmAccountRequest = false,
     String? bookingId,
   }) async {
-    if (!live || busy || !_restored || data == null) return false;
+    if (!live || busy || !_restored || invalidDraft || data == null) {
+      return false;
+    }
     if (pending == null &&
         id == null &&
         topic == 'account_deletion' &&
@@ -222,8 +234,11 @@ class SupportController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
+      invalidDraft = false;
+      _restored = true;
     } catch (e) {
       if (live) error = e;
+      return;
     } finally {
       busy = false;
       changed();

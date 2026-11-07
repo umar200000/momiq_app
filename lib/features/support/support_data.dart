@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 typedef SupportData = Map<String, dynamic>;
 
 bool _number(Object? value) =>
@@ -9,6 +11,79 @@ bool _text(Object? value, int limit) =>
 bool _time(Object? value) =>
     value is String && value.length <= 64 && DateTime.tryParse(value) != null;
 Never _invalid() => throw const FormatException('Invalid support response');
+
+/// Check saved retries before exposing them to editors or transport.
+/// Keep the original payload unchanged, including its idempotency key.
+SupportData supportDraft(SupportData value, {required bool creating}) {
+  final required = {
+    'text',
+    'image',
+    'revision',
+    'requestId',
+    'action',
+    if (creating) ...{'subject', 'topic', 'bookingId'},
+  };
+  final allowed = {
+    ...required,
+    if (creating) ...{
+      'target',
+      'reportVideoId',
+      'appealRevision',
+      'confirmAccountRequest',
+    },
+  };
+  if (!value.keys.toSet().containsAll(required) ||
+      !allowed.containsAll(value.keys) ||
+      !_text(value['text'], 4000) ||
+      (value['image'] != null && value['image'] is! String) ||
+      value['revision'] is! int ||
+      value['revision'] < 0 ||
+      value['action'] != 'reply' ||
+      value['requestId'] is! String ||
+      !RegExp(r'^[A-Za-z0-9_-]{16,100}$').hasMatch(value['requestId'])) {
+    throw const FormatException('Invalid support draft');
+  }
+  if (creating &&
+      (!_text(value['subject'], 120) ||
+          (value['subject'] as String).trim().isEmpty ||
+          !const [
+            'general',
+            'booking',
+            'payment',
+            'account',
+            'safety',
+            'account_deletion',
+            'dispute_appeal',
+          ].contains(value['topic']) ||
+          (value['bookingId'] != null && !_id(value['bookingId'])))) {
+    throw const FormatException('Invalid support draft context');
+  }
+  final image = value['image'] as String?;
+  if (image != null &&
+      (image.length > 4 * 1024 * 1024 || base64Decode(image).isEmpty)) {
+    throw const FormatException('Invalid support draft image');
+  }
+  final target = value['target'];
+  if (value.containsKey('target') &&
+      (target is! Map ||
+          !const ['listing', 'review'].contains(target['kind']) ||
+          target['id'] is! String ||
+          (target['id'] as String).isEmpty ||
+          target.values.any((v) => v is! String))) {
+    throw const FormatException('Invalid support draft target');
+  }
+  if ((value.containsKey('reportVideoId') && !_id(value['reportVideoId'])) ||
+      (value.containsKey('appealRevision') &&
+          (value['appealRevision'] is! int || value['appealRevision'] < 1)) ||
+      (value.containsKey('confirmAccountRequest') &&
+          value['confirmAccountRequest'] is! bool) ||
+      (value['topic'] == 'account_deletion' &&
+          (value['confirmAccountRequest'] != true ||
+              value['bookingId'] != null))) {
+    throw const FormatException('Invalid support draft confirmation');
+  }
+  return value;
+}
 
 SupportData _ticket(Object? value) {
   if (value is! Map ||

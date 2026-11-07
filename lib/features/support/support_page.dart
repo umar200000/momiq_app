@@ -559,7 +559,16 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
           padding: const EdgeInsets.all(20),
           children: [
             if (c.busy) const LinearProgressIndicator(),
-            if (c.error != null) Text(supportError()),
+            if (c.invalidDraft)
+              Text(
+                lt(
+                  'Saqlangan xabarni o‘qib bo‘lmadi. U yuborilmadi va o‘chirilmadi. Qayta urinishingiz yoki qoralamani tozalab yangi xabar yozishingiz mumkin.',
+                  'The saved message could not be read. It was not sent or deleted. Retry, or clear the draft to write a new message.',
+                  'Не удалось прочитать сохранённое сообщение. Оно не отправлено и не удалено. Повторите попытку или очистите черновик и напишите новое сообщение.',
+                ),
+              )
+            else if (c.error != null)
+              Text(supportError()),
             if (ticket != null) Text(supportState(ticket['status'])),
             if (c.data?['deletionReview']?['state'] ==
                 'waiting_for_obligations')
@@ -802,7 +811,7 @@ class _SupportThreadPageState extends State<_BoundSupportThreadPage> {
                     : lt('Yuborish', 'Send', 'Отправить'),
               ),
             ),
-            if (c.pending != null)
+            if (c.pending != null || c.invalidDraft)
               TextButton(
                 onPressed: c.busy ? null : c.discard,
                 child: Text(
