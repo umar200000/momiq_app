@@ -9,10 +9,44 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from ios_startup import unpack, verify
+from ios_startup import unpack, verify, confirm_screen
+from types import SimpleNamespace
 
 
 class ArtifactStartupTests(unittest.TestCase):
+    def test_capture_timeouts_exhaust_budget_without_acknowledging_screen(self):
+        clock=[0.0]
+        def sleep(seconds):clock[0]+=seconds
+        def capture(*args, timeout):
+            self.assertGreater(timeout,0)
+            clock[0]+=timeout
+            raise subprocess.TimeoutExpired(['simctl','screenshot'],timeout)
+        with patch('ios_startup.time.monotonic',side_effect=lambda:clock[0]), \
+             patch('ios_startup.time.sleep',side_effect=sleep), \
+             patch('ios_startup.sim',side_effect=capture), \
+             patch('ios_startup.subprocess.run') as recognize:
+            with self.assertRaisesRegex(RuntimeError,'Could not verify'):
+                confirm_screen('TEST-device','TEST-classes',Path('TEST.png'))
+            recognize.assert_not_called()
+            self.assertEqual(clock[0],480)
+
+    def test_capture_retry_uses_same_device_and_requires_recognition(self):
+        clock=[0.0]
+        attempts=[]
+        def capture(*args, timeout):
+            attempts.append(args)
+            clock[0]+=10
+            if len(attempts)==1:
+                raise subprocess.TimeoutExpired(['simctl','screenshot'],timeout)
+            return ''
+        with patch('ios_startup.time.monotonic',side_effect=lambda:clock[0]), \
+             patch('ios_startup.time.sleep',side_effect=lambda s:clock.__setitem__(0,clock[0]+s)), \
+             patch('ios_startup.sim',side_effect=capture), \
+             patch('ios_startup.subprocess.run',return_value=SimpleNamespace(returncode=0)) as recognize:
+            confirm_screen('TEST-device','TEST-classes',Path('TEST.png'))
+            self.assertEqual(attempts,[('io','TEST-device','screenshot','TEST.png')]*2)
+            recognize.assert_called_once()
+
     def test_booted_device_install_error_survives_cleanup_timeout(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

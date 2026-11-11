@@ -18,15 +18,23 @@ def sim(*args, timeout=90):
 
 
 def confirm_screen(device, classes, image):
-    deadline=time.monotonic()+240
+    # Cold hosted macOS workers can stall simctl and JVM startup independently.
+    # Keep a finite total budget; a timeout never counts as screen verification.
+    deadline=time.monotonic()+480
     while time.monotonic()<deadline:
         try:
-            sim('io',device,'screenshot',str(image),timeout=75)
-            if subprocess.run(['java','-Djava.awt.headless=true','-cp',classes,'RoleScreen',image],timeout=45).returncode==0:
+            print('Capturing',image.name,flush=True)
+            remaining=deadline-time.monotonic()
+            if remaining<=0:break
+            sim('io',device,'screenshot',str(image),timeout=min(120,remaining))
+            remaining=deadline-time.monotonic()
+            if remaining<=0:break
+            print('Recognizing',image.name,flush=True)
+            if subprocess.run(['java','-Djava.awt.headless=true','-cp',classes,'RoleScreen',image],timeout=min(90,remaining)).returncode==0:
                 return
-        except subprocess.TimeoutExpired:
-            print('Simulator capture or recognition timed out; retrying the same running app',flush=True)
-        time.sleep(4)
+        except subprocess.TimeoutExpired as error:
+            print(f'{image.name}: {error.cmd[0]} timed out after {error.timeout}s; retrying the same running app',flush=True)
+        time.sleep(min(4,max(0,deadline-time.monotonic())))
     raise RuntimeError('Could not verify the rendered role selection screen')
 
 def unpack(package,output,revision):
@@ -75,7 +83,8 @@ def verify(bundle):
             print(f'QA bundle installed in {time.monotonic()-started:.1f}s',flush=True)
             for phase in ('first-launch','cold-restart'):
                 if phase=='cold-restart':sim('terminate',device,'net.momiq.app')
-                sim('launch',device,'net.momiq.app')
+                print('Launching',phase,flush=True)
+                sim('launch',device,'net.momiq.app',timeout=360)
                 confirm_screen(device,tmp,evidence/(phase+'.png'))
             report={'sourceSha':os.environ['MOMIQ_SOURCE_SHA'],'bundleId':'net.momiq.app',
                     'runtime':runtime,'deviceType':phone['deviceTypeIdentifier'],
