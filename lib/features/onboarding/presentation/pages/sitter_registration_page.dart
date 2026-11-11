@@ -735,14 +735,15 @@ class _SitterRegistrationPageState extends State<SitterRegistrationPage> {
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Text(
-                          context
-                              .tr('photoTotal')
-                              .replaceAll('{count}', _home.length.toString()),
-                          key: const ValueKey('photoCount'),
-                          style: profileText(13),
+                        Expanded(
+                          child: Text(
+                            context
+                                .tr('photoTotal')
+                                .replaceAll('{count}', _home.length.toString()),
+                            key: const ValueKey('photoCount'),
+                            style: profileText(13),
+                          ),
                         ),
-                        const Spacer(),
                         if (_picking)
                           const SizedBox(
                             width: 16,

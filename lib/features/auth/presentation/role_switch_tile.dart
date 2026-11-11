@@ -39,11 +39,19 @@ class _RoleSwitchTileState extends State<RoleSwitchTile> {
         ),
         (_) => false,
       );
-    } catch (error) {
+    } catch (_) {
       if (_current && ModalRoute.of(context)?.isCurrent != false) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              lt(
+                'Rejimni almashtirib bo‘lmadi. Qayta urinib ko‘ring.',
+                'Could not switch modes. Please retry.',
+                'Не удалось сменить режим. Повторите попытку.',
+              ),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);

@@ -67,13 +67,17 @@ class OnboardingShell extends StatelessWidget {
                         ),
                       ),
                       Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('Momiq', style: momiqWordmark(27)),
-                            const SizedBox(width: 6),
-                            MomiqLogo(size: 25),
-                          ],
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text('Momiq', style: momiqWordmark(27)),
+                              const SizedBox(width: 6),
+                              MomiqLogo(size: 25),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(width: 48),

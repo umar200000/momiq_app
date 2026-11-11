@@ -100,7 +100,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         await store.update((next) => next['profile']['first'] = 'After');
         gate.complete();
-        await refresh;
+        expect(await refresh, isFalse);
         expect(store.profile['first'], 'After');
         expect(store.revision, 2);
         expect(AppLanguage.current.value, 'uz');
@@ -123,11 +123,36 @@ void main() {
     await store.archivePet('pet', true, expectedRevision: 1);
     api.failRead = true;
     api.accountGate!.complete();
-    await refresh;
+    expect(await refresh, isFalse);
     expect(store.list('pets'), isEmpty);
     expect(store.archivedPets.single['id'], 'pet');
     expect(store.syncError, isNull);
   });
+
+  test(
+    'only a completed current refresh reports recovery, not skipped or failed reads',
+    () async {
+      final api = DelayedAccountApi();
+      CustomerApi.active = api;
+      final store = CustomerStore();
+      addTearDown(store.dispose);
+      await store.load();
+      api.accountGate = Completer<void>();
+      final first = store.refreshRemote();
+      expect(await store.refreshRemote(), isFalse);
+      expect(api.reads, 2);
+      api.accountGate!.complete();
+      expect(await first, isTrue);
+      api.failRead = true;
+      expect(await store.refreshRemote(), isFalse);
+      api.failRead = false;
+      expect(await store.refreshRemote(), isTrue);
+      expect(store.syncError, isNull);
+      CustomerApi.sessionVersion++;
+      expect(await store.refreshRemote(), isFalse);
+      expect(api.reads, 4);
+    },
+  );
 
   for (final dispose in [false, true]) {
     test(

@@ -115,28 +115,34 @@ class CustomerStore extends ChangeNotifier {
     'language': data['language'] ?? 'uz',
     if (data.containsKey('_revision')) '_revision': data['_revision'],
   };
-  Future<void> refreshRemote() async {
-    if (api == null || busy || _syncing || !_current) return;
+
+  /// True only when this read was applied to the current account. A skipped or
+  /// superseded refresh must not unlock an action with an uncertain outcome.
+  Future<bool> refreshRemote() async {
+    if (api == null || busy || _syncing || !_current) return false;
     final generation = _accountGeneration;
     _syncing = true;
     try {
       final account = await api!.request('GET', '/me');
-      if (!_acceptRead(generation)) return;
+      if (!_acceptRead(generation)) return false;
       final messages = await api!.request('GET', '/messages');
-      if (!_acceptRead(generation)) return;
+      if (!_acceptRead(generation)) return false;
       await CustomerApi.rememberAccount(
         Map<String, dynamic>.from(account['account']),
         isCurrent: () => _acceptRead(generation),
       );
-      if (!_acceptRead(generation)) return;
+      if (!_acceptRead(generation)) return false;
       _data.addAll(Map<String, dynamic>.from(account['account']));
       _data['messages'] = messages['messages'];
       if (AppLanguage.current.value != _data['language']) {
         await AppLanguage.select(_data['language'] ?? 'uz');
       }
-      if (_acceptRead(generation)) syncError = null;
+      if (!_acceptRead(generation)) return false;
+      syncError = null;
+      return true;
     } catch (e) {
       if (_acceptRead(generation)) syncError = e.toString();
+      return false;
     } finally {
       _syncing = false;
       if (_acceptRead(generation)) notifyListeners();

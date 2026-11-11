@@ -11,55 +11,121 @@ import '../../listings/presentation/care_location_page.dart';
 import '../../listings/presentation/care_location_preview.dart';
 import 'customer_widgets.dart';
 import '../../../core/widgets/owned_dialogs.dart';
+import '../data/customer_api.dart';
 
-class CustomerPetsPage extends StatelessWidget {
+class CustomerPetsPage extends StatefulWidget {
   const CustomerPetsPage({super.key, required this.store, this.select = false});
   final CustomerStore store;
   final bool select;
-  Future<void> _archive(BuildContext context, CJson pet, bool archived) async {
-    final revision = store.revision;
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          archived
-              ? lt('Hayvonni arxivlash', 'Archive pet', 'Архивировать питомца')
-              : lt('Hayvonni tiklash', 'Restore pet', 'Восстановить питомца'),
-        ),
-        content: Text(
-          archived
-              ? lt(
-                  'Hayvon yangi buyurtma tanlovidan yashiriladi. Eski buyurtmalar va tarix saqlanadi.',
-                  'The pet will be hidden from new bookings. Existing bookings and history are kept.',
-                  'Питомец будет скрыт при создании новых заказов. Текущие заказы и история сохранятся.',
-                )
-              : lt(
-                  'Hayvon yana yangi buyurtmalarda tanlanadi.',
-                  'The pet will be available for new bookings again.',
-                  'Питомца снова можно будет выбрать для нового заказа.',
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(lt('Ortga', 'Back', 'Назад')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              archived
-                  ? lt('Arxivlash', 'Archive', 'В архив')
-                  : lt('Tiklash', 'Restore', 'Восстановить'),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (accepted != true || !context.mounted) return;
+  @override
+  State<CustomerPetsPage> createState() => _CustomerPetsPageState();
+}
+
+class _CustomerPetsPageState extends State<CustomerPetsPage>
+    with OwnedDialogs<CustomerPetsPage> {
+  final _sessionVersion = CustomerApi.sessionVersion;
+  final _source = CustomerApi.active;
+  CustomerStore get store => widget.store;
+  bool get select => widget.select;
+  bool _confirming = false, _refreshing = false, _unconfirmed = false;
+  bool get _current =>
+      mounted &&
+      CustomerApi.sessionVersion == _sessionVersion &&
+      identical(CustomerApi.active, _source);
+  bool _owns(CustomerStore source) =>
+      _current &&
+      identical(store, source) &&
+      ModalRoute.of(context)?.isCurrent != false;
+
+  @override
+  void didUpdateWidget(CustomerPetsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.store, store) || oldWidget.select != select) {
+      dismissOwnedRoutes();
+      _unconfirmed = false;
+    }
+  }
+
+  Future<void> _refresh() async {
+    final source = store;
+    if (!_owns(source) || _refreshing || store.busy) return;
+    setState(() => _refreshing = true);
     try {
-      await store.archivePet(pet['id'], archived, expectedRevision: revision);
-    } catch (error) {
-      if (context.mounted) cNotice(context, error.toString());
+      final refreshed = await source.refreshRemote();
+      if (_owns(source)) setState(() => _unconfirmed = !refreshed);
+    } catch (_) {
+      if (_owns(source)) setState(() => _unconfirmed = true);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _archive(CJson pet, bool archived) async {
+    final source = store;
+    if (!_owns(source) ||
+        _confirming ||
+        _unconfirmed ||
+        _refreshing ||
+        store.busy ||
+        select) {
+      return;
+    }
+    final revision = source.revision;
+    _confirming = true;
+    bool? accepted;
+    try {
+      accepted = await showOwnedDialog<bool>(
+        builder: (context) => AlertDialog(
+          scrollable: true,
+          title: Text(
+            archived
+                ? lt(
+                    'Hayvonni arxivlash',
+                    'Archive pet',
+                    'Архивировать питомца',
+                  )
+                : lt('Hayvonni tiklash', 'Restore pet', 'Восстановить питомца'),
+          ),
+          content: Text(
+            archived
+                ? lt(
+                    'Hayvon yangi buyurtma tanlovidan yashiriladi. Eski buyurtmalar va tarix saqlanadi.',
+                    'The pet will be hidden from new bookings. Existing bookings and history are kept.',
+                    'Питомец будет скрыт при создании новых заказов. Текущие заказы и история сохранятся.',
+                  )
+                : lt(
+                    'Hayvon yana yangi buyurtmalarda tanlanadi.',
+                    'The pet will be available for new bookings again.',
+                    'Питомца снова можно будет выбрать для нового заказа.',
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(lt('Ortga', 'Back', 'Назад')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(
+                archived
+                    ? lt('Arxivlash', 'Archive', 'В архив')
+                    : lt('Tiklash', 'Restore', 'Восстановить'),
+              ),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      _confirming = false;
+    }
+    if (accepted != true || !_owns(source) || select) return;
+    try {
+      await source.archivePet(pet['id'], archived, expectedRevision: revision);
+    } catch (_) {
+      // Keep recovery on its own page even if a newer route is above it.
+      if (_current && identical(store, source)) {
+        setState(() => _unconfirmed = true);
+      }
     }
   }
 
@@ -75,6 +141,27 @@ class CustomerPetsPage extends StatelessWidget {
         icon: Icons.add,
       ),
       children: [
+        if (_unconfirmed)
+          cCard(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  lt(
+                    'Amal tasdiqlanmadi. Hayvon holatini yangilab tekshiring.',
+                    'The action was not confirmed. Refresh to check the pet’s status.',
+                    'Действие не подтверждено. Обновите данные и проверьте статус питомца.',
+                  ),
+                ),
+                TextButton.icon(
+                  key: const ValueKey('refreshPetStatus'),
+                  onPressed: _refreshing ? null : _refresh,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(lt('Yangilash', 'Refresh', 'Обновить')),
+                ),
+              ],
+            ),
+          ),
         for (final pet in store.list('pets'))
           cCard(
             Column(
@@ -107,9 +194,10 @@ class CustomerPetsPage extends StatelessWidget {
                 if (!select)
                   TextButton.icon(
                     key: ValueKey('archivePet-${pet['id']}'),
-                    onPressed: store.busy
+                    onPressed:
+                        store.busy || _unconfirmed || _refreshing || !_current
                         ? null
-                        : () => _archive(context, pet, true),
+                        : () => _archive(pet, true),
                     icon: const Icon(Icons.archive_outlined),
                     label: Text(lt('Arxivlash', 'Archive', 'В архив')),
                   ),
@@ -128,14 +216,24 @@ class CustomerPetsPage extends StatelessWidget {
             ),
             children: [
               for (final pet in store.archivedPets)
-                ListTile(
-                  title: Text(customerPetName(pet)),
-                  trailing: TextButton(
-                    key: ValueKey('restorePet-${pet['id']}'),
-                    onPressed: store.busy
-                        ? null
-                        : () => _archive(context, pet, false),
-                    child: Text(lt('Tiklash', 'Restore', 'Восстановить')),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(customerPetName(pet)),
+                      TextButton(
+                        key: ValueKey('restorePet-${pet['id']}'),
+                        onPressed:
+                            store.busy ||
+                                _unconfirmed ||
+                                _refreshing ||
+                                !_current
+                            ? null
+                            : () => _archive(pet, false),
+                        child: Text(lt('Tiklash', 'Restore', 'Восстановить')),
+                      ),
+                    ],
                   ),
                 ),
             ],
