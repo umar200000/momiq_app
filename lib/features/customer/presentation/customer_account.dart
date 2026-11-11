@@ -244,6 +244,77 @@ class _CustomerPetsPageState extends State<CustomerPetsPage>
   );
 }
 
+/// Draft controllers belong to the account and record that opened the form.
+/// Rebinding the widget must not transplant those values into another record.
+abstract class _CustomerFormState<T extends StatefulWidget> extends State<T>
+    with OwnedDialogs<T>, RebuildOnSessionChange<T> {
+  CustomerStore get formStore;
+  Object? get formTarget;
+  late final CustomerStore _sourceStore;
+  late final CustomerApi? _sourceApi, _activeApi;
+  late final int _session;
+  late final Object? _sourceTarget;
+
+  @override
+  void initState() {
+    super.initState();
+    _sourceStore = formStore;
+    _sourceApi = formStore.api;
+    _activeApi = CustomerApi.active;
+    _session = CustomerApi.sessionVersion;
+    _sourceTarget = formTarget;
+  }
+
+  bool get formCurrent =>
+      mounted &&
+      identical(_sourceStore, formStore) &&
+      identical(_sourceApi, formStore.api) &&
+      identical(_activeApi, CustomerApi.active) &&
+      _session == CustomerApi.sessionVersion &&
+      _sourceTarget == formTarget;
+  bool get formForeground =>
+      formCurrent && ModalRoute.of(context)?.isCurrent != false;
+
+  @override
+  void didUpdateWidget(T oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!formCurrent) dismissOwnedRoutes();
+  }
+
+  @override
+  void onSessionChanged() {
+    dismissOwnedRoutes();
+    super.onSessionChanged();
+  }
+
+  Widget get unavailableForm => CustomerPage(
+    title: lt('Forma yangilandi', 'Form changed', 'Форма изменилась'),
+    children: [
+      Text(
+        lt(
+          'Hisob yoki tahrirlanayotgan ma’lumot o‘zgargan. Sahifani qayta oching.',
+          'The account or record being edited has changed. Reopen the page.',
+          'Аккаунт или редактируемые данные изменились. Откройте страницу заново.',
+        ),
+      ),
+    ],
+  );
+
+  void showSaveError(Object error) {
+    if (!formForeground) return;
+    cNotice(
+      context,
+      error is CustomerApiException
+          ? error.message
+          : lt(
+              'Saqlash tasdiqlanmadi. Kiritilgan ma’lumotlar shu formada saqlandi.',
+              'The save was not confirmed. Your entries remain in this form.',
+              'Сохранение не подтверждено. Введённые данные остались в форме.',
+            ),
+    );
+  }
+}
+
 class CustomerPetForm extends StatefulWidget {
   const CustomerPetForm({
     super.key,
@@ -260,7 +331,11 @@ class CustomerPetForm extends StatefulWidget {
   State<CustomerPetForm> createState() => _CustomerPetFormState();
 }
 
-class _CustomerPetFormState extends State<CustomerPetForm> {
+class _CustomerPetFormState extends _CustomerFormState<CustomerPetForm> {
+  @override
+  CustomerStore get formStore => widget.store;
+  @override
+  Object? get formTarget => widget.pet?['id'];
   late final int? _revision;
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController(),
@@ -300,11 +375,10 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
   }
 
   Future<void> _pick() async {
-    if (_picking) return;
+    if (!formForeground || _picking || _saving) return;
     setState(() => _picking = true);
     try {
-      final source = await showModalBottomSheet<ImageSource>(
-        context: context,
+      final source = await showOwnedSheet<ImageSource>(
         backgroundColor: listingSurface,
         builder: (context) => SafeArea(
           child: Column(
@@ -329,20 +403,20 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
           ),
         ),
       );
-      if (source == null || !mounted) return;
+      if (source == null || !formForeground) return;
       final bytes = await _photos.pickProfile(source: source);
-      if (mounted && bytes != null) {
+      if (formCurrent && bytes != null) {
         setState(() => _photo = base64Encode(bytes));
       }
     } catch (_) {
-      if (mounted) cNotice(context, 'Rasm ochilmadi.');
+      if (mounted && formForeground) cNotice(context, 'Rasm ochilmadi.');
     } finally {
       if (mounted) setState(() => _picking = false);
     }
   }
 
   Future<void> _save() async {
-    if (_saving || _picking) return;
+    if (!formForeground || _saving || _picking) return;
     if (_photo == null ||
         _photo!.isEmpty ||
         !widget.allowedTypes.contains(_type)) {
@@ -378,9 +452,9 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
         for (final field in petSafetyFields) field: _safety[field]!.text.trim(),
         'photo': _photo,
       }, expectedRevision: _revision);
-      if (mounted) Navigator.pop(context, id);
+      if (mounted && formForeground) Navigator.pop(context, id);
     } catch (e) {
-      if (mounted) cNotice(context, e.toString());
+      showSaveError(e);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -402,88 +476,90 @@ class _CustomerPetFormState extends State<CustomerPetForm> {
   }
 
   @override
-  Widget build(BuildContext context) => CustomerPage(
-    title: widget.pet == null ? 'Hayvon qo‘shish' : 'Tahrirlash',
-    bottom: cButton(
-      'Saqlash',
-      _saving || _picking ? null : _save,
-      id: 'saveCustomerPet',
-      loading: _saving,
-    ),
-    children: [
-      Form(
-        key: _form,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => !formCurrent
+      ? unavailableForm
+      : CustomerPage(
+          title: widget.pet == null ? 'Hayvon qo‘shish' : 'Tahrirlash',
+          bottom: cButton(
+            'Saqlash',
+            _saving || _picking ? null : _save,
+            id: 'saveCustomerPet',
+            loading: _saving,
+          ),
           children: [
-            Center(
-              child: CustomerPetArt(
-                pet: {'photo': _photo, 'type': _type},
-                size: 110,
-              ),
-            ),
-            Center(
-              child: TextButton.icon(
-                key: const ValueKey('pickCustomerPetPhoto'),
-                onPressed: _picking ? null : _pick,
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: Text(ct('Rasmni almashtirish')),
-              ),
-            ),
-            if (_requiredError != null)
-              cText(_requiredError!, color: Colors.red),
-            cText(
-              lt(
-                'Rasm va hayvon turi majburiy. Qolgan maydonlar ixtiyoriy.',
-                'Photo and pet type are required. Other fields are optional.',
-                'Фото и вид животного обязательны. Остальные поля необязательны.',
-              ),
-              size: 12,
-            ),
-            const SizedBox(height: 12),
-            cText('Hayvon turi', bold: true),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final t in widget.allowedTypes)
-                  ChoiceChip(
-                    label: Text(ct(t)),
-                    selected: _type == t,
-                    onSelected: (_) => setState(() => _type = t),
+            Form(
+              key: _form,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: CustomerPetArt(
+                      pet: {'photo': _photo, 'type': _type},
+                      size: 110,
+                    ),
                   ),
-              ],
-            ),
-            if (_type == 'Boshqa')
-              cField(
-                _otherType,
-                lt('Qaysi hayvon?', 'Animal type', 'Какое животное?'),
-                id: 'customerPetOtherType',
-                required: true,
-              ),
-            const SizedBox(height: 18),
-            cField(_name, 'Ismi', id: 'customerPetName'),
-            cField(_age, 'Yoshi', id: 'customerPetAge', number: true),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final v in ['Erkak', 'Urg‘ochi'])
-                  ChoiceChip(
-                    label: Text(ct(v)),
-                    selected: _sex == v,
-                    onSelected: (selected) =>
-                        setState(() => _sex = selected ? v : ''),
+                  Center(
+                    child: TextButton.icon(
+                      key: const ValueKey('pickCustomerPetPhoto'),
+                      onPressed: _picking || _saving ? null : _pick,
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: Text(ct('Rasmni almashtirish')),
+                    ),
                   ),
-              ],
+                  if (_requiredError != null)
+                    cText(_requiredError!, color: Colors.red),
+                  cText(
+                    lt(
+                      'Rasm va hayvon turi majburiy. Qolgan maydonlar ixtiyoriy.',
+                      'Photo and pet type are required. Other fields are optional.',
+                      'Фото и вид животного обязательны. Остальные поля необязательны.',
+                    ),
+                    size: 12,
+                  ),
+                  const SizedBox(height: 12),
+                  cText('Hayvon turi', bold: true),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final t in widget.allowedTypes)
+                        ChoiceChip(
+                          label: Text(ct(t)),
+                          selected: _type == t,
+                          onSelected: (_) => setState(() => _type = t),
+                        ),
+                    ],
+                  ),
+                  if (_type == 'Boshqa')
+                    cField(
+                      _otherType,
+                      lt('Qaysi hayvon?', 'Animal type', 'Какое животное?'),
+                      id: 'customerPetOtherType',
+                      required: true,
+                    ),
+                  const SizedBox(height: 18),
+                  cField(_name, 'Ismi', id: 'customerPetName'),
+                  cField(_age, 'Yoshi', id: 'customerPetAge', number: true),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final v in ['Erkak', 'Urg‘ochi'])
+                        ChoiceChip(
+                          label: Text(ct(v)),
+                          selected: _sex == v,
+                          onSelected: (selected) =>
+                              setState(() => _sex = selected ? v : ''),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  cField(_breed, 'Zoti'),
+                  cField(_notes, 'Xususiyatlari', lines: 3),
+                  PetSafetyFields(controllers: _safety),
+                ],
+              ),
             ),
-            const SizedBox(height: 18),
-            cField(_breed, 'Zoti'),
-            cField(_notes, 'Xususiyatlari', lines: 3),
-            PetSafetyFields(controllers: _safety),
           ],
-        ),
-      ),
-    ],
-  );
+        );
 }
 
 class CustomerProfileForm extends StatefulWidget {
@@ -500,7 +576,12 @@ class CustomerProfileForm extends StatefulWidget {
   State<CustomerProfileForm> createState() => _CustomerProfileFormState();
 }
 
-class _CustomerProfileFormState extends State<CustomerProfileForm> {
+class _CustomerProfileFormState
+    extends _CustomerFormState<CustomerProfileForm> {
+  @override
+  CustomerStore get formStore => widget.store;
+  @override
+  Object? get formTarget => widget.registration;
   late final int? _revision;
   @override
   void initState() {
@@ -520,11 +601,10 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
   bool _picking = false;
   late final _photos = widget.photoSource ?? ProfilePhotoSource();
   Future<void> _photoPick() async {
-    if (_picking || _saving) return;
+    if (!formForeground || _picking || _saving) return;
     setState(() => _picking = true);
     try {
-      final source = await showModalBottomSheet<ImageSource>(
-        context: context,
+      final source = await showOwnedSheet<ImageSource>(
         builder: (context) => SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -548,10 +628,11 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
           ),
         ),
       );
-      if (!mounted || source == null) return;
+      if (!formForeground || source == null) return;
       final bytes = await _photos.pickProfile(source: source);
-      if (mounted && bytes != null) {
+      if (mounted && formCurrent && bytes != null) {
         if (bytes.length > 3 * 1024 * 1024) {
+          if (!formForeground) return;
           cNotice(
             context,
             lt(
@@ -565,14 +646,19 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
         setState(() => _photo = base64Encode(bytes));
       }
     } catch (_) {
-      if (mounted) cNotice(context, 'Rasm ochilmadi.');
+      if (mounted && formForeground) cNotice(context, 'Rasm ochilmadi.');
     } finally {
       if (mounted) setState(() => _picking = false);
     }
   }
 
   Future<void> _save() async {
-    if (_saving || _picking || !_form.currentState!.validate()) return;
+    if (!formForeground ||
+        _saving ||
+        _picking ||
+        !_form.currentState!.validate()) {
+      return;
+    }
     setState(() => _saving = true);
     try {
       await widget.store.update(
@@ -583,7 +669,7 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
         },
         expectedRevision: _revision,
       );
-      if (!mounted) return;
+      if (!mounted || !formForeground) return;
       if (widget.registration) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute<void>(builder: (_) => const CustomerHomePage()),
@@ -593,7 +679,7 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) cNotice(context, e.toString());
+      showSaveError(e);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -607,86 +693,94 @@ class _CustomerProfileFormState extends State<CustomerProfileForm> {
   }
 
   @override
-  Widget build(BuildContext context) => CustomerPage(
-    title: widget.registration
-        ? lt('Ro‘yxatdan o‘tish', 'Registration', 'Регистрация')
-        : 'Profilni tahrirlash',
-    bottom: cButton(
-      widget.registration
-          ? lt('Ro‘yxatdan o‘tish', 'Register', 'Зарегистрироваться')
-          : 'Saqlash',
-      _saving || _picking ? null : _save,
-      id: widget.registration ? 'registerCustomer' : 'saveCustomerProfile',
-      loading: _saving,
-    ),
-    children: [
-      Form(
-        key: _form,
-        child: Column(
+  Widget build(BuildContext context) => !formCurrent
+      ? unavailableForm
+      : CustomerPage(
+          title: widget.registration
+              ? lt('Ro‘yxatdan o‘tish', 'Registration', 'Регистрация')
+              : 'Profilni tahrirlash',
+          bottom: cButton(
+            widget.registration
+                ? lt('Ro‘yxatdan o‘tish', 'Register', 'Зарегистрироваться')
+                : 'Saqlash',
+            _saving || _picking ? null : _save,
+            id: widget.registration
+                ? 'registerCustomer'
+                : 'saveCustomerProfile',
+            loading: _saving,
+          ),
           children: [
-            CircleAvatar(
-              radius: 52,
-              backgroundColor: listingSurface,
-              backgroundImage: _photo == null
-                  ? null
-                  : MemoryImage(base64Decode(_photo!)),
-              child: _photo == null
-                  ? const Icon(Icons.person_outline, size: 50)
-                  : null,
-            ),
-            TextButton.icon(
-              key: const ValueKey('pickCustomerProfilePhoto'),
-              onPressed: _picking || _saving ? null : _photoPick,
-              icon: const Icon(Icons.camera_alt_outlined),
-              label: Text(
-                widget.registration
-                    ? lt(
-                        'Profil rasmi (ixtiyoriy)',
-                        'Profile photo (optional)',
-                        'Фото профиля (необязательно)',
-                      )
-                    : ct('Rasmni almashtirish'),
+            Form(
+              key: _form,
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 52,
+                    backgroundColor: listingSurface,
+                    backgroundImage: _photo == null
+                        ? null
+                        : MemoryImage(base64Decode(_photo!)),
+                    child: _photo == null
+                        ? const Icon(Icons.person_outline, size: 50)
+                        : null,
+                  ),
+                  TextButton.icon(
+                    key: const ValueKey('pickCustomerProfilePhoto'),
+                    onPressed: _picking || _saving ? null : _photoPick,
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: Text(
+                      widget.registration
+                          ? lt(
+                              'Profil rasmi (ixtiyoriy)',
+                              'Profile photo (optional)',
+                              'Фото профиля (необязательно)',
+                            )
+                          : ct('Rasmni almashtirish'),
+                    ),
+                  ),
+                  if (_photo != null)
+                    TextButton(
+                      key: const ValueKey('removeCustomerProfilePhoto'),
+                      onPressed: _picking || _saving
+                          ? null
+                          : () => setState(() => _photo = null),
+                      child: Text(
+                        lt(
+                          'Rasmni olib tashlash',
+                          'Remove photo',
+                          'Удалить фото',
+                        ),
+                      ),
+                    ),
+                  if (widget.registration)
+                    cText(
+                      lt(
+                        'Rasmsiz ham ro‘yxatdan o‘tishingiz mumkin.',
+                        'You can register without a photo.',
+                        'Можно зарегистрироваться без фото.',
+                      ),
+                      size: 12,
+                    ),
+                  const SizedBox(height: 24),
+                  cField(
+                    _first,
+                    'Ism',
+                    required: true,
+                    limit: 100,
+                    id: 'customerFirst',
+                  ),
+                  cField(
+                    _last,
+                    'Familiya',
+                    required: true,
+                    limit: 100,
+                    id: 'customerLast',
+                  ),
+                ],
               ),
-            ),
-            if (_photo != null)
-              TextButton(
-                key: const ValueKey('removeCustomerProfilePhoto'),
-                onPressed: _picking || _saving
-                    ? null
-                    : () => setState(() => _photo = null),
-                child: Text(
-                  lt('Rasmni olib tashlash', 'Remove photo', 'Удалить фото'),
-                ),
-              ),
-            if (widget.registration)
-              cText(
-                lt(
-                  'Rasmsiz ham ro‘yxatdan o‘tishingiz mumkin.',
-                  'You can register without a photo.',
-                  'Можно зарегистрироваться без фото.',
-                ),
-                size: 12,
-              ),
-            const SizedBox(height: 24),
-            cField(
-              _first,
-              'Ism',
-              required: true,
-              limit: 100,
-              id: 'customerFirst',
-            ),
-            cField(
-              _last,
-              'Familiya',
-              required: true,
-              limit: 100,
-              id: 'customerLast',
             ),
           ],
-        ),
-      ),
-    ],
-  );
+        );
 }
 
 class CustomerAddressesPage extends StatelessWidget {
@@ -756,8 +850,12 @@ class CustomerAddressForm extends StatefulWidget {
   State<CustomerAddressForm> createState() => _CustomerAddressFormState();
 }
 
-class _CustomerAddressFormState extends State<CustomerAddressForm>
-    with OwnedDialogs<CustomerAddressForm> {
+class _CustomerAddressFormState
+    extends _CustomerFormState<CustomerAddressForm> {
+  @override
+  CustomerStore get formStore => widget.store;
+  @override
+  Object? get formTarget => widget.address?['id'];
   late final int? _revision;
   late final _label = TextEditingController(
     text: widget.address?['label'] ?? lt('Uyim', 'Home', 'Дом'),
@@ -777,17 +875,20 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
   }
 
   Future<void> _map() async {
+    if (!formForeground || _saving) return;
     final value = await pickCareLocation(context, _location);
-    if (value != null && mounted) setState(() => _location = value);
+    if (value != null && formCurrent) setState(() => _location = value);
   }
 
   Future<void> _delete() async {
+    if (!formForeground || _saving) return;
     final address = widget.address;
-    if (_saving || address == null) return;
+    if (address == null) return;
     setState(() => _saving = true);
     try {
       final confirmed = await showOwnedDialog<bool>(
         builder: (dialog) => AlertDialog(
+          scrollable: true,
           title: Text(
             lt('Manzil o‘chirilsinmi?', 'Delete address?', 'Удалить адрес?'),
           ),
@@ -810,12 +911,13 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
           ],
         ),
       );
-      if (!mounted || confirmed != true) return;
+      if (!formForeground || confirmed != true) return;
       await widget.store.update((data) {
         (data['addresses'] as List).removeWhere(
           (item) => item['id'] == address['id'],
         );
       }, expectedRevision: _revision);
+      if (!formCurrent) return;
       if (widget.store
           .list('addresses')
           .any((item) => item['id'] == address['id'])) {
@@ -827,16 +929,16 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
           ),
         );
       }
-      if (mounted) Navigator.pop(context);
+      if (mounted && formForeground) Navigator.pop(context);
     } catch (e) {
-      if (mounted) cNotice(context, e.toString());
+      showSaveError(e);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (!formForeground || _saving) return;
     if (_location == null || _label.text.trim().isEmpty) {
       cNotice(context, 'Manzil va uning nomini kiriting.');
       return;
@@ -851,9 +953,9 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
         'label': _label.text.trim(),
         'apartment': _flat.text.trim(),
       }, expectedRevision: _revision);
-      if (mounted) Navigator.pop(context);
+      if (mounted && formForeground) Navigator.pop(context);
     } catch (e) {
-      if (mounted) cNotice(context, e.toString());
+      showSaveError(e);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -867,36 +969,38 @@ class _CustomerAddressFormState extends State<CustomerAddressForm>
   }
 
   @override
-  Widget build(BuildContext context) => CustomerPage(
-    title: 'Manzilni belgilang',
-    bottom: cButton('Saqlash', _saving ? null : _save, loading: _saving),
-    children: [
-      CareLocationPreview(location: _location, onTap: _map),
-      cButton(
-        'Xaritadan tanlash',
-        _map,
-        secondary: true,
-        icon: Icons.map_outlined,
-      ),
-      const SizedBox(height: 18),
-      cField(_label, 'Manzil nomi'),
-      cField(
-        _flat,
-        lt(
-          'Xonadon va kirish ko‘rsatmasi (ixtiyoriy)',
-          'Apartment and entry instructions (optional)',
-          'Квартира и инструкции по входу (необязательно)',
-        ),
-      ),
-      if (widget.address != null)
-        cButton(
-          lt('Manzilni o‘chirish', 'Delete address', 'Удалить адрес'),
-          _saving ? null : _delete,
-          secondary: true,
-          icon: Icons.delete_outline,
-        ),
-    ],
-  );
+  Widget build(BuildContext context) => !formCurrent
+      ? unavailableForm
+      : CustomerPage(
+          title: 'Manzilni belgilang',
+          bottom: cButton('Saqlash', _saving ? null : _save, loading: _saving),
+          children: [
+            CareLocationPreview(location: _location, onTap: _map),
+            cButton(
+              'Xaritadan tanlash',
+              _saving ? null : _map,
+              secondary: true,
+              icon: Icons.map_outlined,
+            ),
+            const SizedBox(height: 18),
+            cField(_label, 'Manzil nomi'),
+            cField(
+              _flat,
+              lt(
+                'Xonadon va kirish ko‘rsatmasi (ixtiyoriy)',
+                'Apartment and entry instructions (optional)',
+                'Квартира и инструкции по входу (необязательно)',
+              ),
+            ),
+            if (widget.address != null)
+              cButton(
+                lt('Manzilni o‘chirish', 'Delete address', 'Удалить адрес'),
+                _saving ? null : _delete,
+                secondary: true,
+                icon: Icons.delete_outline,
+              ),
+          ],
+        );
 }
 
 class CustomerSettingsPage extends StatefulWidget {
