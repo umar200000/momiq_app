@@ -84,6 +84,8 @@ void main() {
     {'petIds': List.generate(31, (i) => '$i')},
     {'startsAt': []},
     {'startsAt': '2030-01-01'},
+    {'startsAt': '+275760-09-13T00:00:00Z'},
+    {'endsAt': '0000-01-01T00:00:00Z'},
     {'endsAt': false},
     {'addressId': 8},
     {'instructions': []},

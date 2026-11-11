@@ -36,10 +36,12 @@ LocalBookingData bookingForm(Object? value) {
     final time = value[key];
     if (time is! String ||
         time.length > 40 ||
-        !RegExp(r'(Z|[+-]\d\d:\d\d)$').hasMatch(time) ||
-        DateTime.tryParse(time) == null) {
+        !RegExp(r'(Z|[+-]\d\d:\d\d)$').hasMatch(time)) {
       _bad();
     }
+    final parsed = DateTime.tryParse(time);
+    // Match the server's datetime year range before UI timezone arithmetic.
+    if (parsed == null || parsed.year < 1 || parsed.year > 9999) _bad();
   }
   if ((value.containsKey('addressId') && !_id(value['addressId'])) ||
       (value.containsKey('instructions') &&

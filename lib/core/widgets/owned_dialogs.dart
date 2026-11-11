@@ -1,5 +1,15 @@
 import 'package:flutter/material.dart';
 
+/// Clamp only the calendar's initial cursor, never the saved value. Compare
+/// calendar days (as the picker does), not UTC instants or times of day.
+DateTime calendarInitialDate(DateTime value, DateTime first, DateTime last) {
+  final day = DateUtils.dateOnly(value);
+  final lower = DateUtils.dateOnly(first), upper = DateUtils.dateOnly(last);
+  if (day.isBefore(lower)) return lower;
+  if (day.isAfter(upper)) return upper;
+  return day;
+}
+
 /// Dialogs belong to the source page, including when another route is above it.
 mixin OwnedDialogs<T extends StatefulWidget> on State<T> {
   final _dialogs = <Route<dynamic>>{};
@@ -28,7 +38,7 @@ mixin OwnedDialogs<T extends StatefulWidget> on State<T> {
     required DateTime lastDate,
   }) => showOwnedDialog<DateTime>(
     builder: (_) => DatePickerDialog(
-      initialDate: initialDate,
+      initialDate: calendarInitialDate(initialDate, firstDate, lastDate),
       firstDate: firstDate,
       lastDate: lastDate,
     ),

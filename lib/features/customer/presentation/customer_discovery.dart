@@ -1,4 +1,5 @@
 import '../../bookings/presentation/booking_request_page.dart';
+import '../../../core/widgets/owned_dialogs.dart' show calendarInitialDate;
 import 'dart:async';
 import '../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
@@ -448,7 +449,11 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
         (first ? start : end)?.toUtc().add(const Duration(hours: 5)) ?? now;
     final day = await showDatePicker(
       context: context,
-      initialDate: old.isBefore(now) ? now : old,
+      initialDate: calendarInitialDate(
+        old,
+        DateTime(now.year, now.month, now.day),
+        DateTime(now.year + 1, now.month, now.day),
+      ),
       firstDate: DateTime(now.year, now.month, now.day),
       lastDate: DateTime(now.year + 1, now.month, now.day),
     );

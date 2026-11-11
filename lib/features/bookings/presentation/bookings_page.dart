@@ -191,7 +191,11 @@ class _BookingInboxState extends State<_BookingInbox> {
                 if (c.loading) const LinearProgressIndicator(),
                 if (c.error != null)
                   Text(
-                    c.error.toString(),
+                    lt(
+                      'Buyurtmalarni yuklab bo‘lmadi. Qayta urinib ko‘ring.',
+                      'Could not load bookings. Please retry.',
+                      'Не удалось загрузить заказы. Повторите попытку.',
+                    ),
                     key: const ValueKey('bookingInboxError'),
                   ),
                 if (!c.loading && c.error == null && c.items.isEmpty)
@@ -319,11 +323,19 @@ class _BookingDetailPageState extends State<_BookingDetailPage>
               ConversationPage(api: c.api, conversationId: chat['id']),
         ),
       );
-    } catch (error) {
+    } catch (_) {
       if (mounted && live) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              lt(
+                'Buyurtma suhbatini ochib bo‘lmadi. Qayta urinib ko‘ring.',
+                'Could not open the booking chat. Please retry.',
+                'Не удалось открыть переписку по заказу. Повторите попытку.',
+              ),
+            ),
+          ),
+        );
       }
     } finally {
       if (live) setState(() => _openingChat = false);
