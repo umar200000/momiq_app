@@ -12,6 +12,7 @@ import '../../listings/presentation/care_location_preview.dart';
 import 'customer_widgets.dart';
 import '../../../core/widgets/owned_dialogs.dart';
 import '../data/customer_api.dart';
+import 'customer_session_boundary.dart' show RebuildOnSessionChange;
 
 class CustomerPetsPage extends StatefulWidget {
   const CustomerPetsPage({super.key, required this.store, this.select = false});
@@ -905,70 +906,127 @@ class CustomerSettingsPage extends StatefulWidget {
   State<CustomerSettingsPage> createState() => _CustomerSettingsPageState();
 }
 
-class _CustomerSettingsPageState extends State<CustomerSettingsPage> {
+class _CustomerSettingsPageState extends State<CustomerSettingsPage>
+    with RebuildOnSessionChange<CustomerSettingsPage> {
+  final _session = CustomerApi.sessionVersion;
+  final _api = CustomerApi.active;
+  bool _current(CustomerStore source) =>
+      mounted &&
+      identical(widget.store, source) &&
+      CustomerApi.sessionVersion == _session &&
+      identical(CustomerApi.active, _api);
+
+  Future<void> _save(
+    CustomerStore source,
+    void Function(CJson) change, {
+    String? language,
+  }) async {
+    if (!_current(source) ||
+        source.busy ||
+        ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
+    try {
+      await source.update(change);
+      // Account listeners can invalidate the session as the save finishes.
+      if (!_current(source)) return;
+      if (language != null) await AppLanguage.select(language);
+    } catch (_) {
+      if (mounted &&
+          _current(source) &&
+          ModalRoute.of(context)?.isCurrent != false) {
+        cNotice(
+          context,
+          lt(
+            'Amal bajarilmadi. Qayta urinib ko‘ring.',
+            'Action failed. Please retry.',
+            'Не удалось выполнить. Повторите.',
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([AppLanguage.current, widget.store]),
-    builder: (context, _) => CustomerPage(
-      title: 'Til',
-      children: [
-        cText('Til', size: 20, bold: true),
-        const SizedBox(height: 12),
-        for (final l in [
-          ('uz', 'O‘zbekcha'),
-          ('ru', 'Русский'),
-          ('en', 'English'),
-        ])
-          cCard(
-            ListTile(
-              key: ValueKey('customerLanguage-${l.$1}'),
-              title: Text(l.$2),
-              trailing: Icon(
-                AppLanguage.current.value == l.$1
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: listingGold,
+    builder: (context, _) {
+      final source = widget.store;
+      if (!_current(source)) {
+        return CustomerPage(
+          title: 'Til',
+          children: [
+            Text(
+              lt(
+                'Hisobingizga qayta kiring.',
+                'Sign in again.',
+                'Войдите снова.',
               ),
-              onTap: widget.store.busy
-                  ? null
-                  : () => cAction(context, () async {
-                      await widget.store.update((d) => d['language'] = l.$1);
-                      await AppLanguage.select(l.$1);
-                    }),
             ),
-          ),
-        if (widget.store.busy) const LinearProgressIndicator(),
-        cText('Bildirishnomalar', size: 20, bold: true),
-        const SizedBox(height: 12),
-        for (final n in [
-          ('orders', 'Buyurtmalar'),
-          ('chat', 'Chatlar'),
-          ('video', 'Video hisobotlar'),
-        ])
-          cCard(
-            SwitchListTile(
-              title: Text(ct(n.$2)),
-              value: widget.store.notifications[n.$1] as bool,
-              onChanged: widget.store.busy
-                  ? null
-                  : (v) => cAction(
-                      context,
-                      () => widget.store.update(
+          ],
+        );
+      }
+      return CustomerPage(
+        title: 'Til',
+        children: [
+          cText('Til', size: 20, bold: true),
+          const SizedBox(height: 12),
+          for (final l in [
+            ('uz', 'O‘zbekcha'),
+            ('ru', 'Русский'),
+            ('en', 'English'),
+          ])
+            cCard(
+              ListTile(
+                key: ValueKey('customerLanguage-${l.$1}'),
+                title: Text(l.$2),
+                trailing: Icon(
+                  AppLanguage.current.value == l.$1
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: listingGold,
+                ),
+                onTap: source.busy
+                    ? null
+                    : () => _save(
+                        source,
+                        (d) => d['language'] = l.$1,
+                        language: l.$1,
+                      ),
+              ),
+            ),
+          if (source.busy) const LinearProgressIndicator(),
+          cText('Bildirishnomalar', size: 20, bold: true),
+          const SizedBox(height: 12),
+          for (final n in [
+            ('orders', 'Buyurtmalar'),
+            ('chat', 'Chatlar'),
+            ('video', 'Video hisobotlar'),
+          ])
+            cCard(
+              SwitchListTile(
+                key: ValueKey('customerNotice-${n.$1}'),
+                title: Text(ct(n.$2)),
+                value: source.notifications[n.$1] as bool,
+                onChanged: source.busy
+                    ? null
+                    : (v) => _save(
+                        source,
                         (d) => (d['notifications'] as Map)[n.$1] = v,
                       ),
-                    ),
+              ),
             ),
+          cText(
+            lt(
+              'Bu sozlamalar kelajakdagi push xabarlari uchun saqlanadi. Hozir telefoningizga push yuborilmaydi. Ilova ichidagi buyurtma, chat, parvarish va to‘lov xabarlari tarixi bu tugmalar bilan o‘chmaydi.',
+              'These preferences are saved for future push notifications. No push is sent to your phone yet. These switches do not remove booking, chat, care or payment notices from the in-app history.',
+              'Эти настройки сохраняются для будущих push-уведомлений. Сейчас push на телефон не отправляются. Эти переключатели не удаляют уведомления о заказах, чате, уходе и платежах из истории в приложении.',
+            ),
+            size: 12,
           ),
-        cText(
-          lt(
-            'Bu sozlamalar kelajakdagi push xabarlari uchun saqlanadi. Hozir telefoningizga push yuborilmaydi. Ilova ichidagi buyurtma, chat, parvarish va to‘lov xabarlari tarixi bu tugmalar bilan o‘chmaydi.',
-            'These preferences are saved for future push notifications. No push is sent to your phone yet. These switches do not remove booking, chat, care or payment notices from the in-app history.',
-            'Эти настройки сохраняются для будущих push-уведомлений. Сейчас push на телефон не отправляются. Эти переключатели не удаляют уведомления о заказах, чате, уходе и платежах из истории в приложении.',
-          ),
-          size: 12,
-        ),
-      ],
-    ),
+        ],
+      );
+    },
   );
 }
 

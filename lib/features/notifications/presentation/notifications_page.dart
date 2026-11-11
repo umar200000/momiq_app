@@ -254,10 +254,19 @@ class _NotificationsPageState extends State<NotificationsPage>
 
   Future<void> _open(Map<String, dynamic> item) async {
     final id = item['id'] as String;
-    if (!_live || _busy || _reading.isNotEmpty || _api == null) return;
+    if (!_live ||
+        _busy ||
+        _reading.isNotEmpty ||
+        _api == null ||
+        ModalRoute.of(context)?.isCurrent == false ||
+        !_items.any((visible) => identical(visible, item))) {
+      return;
+    }
     final generation = _generation, api = _api!;
     bool current() =>
         _live && generation == _generation && identical(api, _api);
+    bool foreground() =>
+        current() && ModalRoute.of(context)?.isCurrent != false;
     _reading.add(id);
     setState(() {});
     try {
@@ -279,7 +288,9 @@ class _NotificationsPageState extends State<NotificationsPage>
           _unread = receipt?['unreadCount'] ?? (_unread > 0 ? _unread - 1 : 0);
         });
       }
-      if (!mounted || !current()) return;
+      // A confirmed read can update its own row while covered, but it must not
+      // interrupt another route with a dialog or navigation.
+      if (!mounted || !foreground()) return;
       final dialog = DialogRoute<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -304,7 +315,10 @@ class _NotificationsPageState extends State<NotificationsPage>
       _dialog = dialog;
       final target = await Navigator.of(context).push(dialog);
       if (identical(_dialog, dialog)) _dialog = null;
-      if (!mounted || target != true || !current() || !_hasDestination(item)) {
+      if (!mounted ||
+          target != true ||
+          !foreground() ||
+          !_hasDestination(item)) {
         return;
       }
       // Only local, known destinations are accepted; no server-provided URLs.
@@ -342,7 +356,7 @@ class _NotificationsPageState extends State<NotificationsPage>
         ),
       );
     } catch (_) {
-      if (mounted && current()) {
+      if (mounted && foreground()) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
