@@ -1,4 +1,5 @@
 import 'booking_contract.dart';
+import 'booking_local_draft.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../customer/data/customer_api.dart';
@@ -18,6 +19,7 @@ class BookingComposer extends ChangeNotifier {
   final WalletDraftStorage storage;
   final int _session = CustomerApi.sessionVersion;
   bool _disposed = false, busy = false, ready = false;
+  bool invalidDraft = false;
   BookingJson draft = {}, policy = {};
   BookingJson? quote, pending, result;
   Object? error;
@@ -38,21 +40,22 @@ class BookingComposer extends ChangeNotifier {
     error = null;
     changed();
     try {
-      final saved = await storage.read();
-      check();
-      if (saved != null) {
-        draft = BookingJson.from(saved['draft']);
-        quote = saved['quote'] == null
-            ? null
-            : BookingJson.from(saved['quote']);
-        pending = saved['pending'] == null
-            ? null
-            : BookingJson.from(saved['pending']);
-        if (pending != null &&
-            (pending!['quoteId'] is! String ||
-                pending!['requestId'] is! String)) {
-          throw const FormatException('Buyurtma qoralamasi noto‘g‘ri');
+      try {
+        final saved = await storage.read();
+        check();
+        final validated = bookingComposeDraft(saved);
+        if (validated != null) {
+          draft = validated['draft'];
+          quote = validated['quote'];
+          pending = validated['pending'];
         }
+        invalidDraft = false;
+      } on FormatException {
+        check();
+        draft = {};
+        quote = pending = null;
+        invalidDraft = true;
+        rethrow;
       }
       if (quote != null) {
         try {
@@ -85,7 +88,7 @@ class BookingComposer extends ChangeNotifier {
     error = null;
     changed();
     try {
-      final next = BookingJson.from(jsonDecode(jsonEncode(fields)));
+      final next = bookingForm(jsonDecode(jsonEncode(fields)));
       if (jsonEncode(next) != jsonEncode(draft)) quote = null;
       draft = next;
       await persist();
@@ -163,7 +166,7 @@ class BookingComposer extends ChangeNotifier {
   }
 
   Future<void> clearAttempt() async {
-    if (!live || busy) return;
+    if (!live || busy || !ready || invalidDraft) return;
     busy = true;
     changed();
     try {
@@ -178,6 +181,27 @@ class BookingComposer extends ChangeNotifier {
       busy = false;
       changed();
     }
+  }
+
+  Future<void> discardInvalidDraft() async {
+    if (!live || busy || !invalidDraft) return;
+    busy = true;
+    error = null;
+    changed();
+    try {
+      await storage.clear();
+      check();
+      draft = {};
+      quote = pending = result = null;
+      ready = invalidDraft = false;
+    } catch (e) {
+      if (live) error = e;
+      return;
+    } finally {
+      busy = false;
+      changed();
+    }
+    await load();
   }
 
   @override

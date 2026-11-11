@@ -1,4 +1,5 @@
 import 'booking_source_boundary.dart';
+import 'booking_draft_recovery.dart';
 import 'dart:convert';
 import '../../../core/localization/app_language.dart';
 import 'package:flutter/material.dart';
@@ -100,6 +101,8 @@ class _BookingRequestPageState extends State<_BookingRequestPage>
     await c.load();
     if (!live || !c.ready) return;
     final d = c.draft;
+    pets.clear();
+    passports.clear();
     pets.addAll((d['petIds'] as List? ?? []).cast<String>());
     if (d['startsAt'] is String) start = DateTime.tryParse(d['startsAt']);
     if (d['endsAt'] is String) end = DateTime.tryParse(d['endsAt']);
@@ -301,8 +304,15 @@ class _BookingRequestPageState extends State<_BookingRequestPage>
     );
     if (confirm != true || !live) return;
     try {
-      await c.clearAttempt();
-      if (live) setState(() => step = 2);
+      if (c.invalidDraft) {
+        await c.discardInvalidDraft();
+        if (!live) return;
+        step = 0;
+        await initialize();
+      } else {
+        await c.clearAttempt();
+        if (live) setState(() => step = 2);
+      }
     } catch (e) {
       if (live) notice(e.toString());
     }
@@ -314,7 +324,7 @@ class _BookingRequestPageState extends State<_BookingRequestPage>
     builder: (context, _) {
       context.dependOnInheritedWidgetOfExactType<AppLanguage>();
       if (!live) return bookingSourceExpired();
-      final frozen = c.busy || picking || c.pending != null;
+      final frozen = !c.ready || c.busy || picking || c.pending != null;
       final quote = c.quote?['snapshot'];
       return Scaffold(
         appBar: AppBar(
@@ -330,8 +340,16 @@ class _BookingRequestPageState extends State<_BookingRequestPage>
             if (c.busy || picking) const LinearProgressIndicator(),
             if (c.error != null)
               Text(
-                c.error.toString(),
+                lt(
+                  'Buyurtma holatini yuklash yoki saqlash amalga oshmadi. Qayta urinib ko‘ring.',
+                  'Could not load or save the booking request. Please retry.',
+                  'Не удалось загрузить или сохранить запрос заказа. Повторите попытку.',
+                ),
                 key: const ValueKey('bookingComposeError'),
+              ),
+            if (c.invalidDraft)
+              BookingDraftRecovery(
+                onClear: c.busy || picking ? null : clearAttempt,
               ),
             if (!c.ready)
               TextButton(

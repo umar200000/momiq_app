@@ -1,4 +1,5 @@
 import 'booking_source_boundary.dart';
+import 'booking_draft_recovery.dart';
 import '../../support/support_page.dart';
 import 'booking_dispute_page.dart';
 import '../../customer/presentation/pet_safety.dart';
@@ -511,14 +512,14 @@ class _BookingDetailPageState extends State<_BookingDetailPage>
       context.dependOnInheritedWidgetOfExactType<AppLanguage>();
       if (!c.live) return bookingSourceExpired();
       final b = c.booking, s = b?['snapshot'], p = s?['price'];
-      final locked = c.loading || c.sending || c.pending != null;
+      final locked = !c.ready || c.loading || c.sending || c.pending != null;
       return Scaffold(
         appBar: AppBar(
           title: Text(lt('Buyurtma', 'Booking', 'Заказ')),
           actions: [
             IconButton(
               tooltip: lt('Yangilash', 'Refresh', 'Обновить'),
-              onPressed: locked ? null : c.load,
+              onPressed: c.loading || c.sending ? null : c.load,
               icon: const Icon(Icons.refresh),
             ),
           ],
@@ -529,8 +530,16 @@ class _BookingDetailPageState extends State<_BookingDetailPage>
             if (c.loading || c.sending) const LinearProgressIndicator(),
             if (c.error != null)
               Text(
-                c.error.toString(),
+                lt(
+                  'Buyurtma holatini yuklash yoki saqlash amalga oshmadi. Qayta urinib ko‘ring.',
+                  'Could not load or save the booking status. Please retry.',
+                  'Не удалось загрузить или сохранить статус заказа. Повторите попытку.',
+                ),
                 key: const ValueKey('bookingActionError'),
+              ),
+            if (c.invalidDraft)
+              BookingDraftRecovery(
+                onClear: c.loading || c.sending ? null : discard,
               ),
             if (b != null) ...[
               Text(

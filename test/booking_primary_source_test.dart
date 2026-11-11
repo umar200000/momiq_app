@@ -165,7 +165,7 @@ void main() {
           ..value = {
             'draft': {},
             'quote': null,
-            'pending': {'quoteId': 'TEST-quote', 'requestId': 'x' * 32},
+            'pending': {'quoteId': 'c' * 32, 'requestId': 'x' * 32},
           };
         final c = BookingComposer(old, 'a' * 32, storage: memory);
         final replacement = BookingComposer(
@@ -333,7 +333,7 @@ void main() {
         ..value = {
           'draft': {},
           'quote': null,
-          'pending': {'quoteId': 'TEST-quote', 'requestId': 'x' * 32},
+          'pending': {'quoteId': 'c' * 32, 'requestId': 'x' * 32},
         };
       final c = BookingComposer(api, 'a' * 32, storage: memory);
       addTearDown(c.dispose);

@@ -1,4 +1,5 @@
 import 'booking_contract.dart';
+import 'booking_local_draft.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -24,6 +25,7 @@ class BookingController extends ChangeNotifier {
   final int _session = CustomerApi.sessionVersion;
   bool _disposed = false;
   bool loading = false, sending = false, ready = false;
+  bool invalidDraft = false;
   BookingJson? booking, pending;
   Object? error;
   bool get live => !_disposed && _session == CustomerApi.sessionVersion;
@@ -42,20 +44,16 @@ class BookingController extends ChangeNotifier {
     changed();
     try {
       if (!ready) {
-        pending = await storage.read();
-        check();
-        if (pending != null &&
-            (![
-                  'accept',
-                  'reject',
-                  'cancel',
-                  'start',
-                  'complete',
-                ].contains(pending!['action']) ||
-                pending!['body'] is! Map ||
-                pending!['body']['requestId'] is! String ||
-                pending!['body']['revision'] is! int)) {
-          throw const FormatException('Buyurtma qoralamasi noto‘g‘ri');
+        try {
+          final saved = await storage.read();
+          check();
+          pending = bookingActionDraft(saved);
+          invalidDraft = false;
+        } on FormatException {
+          check();
+          pending = null;
+          invalidDraft = true;
+          rethrow;
         }
       }
       final result = await api.request('GET', '/bookings/$id');
@@ -84,14 +82,14 @@ class BookingController extends ChangeNotifier {
         if (['reject', 'cancel'].contains(action) && reason.trim().isEmpty) {
           return false;
         }
-        pending = {
+        pending = bookingActionDraft({
           'action': action,
           'body': {
             'revision': booking!['revision'],
             'requestId': bookingRequestId(),
             'reason': reason.trim(),
           },
-        };
+        });
       }
       // Always retry the saved command. No new revision/key after uncertain I/O.
       await storage.write(pending!);
@@ -126,6 +124,8 @@ class BookingController extends ChangeNotifier {
       await storage.clear();
       check();
       pending = null;
+      invalidDraft = false;
+      ready = false;
     } catch (e) {
       if (live) error = e;
       rethrow;
