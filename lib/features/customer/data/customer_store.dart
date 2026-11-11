@@ -90,6 +90,7 @@ class CustomerStore extends ChangeNotifier {
   Future<void>? _loading;
   bool get _current =>
       !_disposed && _sessionVersion == CustomerApi.sessionVersion;
+  bool get isCurrentSession => _current;
   void _requireCurrent() {
     if (!_current) throw StateError('Sessiya tugagan');
   }

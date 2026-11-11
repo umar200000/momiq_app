@@ -23,7 +23,9 @@ class CustomerPetsPage extends StatefulWidget {
 }
 
 class _CustomerPetsPageState extends State<CustomerPetsPage>
-    with OwnedDialogs<CustomerPetsPage> {
+    with
+        OwnedDialogs<CustomerPetsPage>,
+        RebuildOnSessionChange<CustomerPetsPage> {
   final _sessionVersion = CustomerApi.sessionVersion;
   final _source = CustomerApi.active;
   CustomerStore get store => widget.store;
@@ -31,12 +33,19 @@ class _CustomerPetsPageState extends State<CustomerPetsPage>
   bool _confirming = false, _refreshing = false, _unconfirmed = false;
   bool get _current =>
       mounted &&
+      store.isCurrentSession &&
       CustomerApi.sessionVersion == _sessionVersion &&
       identical(CustomerApi.active, _source);
   bool _owns(CustomerStore source) =>
       _current &&
       identical(store, source) &&
       ModalRoute.of(context)?.isCurrent != false;
+
+  @override
+  void onSessionChanged() {
+    dismissOwnedRoutes();
+    super.onSessionChanged();
+  }
 
   @override
   void didUpdateWidget(CustomerPetsPage oldWidget) {
@@ -133,114 +142,146 @@ class _CustomerPetsPageState extends State<CustomerPetsPage>
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: store,
-    builder: (context, _) => CustomerPage(
-      title: 'Mening hayvonlarim',
-      bottom: cButton(
-        'Hayvon qo‘shish',
-        () => cPush(context, CustomerPetForm(store: store)),
-        id: 'addCustomerPet',
-        icon: Icons.add,
-      ),
-      children: [
-        if (_unconfirmed)
-          cCard(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  lt(
-                    'Amal tasdiqlanmadi. Hayvon holatini yangilab tekshiring.',
-                    'The action was not confirmed. Refresh to check the pet’s status.',
-                    'Действие не подтверждено. Обновите данные и проверьте статус питомца.',
-                  ),
+    builder: (context, _) => !_current
+        ? CustomerPage(
+            title: 'Mening hayvonlarim',
+            children: [
+              Text(
+                lt(
+                  'Hisobingizga qayta kiring.',
+                  'Sign in again.',
+                  'Войдите снова.',
                 ),
-                TextButton.icon(
-                  key: const ValueKey('refreshPetStatus'),
-                  onPressed: _refreshing ? null : _refresh,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(lt('Yangilash', 'Refresh', 'Обновить')),
-                ),
-              ],
-            ),
-          ),
-        for (final pet in store.list('pets'))
-          cCard(
-            Column(
-              children: [
-                Row(
-                  children: [
-                    CustomerPetArt(pet: pet, size: 82),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          cText(customerPetName(pet), bold: true, size: 21),
-                          cText(customerPetDescription(pet), size: 13),
-                          TextButton.icon(
-                            onPressed: () => cPush(
-                              context,
-                              CustomerPetForm(store: store, pet: pet),
-                            ),
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                            label: Text(ct('Tahrirlash')),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                if ('${pet['notes'] ?? ''}'.trim().isNotEmpty)
-                  cRow(Icons.notes_outlined, '${pet['notes']}'),
-                if (!select)
-                  TextButton.icon(
-                    key: ValueKey('archivePet-${pet['id']}'),
-                    onPressed:
-                        store.busy || _unconfirmed || _refreshing || !_current
-                        ? null
-                        : () => _archive(pet, true),
-                    icon: const Icon(Icons.archive_outlined),
-                    label: Text(lt('Arxivlash', 'Archive', 'В архив')),
-                  ),
-              ],
-            ),
-            onTap: select
-                ? () => Navigator.pop(context, pet)
-                : () => cPush(context, CustomerPetForm(store: store, pet: pet)),
-          ),
-        if (store.list('pets').isEmpty) cText('Hozircha bo‘sh'),
-        if (!select && store.archivedPets.isNotEmpty)
-          ExpansionTile(
-            key: const ValueKey('archivedPets'),
-            title: Text(
-              lt('Arxivdagi hayvonlar', 'Archived pets', 'Питомцы в архиве'),
+              ),
+            ],
+          )
+        : CustomerPage(
+            title: 'Mening hayvonlarim',
+            bottom: cButton(
+              'Hayvon qo‘shish',
+              () => cPush(context, CustomerPetForm(store: store)),
+              id: 'addCustomerPet',
+              icon: Icons.add,
             ),
             children: [
-              for (final pet in store.archivedPets)
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+              if (_unconfirmed)
+                cCard(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(customerPetName(pet)),
-                      TextButton(
-                        key: ValueKey('restorePet-${pet['id']}'),
-                        onPressed:
-                            store.busy ||
-                                _unconfirmed ||
-                                _refreshing ||
-                                !_current
-                            ? null
-                            : () => _archive(pet, false),
-                        child: Text(lt('Tiklash', 'Restore', 'Восстановить')),
+                      Text(
+                        lt(
+                          'Amal tasdiqlanmadi. Hayvon holatini yangilab tekshiring.',
+                          'The action was not confirmed. Refresh to check the pet’s status.',
+                          'Действие не подтверждено. Обновите данные и проверьте статус питомца.',
+                        ),
+                      ),
+                      TextButton.icon(
+                        key: const ValueKey('refreshPetStatus'),
+                        onPressed: _refreshing ? null : _refresh,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(lt('Yangilash', 'Refresh', 'Обновить')),
                       ),
                     ],
                   ),
                 ),
+              for (final pet in store.list('pets'))
+                cCard(
+                  Column(
+                    children: [
+                      Row(
+                        children: [
+                          CustomerPetArt(pet: pet, size: 82),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                cText(
+                                  customerPetName(pet),
+                                  bold: true,
+                                  size: 21,
+                                ),
+                                cText(customerPetDescription(pet), size: 13),
+                                TextButton.icon(
+                                  onPressed: () => cPush(
+                                    context,
+                                    CustomerPetForm(store: store, pet: pet),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    size: 18,
+                                  ),
+                                  label: Text(ct('Tahrirlash')),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if ('${pet['notes'] ?? ''}'.trim().isNotEmpty)
+                        cRow(Icons.notes_outlined, '${pet['notes']}'),
+                      if (!select)
+                        TextButton.icon(
+                          key: ValueKey('archivePet-${pet['id']}'),
+                          onPressed:
+                              store.busy ||
+                                  _unconfirmed ||
+                                  _refreshing ||
+                                  !_current
+                              ? null
+                              : () => _archive(pet, true),
+                          icon: const Icon(Icons.archive_outlined),
+                          label: Text(lt('Arxivlash', 'Archive', 'В архив')),
+                        ),
+                    ],
+                  ),
+                  onTap: select
+                      ? () => Navigator.pop(context, pet)
+                      : () => cPush(
+                          context,
+                          CustomerPetForm(store: store, pet: pet),
+                        ),
+                ),
+              if (store.list('pets').isEmpty) cText('Hozircha bo‘sh'),
+              if (!select && store.archivedPets.isNotEmpty)
+                ExpansionTile(
+                  key: const ValueKey('archivedPets'),
+                  title: Text(
+                    lt(
+                      'Arxivdagi hayvonlar',
+                      'Archived pets',
+                      'Питомцы в архиве',
+                    ),
+                  ),
+                  children: [
+                    for (final pet in store.archivedPets)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(customerPetName(pet)),
+                            TextButton(
+                              key: ValueKey('restorePet-${pet['id']}'),
+                              onPressed:
+                                  store.busy ||
+                                      _unconfirmed ||
+                                      _refreshing ||
+                                      !_current
+                                  ? null
+                                  : () => _archive(pet, false),
+                              child: Text(
+                                lt('Tiklash', 'Restore', 'Восстановить'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
             ],
           ),
-      ],
-    ),
   );
 }
 
@@ -267,6 +308,7 @@ abstract class _CustomerFormState<T extends StatefulWidget> extends State<T>
 
   bool get formCurrent =>
       mounted &&
+      formStore.isCurrentSession &&
       identical(_sourceStore, formStore) &&
       identical(_sourceApi, formStore.api) &&
       identical(_activeApi, CustomerApi.active) &&
@@ -791,54 +833,81 @@ class CustomerAddressesPage extends StatelessWidget {
   });
   final CustomerStore store;
   final bool select;
+  bool _current(BuildContext context) =>
+      context.mounted &&
+      store.isCurrentSession &&
+      ModalRoute.of(context)?.isCurrent != false;
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: store,
-    builder: (context, _) => CustomerPage(
-      title: 'Manzillarim',
-      bottom: cButton(
-        'Manzil qo‘shish',
-        () => cPush(context, CustomerAddressForm(store: store)),
-        icon: Icons.add,
-      ),
-      children: [
-        if (store.list('addresses').isEmpty) cCard(cText('Hozircha bo‘sh')),
-        for (final a in store.list('addresses'))
-          cCard(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                cText(a['label'], bold: true, size: 19, translate: false),
-                cRow(
-                  Icons.location_on_outlined,
-                  a['address'],
-                  translate: false,
+    listenable: Listenable.merge([store, CustomerApi.sessionChanges]),
+    builder: (context, _) => !store.isCurrentSession
+        ? CustomerPage(
+            title: 'Manzillarim',
+            children: [
+              Text(
+                lt(
+                  'Hisobingizga qayta kiring.',
+                  'Sign in again.',
+                  'Войдите снова.',
                 ),
-                if ((a['apartment'] ?? '').toString().isNotEmpty)
-                  cText(
-                    "${lt('Kirish ko‘rsatmasi', 'Entry instructions', 'Как попасть внутрь')}: ${a['apartment']}",
-                    size: 13,
-                    translate: false,
+              ),
+            ],
+          )
+        : CustomerPage(
+            title: 'Manzillarim',
+            bottom: cButton('Manzil qo‘shish', () {
+              if (_current(context)) {
+                cPush(context, CustomerAddressForm(store: store));
+              }
+            }, icon: Icons.add),
+            children: [
+              if (store.list('addresses').isEmpty)
+                cCard(cText('Hozircha bo‘sh')),
+              for (final a in store.list('addresses'))
+                cCard(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      cText(a['label'], bold: true, size: 19, translate: false),
+                      cRow(
+                        Icons.location_on_outlined,
+                        a['address'],
+                        translate: false,
+                      ),
+                      if ((a['apartment'] ?? '').toString().isNotEmpty)
+                        cText(
+                          "${lt('Kirish ko‘rsatmasi', 'Entry instructions', 'Как попасть внутрь')}: ${a['apartment']}",
+                          size: 13,
+                          translate: false,
+                        ),
+                      TextButton.icon(
+                        onPressed: () {
+                          if (_current(context)) {
+                            cPush(
+                              context,
+                              CustomerAddressForm(store: store, address: a),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                        label: Text(ct('Tahrirlash')),
+                      ),
+                    ],
                   ),
-                TextButton.icon(
-                  onPressed: () => cPush(
-                    context,
-                    CustomerAddressForm(store: store, address: a),
-                  ),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(ct('Tahrirlash')),
+                  onTap: () {
+                    if (!_current(context)) return;
+                    if (select) {
+                      Navigator.pop(context, a);
+                    } else {
+                      cPush(
+                        context,
+                        CustomerAddressForm(store: store, address: a),
+                      );
+                    }
+                  },
                 ),
-              ],
-            ),
-            onTap: select
-                ? () => Navigator.pop(context, a)
-                : () => cPush(
-                    context,
-                    CustomerAddressForm(store: store, address: a),
-                  ),
+            ],
           ),
-      ],
-    ),
   );
 }
 
@@ -1016,6 +1085,7 @@ class _CustomerSettingsPageState extends State<CustomerSettingsPage>
   final _api = CustomerApi.active;
   bool _current(CustomerStore source) =>
       mounted &&
+      source.isCurrentSession &&
       identical(widget.store, source) &&
       CustomerApi.sessionVersion == _session &&
       identical(CustomerApi.active, _api);

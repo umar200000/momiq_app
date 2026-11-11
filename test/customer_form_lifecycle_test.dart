@@ -91,6 +91,21 @@ void main() {
   });
 
   for (final kind in ['profile', 'pet', 'address']) {
+    testWidgets(
+      '$kind newly mounted form cannot authorize an old session store',
+      (t) async {
+        final api = SettingsApi();
+        final store = await fixture(api);
+        CustomerApi.sessionVersion++;
+        await t.pumpWidget(MaterialApp(home: form(kind, store)));
+        await t.pumpAndSettle();
+        expect(find.byType(TextFormField), findsNothing);
+        expect(find.textContaining('TEST'), findsNothing);
+        expect(save, findsNothing);
+        expect(api.writes, 0);
+      },
+    );
+
     for (final fails in [false, true]) {
       testWidgets(
         '$kind late save never pops or reports on a newer route, failure=$fails',
@@ -229,6 +244,51 @@ void main() {
       expect(api.writes, 0);
       expect(find.byType(TextFormField), findsNothing);
     });
+  }
+
+  for (final page in ['pets', 'settings', 'addresses']) {
+    testWidgets('newly mounted account page rejects an old store, page=$page', (
+      t,
+    ) async {
+      final api = SettingsApi();
+      final store = await fixture(api);
+      CustomerApi.sessionVersion++;
+      await t.pumpWidget(
+        MaterialApp(
+          home: switch (page) {
+            'pets' => CustomerPetsPage(store: store),
+            'addresses' => CustomerAddressesPage(store: store),
+            _ => CustomerSettingsPage(store: store),
+          },
+        ),
+      );
+      await t.pumpAndSettle();
+      expect(find.textContaining('TEST'), findsNothing);
+      expect(find.byType(SwitchListTile), findsNothing);
+      expect(find.byKey(const ValueKey('archivePet-pet')), findsNothing);
+      expect(api.writes, 0);
+    });
+    testWidgets(
+      '$page hides personal data on session change without parent rebuild',
+      (t) async {
+        final store = await fixture(SettingsApi());
+        await t.pumpWidget(
+          MaterialApp(
+            home: switch (page) {
+              'pets' => CustomerPetsPage(store: store),
+              'addresses' => CustomerAddressesPage(store: store),
+              _ => CustomerSettingsPage(store: store),
+            },
+          ),
+        );
+        await t.pumpAndSettle();
+        CustomerApi.sessionVersion++;
+        await t.pumpAndSettle();
+        expect(find.textContaining('TEST'), findsNothing);
+        expect(find.byType(SwitchListTile), findsNothing);
+        expect(find.text('Hisobingizga qayta kiring.'), findsOneWidget);
+      },
+    );
   }
 
   for (final fails in [false, true]) {
