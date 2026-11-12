@@ -271,6 +271,14 @@ class _SupportPageState extends State<_BoundSupportPage> {
               'Переписка с поддержкой Momiq. Оплата услуги здесь не проводится.',
             ),
           ),
+          const SizedBox(height: 12),
+          Text(
+            lt(
+              'Ish vaqti: dushanba–shanba, 09:00–18:00 (Toshkent vaqti). Murojaatlar 3 ish kunida ko‘rib chiqiladi. Kelmaslik nizosi uchun alohida 48 soatlik muddat saqlanadi.',
+              'Support hours: Monday–Saturday, 09:00–18:00 (Tashkent time). Requests are reviewed within 3 working days. No-show disputes retain their separate 48-hour review period.',
+              'Поддержка: понедельник–суббота, 09:00–18:00 (время Ташкента). Обращения рассматриваются в течение 3 рабочих дней. Для споров о неявке сохраняется отдельный срок 48 часов.',
+            ),
+          ),
           if (busy) const LinearProgressIndicator(),
           if (failed) Text(supportError()),
           FilledButton(
