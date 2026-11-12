@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'customer_widgets.dart' show lt;
 
 class CustomerPassportPhoto extends StatelessWidget {
   const CustomerPassportPhoto({super.key, required this.photo});
@@ -17,7 +18,7 @@ class CustomerPassportPhoto extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: IconButton(
-                  tooltip: 'Yopish',
+                  tooltip: lt('Yopish', 'Close', 'Закрыть'),
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.pop(context),
                 ),

@@ -1,5 +1,12 @@
+import '../../../support/support_page.dart';
+import '../../../auth/presentation/role_switch_tile.dart';
+import 'sitter_dashboard.dart';
+import '../../../chat/presentation/conversation_page.dart';
+import '../../../bookings/presentation/bookings_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
 import '../../../customer/data/customer_api.dart';
+import '../../../wallet/presentation/wallet_page.dart';
+import '../../../notifications/presentation/notifications_page.dart';
 import '../../../role_selection/presentation/pages/role_selection_page.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'dart:convert';
@@ -37,56 +44,104 @@ class _SitterHomePageState extends State<SitterHomePage> {
   late String _firstName = widget.firstName;
   late String _lastName = widget.lastName;
   Uint8List? _profileAvatar;
+  CustomerApi? _profileApi;
+  late final int _profileSession;
+  int _profileLoad = 0;
+  bool get _profileCurrent =>
+      mounted &&
+      _profileSession == CustomerApi.sessionVersion &&
+      identical(_profileApi, CustomerApi.active);
   @override
   void initState() {
     super.initState();
+    _profileSession = CustomerApi.sessionVersion;
+    _profileApi = CustomerApi.active;
     _profileAvatar = widget.avatar;
     _loadProfile();
   }
 
   Future<void> _loadProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    final photo = prefs.getString('mock.profile.avatar');
-    Uint8List? bytes;
+    if (!_profileCurrent) return;
+    final load = ++_profileLoad;
+    bool current() => _profileCurrent && load == _profileLoad;
     try {
-      if (photo != null) bytes = base64Decode(photo);
+      final api = await CustomerApi.restore();
+      if (!mounted ||
+          _profileSession != CustomerApi.sessionVersion ||
+          load != _profileLoad ||
+          (_profileApi != null && !identical(_profileApi, api)) ||
+          !identical(api, CustomerApi.active)) {
+        return;
+      }
+      _profileApi = api;
+      if (api != null) {
+        final response = await api.request('GET', '/me');
+        if (!current()) return;
+        final account = Map<String, dynamic>.from(response['account']);
+        await CustomerApi.rememberAccount(account);
+        if (!current()) return;
+        await AppLanguage.select(account['language'] ?? 'uz');
+        if (!current()) return;
+        final profile = account['profile'];
+        setState(() {
+          _firstName = profile['first'] ?? '';
+          _lastName = profile['last'] ?? '';
+          _profileAvatar = profile['photo'] == null
+              ? null
+              : base64Decode(profile['photo']);
+        });
+        return;
+      }
+      if (CustomerApi.enabled) return;
+      final prefs = await SharedPreferences.getInstance();
+      if (!current()) return;
+      final photo = prefs.getString('mock.profile.avatar');
+      Uint8List? bytes;
+      try {
+        if (photo != null) bytes = base64Decode(photo);
+      } catch (_) {
+        bytes = null;
+      }
+      setState(() {
+        _firstName = prefs.getString('mock.profile.first') ?? widget.firstName;
+        _lastName = prefs.getString('mock.profile.last') ?? widget.lastName;
+        _profileAvatar = bytes ?? widget.avatar;
+      });
     } catch (_) {
-      bytes = null;
+      // Keep the current view; late responses and mock data cannot replace it.
     }
-    setState(() {
-      _firstName = prefs.getString('mock.profile.first') ?? widget.firstName;
-      _lastName = prefs.getString('mock.profile.last') ?? widget.lastName;
-      _profileAvatar = bytes ?? widget.avatar;
-    });
   }
 
   Future<void> _openProfileSection(int section) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SitterProfilePage(
-          section: section,
-          firstName: _firstName,
-          lastName: _lastName,
-          avatar: _profileAvatar,
-        ),
+        builder: (_) => section == 4
+            ? const SupportPage()
+            : SitterProfilePage(
+                section: section,
+                firstName: _firstName,
+                lastName: _lastName,
+                avatar: _profileAvatar,
+              ),
       ),
     );
     if (mounted) await _loadProfile();
   }
 
   bool _loggingOut = false;
-  Future<void> _logout() async {
+  Future<void> _logout({bool allDevices = false}) async {
     if (_loggingOut) return;
     setState(() => _loggingOut = true);
     try {
-      await CustomerApi.logout();
-    } catch (_) {
+      await CustomerApi.logout(allDevices: allDevices);
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
+              e is CustomerApiException
+                  ? e.message
+                  : 'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
             ),
           ),
         );
@@ -248,37 +303,55 @@ class _SitterHomePageState extends State<SitterHomePage> {
   List<Widget> overview() => [
     banner(
       t('Xush kelibsiz', 'Welcome', 'Добро пожаловать'),
-      t('Hozircha buyurtmalar yo‘q', 'No bookings yet', 'Заказов пока нет'),
-    ),
-    card(
-      text(
-        t(
-          'Haqiqiy buyurtmalar paydo bo‘lganda shu yerda ko‘rinadi.',
-          'Your bookings will appear here.',
-          'Здесь появятся ваши заказы.',
-        ),
+      t(
+        'Yangi so‘rovlarni Buyurtmalar bo‘limida ko‘ring',
+        'View new requests in Bookings',
+        'Новые запросы — в разделе заказов',
       ),
+    ),
+    SitterDashboard(
+      api: CustomerApi.active,
+      onOrders: () => setState(() => _tab = 1),
+      onListings: () => setState(() => _tab = 2),
+      onProfile: () => _openProfileSection(0),
+      onWallet: () => Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute(builder: (_) => const WalletPage())),
     ),
   ];
   List<Widget> orders() => [
-    card(
-      text(
-        t('Hozircha buyurtmalar yo‘q', 'No bookings yet', 'Заказов пока нет'),
-      ),
-    ),
-  ];
-  List<Widget> chats() => [
-    card(
-      text(
-        t(
-          'Hozircha suhbatlar yo‘q',
-          'No conversations yet',
-          'Переписок пока нет',
+    if (CustomerApi.active != null)
+      BookingInbox(api: CustomerApi.active)
+    else
+      card(
+        text(
+          t('Hozircha buyurtmalar yo‘q', 'No bookings yet', 'Заказов пока нет'),
         ),
       ),
-    ),
   ];
+  List<Widget> chats() => [const ConversationInbox()];
   List<Widget> profile() => [
+    const RoleSwitchTile(customer: true),
+    ListTile(
+      key: const ValueKey('sitterWallet'),
+      leading: const Icon(Icons.account_balance_wallet_outlined),
+      title: Text(t('Momiq balansi', 'Momiq balance', 'Баланс Momiq')),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const WalletPage())),
+    ),
+    ListTile(
+      key: const ValueKey('sitterLogoutAll'),
+      leading: const Icon(Icons.devices),
+      title: Text(
+        t(
+          'Barcha qurilmalardan chiqish',
+          'Log out on all devices',
+          'Выйти на всех устройствах',
+        ),
+      ),
+      onTap: _loggingOut ? null : () => _logout(allDevices: true),
+    ),
     ListTile(
       key: const ValueKey('sitterLogout'),
       leading: ButtonProgress(
@@ -427,10 +500,22 @@ class _SitterHomePageState extends State<SitterHomePage> {
                             ],
                           ),
                         ),
-                        const Icon(
-                          Icons.notifications_none_rounded,
-                          color: AppColors.brown,
-                          size: 27,
+                        IconButton(
+                          tooltip: t(
+                            'Bildirishnomalar',
+                            'Notifications',
+                            'Уведомления',
+                          ),
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const NotificationsPage(),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.notifications_none_rounded,
+                            color: AppColors.brown,
+                            size: 27,
+                          ),
                         ),
                       ],
                     ),

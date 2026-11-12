@@ -199,11 +199,14 @@ class _CareLocationPreviewState extends State<CareLocationPreview>
                   ),
                 ),
                 const SizedBox(width: 7),
-                Text(
-                  lt('Xaritada belgilash', 'Choose on map', 'На карте'),
-                  style: profileText(10).copyWith(
-                    color: listingAccent,
-                    decoration: TextDecoration.underline,
+                Flexible(
+                  child: Text(
+                    lt('Xaritada belgilash', 'Choose on map', 'На карте'),
+                    textAlign: TextAlign.end,
+                    style: profileText(10).copyWith(
+                      color: listingAccent,
+                      decoration: TextDecoration.underline,
+                    ),
                   ),
                 ),
               ],

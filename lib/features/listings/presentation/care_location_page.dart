@@ -1,7 +1,5 @@
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import '../data/current_position.dart';
-import '../data/map_access.dart';
-import 'map_requirements_panel.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -38,31 +36,7 @@ class _CareLocationPageState extends State<CareLocationPage>
     with WidgetsBindingObserver
     implements ym.MapCameraListener, ym.MapLoadedListener {
   final _query = TextEditingController();
-  final _access = MapAccessController();
   bool _initializingMap = false;
-  void _accessChanged() {
-    if (!mounted) return;
-    if (_access.ready) {
-      if (!_ready && !_initializingMap) _initialize();
-    } else if (_access.state != null) {
-      _tileTimeout?.cancel();
-      if (_map?.isValid() == true) _map!.setMapLoadedListener(null);
-      _queryVersion++;
-      _addressVersion++;
-      _querySession?.cancel();
-      _addressSession?.cancel();
-      _debounce?.cancel();
-      _querySession = null;
-      _addressSession = null;
-      _stop();
-      _map = null;
-      _window = null;
-      _ready = false;
-      _searching = false;
-      _resolving = false;
-    }
-    setState(() {});
-  }
 
   ym.MapWindow? _window;
   ym.Map? _map;
@@ -112,12 +86,11 @@ class _CareLocationPageState extends State<CareLocationPage>
     super.initState();
     _selected = widget.initial;
     WidgetsBinding.instance.addObserver(this);
-    _access.addListener(_accessChanged);
-    _access.start();
+    _initialize();
   }
 
   Future<void> _initialize() async {
-    if (_initializingMap || !_access.ready) return;
+    if (_initializingMap) return;
     _initializingMap = true;
     setState(() => _startupError = null);
     try {
@@ -125,7 +98,6 @@ class _CareLocationPageState extends State<CareLocationPage>
         throw UnsupportedError('mobile');
       }
       await CareMapRuntime.initialize();
-      if (!_access.ready) return;
       if (!mounted) return;
       _search = ys.SearchFactory.instance.createSearchManager(
         ys.SearchManagerType.Online,
@@ -386,10 +358,11 @@ class _CareLocationPageState extends State<CareLocationPage>
       if (!await Geolocator.isLocationServiceEnabled()) {
         _notice(
           lt(
-            'Telefon joylashuvini yoqing.',
-            'Turn on device location.',
-            'Включите геолокацию.',
+            'GPS o‘chiq. Uni yoqing yoki manzilni xaritadan qo‘lda tanlang.',
+            'GPS is off. Enable it or choose the address manually on the map.',
+            'GPS выключен. Включите его или выберите адрес на карте вручную.',
           ),
+          locationSettings: true,
         );
         return;
       }
@@ -409,7 +382,8 @@ class _CareLocationPageState extends State<CareLocationPage>
         );
         return;
       }
-      if (permission == LocationPermission.denied) {
+      if (permission != LocationPermission.always &&
+          permission != LocationPermission.whileInUse) {
         _notice(
           lt(
             'Joylashuv ruxsati berilmadi. Manzilni xaritadan tanlashingiz mumkin.',
@@ -421,7 +395,7 @@ class _CareLocationPageState extends State<CareLocationPage>
       }
 
       final position = await resolveCurrentPosition();
-      if (!mounted || !_access.ready) return;
+      if (!mounted) return;
       if (_map?.isValid() != true) {
         throw StateError('Map is not ready');
       }
@@ -434,6 +408,16 @@ class _CareLocationPageState extends State<CareLocationPage>
       );
       _map?.move(ym.CameraPosition(point, zoom: 17, azimuth: 0, tilt: 0));
       _reverse(point);
+    } on PositionQualityException {
+      if (mounted) {
+        _notice(
+          lt(
+            'Joylashuv yetarlicha aniq emas. Xaritadagi manzilni qo‘lda tanlang yoki qayta urining.',
+            'Location is not precise enough. Choose the address manually or retry.',
+            'Местоположение недостаточно точное. Выберите адрес вручную или повторите.',
+          ),
+        );
+      }
     } on TimeoutException {
       if (mounted) {
         _notice(
@@ -459,23 +443,26 @@ class _CareLocationPageState extends State<CareLocationPage>
     }
   }
 
-  void _notice(String message, {bool settings = false}) =>
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          action: settings
-              ? SnackBarAction(
-                  label: lt('Sozlamalar', 'Settings', 'Настройки'),
-                  onPressed: Geolocator.openAppSettings,
-                )
-              : null,
-        ),
-      );
+  void _notice(
+    String message, {
+    bool settings = false,
+    bool locationSettings = false,
+  }) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message),
+      action: settings || locationSettings
+          ? SnackBarAction(
+              label: lt('Sozlamalar', 'Settings', 'Настройки'),
+              onPressed: locationSettings
+                  ? Geolocator.openLocationSettings
+                  : Geolocator.openAppSettings,
+            )
+          : null,
+    ),
+  );
 
   @override
   void dispose() {
-    _access.removeListener(_accessChanged);
-    _access.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _queryVersion++;
     _addressVersion++;
@@ -490,10 +477,30 @@ class _CareLocationPageState extends State<CareLocationPage>
     super.dispose();
   }
 
+  Future<void> _manual() async {
+    final result = await showDialog<CareLocation>(
+      context: context,
+      builder: (_) => _ManualLocationDialog(initial: _selected),
+    );
+    if (result != null && mounted) Navigator.pop(context, result);
+  }
+
   @override
   Widget build(BuildContext context) => MomiqScaffold(
     backgroundColor: listingBackground,
     appBar: AppBar(
+      actions: [
+        if (_ready)
+          IconButton(
+            icon: const Icon(Icons.edit_location_alt_outlined),
+            tooltip: lt(
+              'Manzilni qo‘lda kiritish',
+              'Enter address manually',
+              'Ввести адрес вручную',
+            ),
+            onPressed: _manual,
+          ),
+      ],
       backgroundColor: listingBackground,
       surfaceTintColor: Colors.transparent,
       foregroundColor: AppColors.chocolate,
@@ -503,13 +510,7 @@ class _CareLocationPageState extends State<CareLocationPage>
         style: profileText(17, bold: true),
       ),
     ),
-    body: !_access.ready
-        ? Center(
-            child: SingleChildScrollView(
-              child: MapRequirementsPanel(controller: _access),
-            ),
-          )
-        : !_ready
+    body: !_ready
         ? Center(
             child: _startupError == null
                 ? const CircularProgressIndicator()
@@ -526,6 +527,16 @@ class _CareLocationPageState extends State<CareLocationPage>
                             lt('Qayta urinish', 'Retry', 'Повторить'),
                           ),
                         ),
+                        TextButton(
+                          onPressed: _manual,
+                          child: Text(
+                            lt(
+                              'Manzilni qo‘lda kiritish',
+                              'Enter address manually',
+                              'Ввести адрес вручную',
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -537,6 +548,16 @@ class _CareLocationPageState extends State<CareLocationPage>
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
                   child: _searchField(),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    lt(
+                      'Manzilni qidiring yoki xaritani suring. GPS ruxsati shart emas.',
+                      'Search an address or move the map. GPS permission is optional.',
+                      'Найдите адрес или передвиньте карту. Разрешение GPS необязательно.',
+                    ),
+                  ),
                 ),
                 Expanded(
                   child: Stack(
@@ -816,5 +837,109 @@ class _CareLocationPageState extends State<CareLocationPage>
         ),
       ],
     ),
+  );
+}
+
+class _ManualLocationDialog extends StatefulWidget {
+  const _ManualLocationDialog({required this.initial});
+  final CareLocation? initial;
+  @override
+  State<_ManualLocationDialog> createState() => _ManualLocationDialogState();
+}
+
+class _ManualLocationDialogState extends State<_ManualLocationDialog> {
+  late final _address = TextEditingController(text: widget.initial?.address);
+  late final _coordinates = TextEditingController(
+    text: widget.initial == null
+        ? ''
+        : '${widget.initial!.latitude}, ${widget.initial!.longitude}',
+  );
+  String? _error;
+
+  void _confirm() {
+    final parts = _coordinates.text.trim().split(RegExp(r'[,;\s]+'));
+    final lat = parts.length == 2 ? double.tryParse(parts.first) : null;
+    final lon = parts.length == 2 ? double.tryParse(parts.last) : null;
+    final address = _address.text.trim();
+    if (lat == null ||
+        lon == null ||
+        !lat.isFinite ||
+        !lon.isFinite ||
+        lat.abs() > 90 ||
+        lon.abs() > 180 ||
+        address.isEmpty ||
+        address.runes.length > 500) {
+      setState(
+        () => _error = lt(
+          'Manzil, kenglik va uzunlikni tekshiring.',
+          'Check the address, latitude and longitude.',
+          'Проверьте адрес, широту и долготу.',
+        ),
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      CareLocation(latitude: lat, longitude: lon, address: address),
+    );
+  }
+
+  @override
+  void dispose() {
+    _address.dispose();
+    _coordinates.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: Text(
+      lt(
+        'Manzilni qo‘lda kiritish',
+        'Enter address manually',
+        'Ввести адрес вручную',
+      ),
+    ),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          lt(
+            'Xaritadan nuqtaning koordinatalarini nusxalang. Avval kenglik, keyin uzunlik yoziladi.',
+            'Copy the coordinates of the point from your map. Enter latitude first, then longitude.',
+            'Скопируйте координаты точки с карты. Сначала введите широту, затем долготу.',
+          ),
+        ),
+        TextField(
+          key: const ValueKey('manualAddress'),
+          controller: _address,
+          maxLength: 500,
+          decoration: InputDecoration(
+            labelText: lt('Manzil', 'Address', 'Адрес'),
+          ),
+        ),
+        TextField(
+          key: const ValueKey('manualCoordinates'),
+          controller: _coordinates,
+          decoration: InputDecoration(
+            labelText: lt('Koordinatalar', 'Coordinates', 'Координаты'),
+            hintText: '41.3112, 69.2797',
+            errorText: _error,
+            errorMaxLines: 3,
+          ),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(lt('Ortga', 'Back', 'Назад')),
+      ),
+      FilledButton(
+        onPressed: _confirm,
+        child: Text(lt('Tanlash', 'Use location', 'Выбрать')),
+      ),
+    ],
   );
 }

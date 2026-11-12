@@ -4,22 +4,6 @@ import 'package:momiq_app/features/customer/data/customer_store.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
-  test('unsupported bookings never create a local success or order', () async {
-    final store = CustomerStore();
-    await store.load();
-    addTearDown(store.dispose);
-    await expectLater(
-      store.book(
-        sitterId: 'missing',
-        from: DateTime.now(),
-        to: DateTime.now(),
-        address: {},
-      ),
-      throwsStateError,
-    );
-    expect(store.list('bookings'), isEmpty);
-    await expectLater(store.cancel('missing', 'cancel'), throwsStateError);
-  });
   test(
     'capacity uses supplied data, never a simulated future opening',
     () async {

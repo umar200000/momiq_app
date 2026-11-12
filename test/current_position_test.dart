@@ -4,6 +4,47 @@ import 'package:geolocator/geolocator.dart';
 import 'package:momiq_app/features/listings/data/current_position.dart';
 
 void main() {
+  test(
+    'poor stale future and invalid fixes cannot become a precise address',
+    () {
+      final now = DateTime.utc(2026, 10, 28, 12);
+      Position fix({
+        double accuracy = 10,
+        double latitude = 41.3,
+        DateTime? time,
+      }) => Position(
+        latitude: latitude,
+        longitude: 69.2,
+        timestamp: time ?? now,
+        accuracy: accuracy,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+      );
+      for (final bad in [
+        fix(accuracy: 101),
+        fix(accuracy: double.nan),
+        fix(accuracy: -1),
+        fix(latitude: double.infinity),
+        fix(latitude: 91),
+        fix(time: now.subtract(const Duration(minutes: 6))),
+        fix(time: now.add(const Duration(minutes: 2))),
+      ]) {
+        expect(
+          () => validateCurrentPosition(bad, now: now),
+          throwsA(isA<PositionQualityException>()),
+        );
+      }
+      final edge = fix(
+        accuracy: 100,
+        time: now.subtract(const Duration(minutes: 5)),
+      );
+      expect(validateCurrentPosition(edge, now: now), same(edge));
+    },
+  );
   final position = Position(
     latitude: 41.3,
     longitude: 69.2,

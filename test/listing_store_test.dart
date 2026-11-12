@@ -78,6 +78,36 @@ void main() {
       expect(store.validate(listing(type, price: 0)), ListingProblem.price);
       expect(store.validate(listing(type, price: -1)), ListingProblem.price);
       expect(
+        store.validate(listing(type, price: 1000000000)),
+        ListingProblem.price,
+      );
+      expect(
+        store.validate(
+          listing(
+            type,
+            location: CareLocation(
+              latitude: 41.3,
+              longitude: 69.2,
+              address: 'x' * 1001,
+            ),
+          ),
+        ),
+        ListingProblem.location,
+      );
+      expect(
+        store.validate(
+          listing(
+            type,
+            location: const CareLocation(
+              latitude: double.nan,
+              longitude: 69.2,
+              address: 'TEST',
+            ),
+          ),
+        ),
+        ListingProblem.location,
+      );
+      expect(
         store.validate(listing(type, location: null)),
         type == ServiceType.homeVisit ? isNull : ListingProblem.location,
       );

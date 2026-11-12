@@ -30,6 +30,7 @@ String ct(String text) {
 }
 
 const _words = <String, List<String>>{
+  'Qayta urinish': ['Retry', 'Повторить'],
   'Bosh sahifa': ['Home', 'Главная'],
   'Buyurtmalar': ['Bookings', 'Заказы'],
   'Chatlar': ['Chats', 'Чаты'],
@@ -45,6 +46,89 @@ const _words = <String, List<String>>{
   'Bekor qilish': ['Cancel', 'Отменить'],
   'Ortga': ['Back', 'Назад'],
   'Filtrlar': ['Filters', 'Фильтры'],
+  'Hudud: Toshkent shahri va Toshkent viloyati': [
+    'Area: Tashkent city and Tashkent region',
+    'Территория: Ташкент и Ташкентская область',
+  ],
+  'Masofa aniqlanmagan': ['Distance unavailable', 'Расстояние неизвестно'],
+  'Joylashuvsiz Toshkent shahri va viloyati bo‘yicha qidiruv. Masofa hisoblanmaydi.': [
+    'Searching Tashkent city and region without a location. Distances are unavailable.',
+    'Поиск по Ташкенту и Ташкентской области без геолокации. Расстояния недоступны.',
+  ],
+  'Yaqin enagalar avval. Masofa taxminiy, to‘g‘ri chiziq bo‘yicha; yo‘l uzunligi emas.': [
+    'Nearby sitters appear first. Distances are approximate and measured in a straight line.',
+    'Сначала показаны няни поблизости. Расстояние приблизительное, по прямой.',
+  ],
+  'Toshkent shahri va viloyatida joylashuvsiz qidirish': [
+    'Search Tashkent city and region without my location',
+    'Искать по Ташкенту и области без геолокации',
+  ],
+  'Kelish va ketish sanasini tanlash': [
+    'Choose arrival and departure dates',
+    'Выбрать даты начала и окончания',
+  ],
+  'Jadval bo‘yicha mos enagalar. Bo‘sh joy va qabul bron vaqtida qayta tekshiriladi. Toshkent vaqti.': [
+    'These sitters match your dates. Availability is checked again when booking. Times are in Tashkent.',
+    'Няни подходят по расписанию. При бронировании доступность проверяется ещё раз. Время ташкентское.',
+  ],
+  'Keyingi sahifa yuklanmadi. Qayta urinib ko‘ring.': [
+    'Could not load the next page. Please retry.',
+    'Не удалось загрузить следующую страницу. Попробуйте ещё раз.',
+  ],
+  'Yana enagalarni ko‘rsatish': ['Show more sitters', 'Показать ещё нянь'],
+  'Toshkent vaqti': ['Tashkent time', 'Ташкентское время'],
+  'Kelish va ketish vaqti': [
+    'Arrival and departure',
+    'Время начала и окончания',
+  ],
+  'Toshkent vaqti. Tunab qolish mumkin; enaganing jadvali faqat kelish va ketish vaqtlariga qo‘llanadi.': [
+    'Times are in Tashkent. Overnight stays are allowed. The sitter’s hours apply to arrival and departure.',
+    'Время ташкентское. Можно остаться на ночь. Часы работы няни относятся к началу и окончанию услуги.',
+  ],
+  'Kelish': ['Arrival', 'Начало'],
+  'Ketish': ['Departure', 'Окончание'],
+  'Sana va vaqtni tanlang': ['Choose a date and time', 'Выберите дату и время'],
+  'Kelajakdagi kelish va undan keyingi ketish vaqtini tanlang (365 kungacha).': [
+    'Choose a future arrival and a later departure, up to 365 days apart.',
+    'Выберите будущее начало и более позднее окончание. Максимальный срок — 365 дней.',
+  ],
+  'Enagalarni ko‘rsatish': ['Show sitters', 'Показать нянь'],
+  'Narx oralig‘ini to‘g‘ri kiriting.': [
+    'Enter a valid price range.',
+    'Введите допустимый диапазон цен.',
+  ],
+  'Natijalarni ko‘rsatish': ['Show results', 'Показать результаты'],
+  'Hayvonlar soni': ['Number of pets', 'Количество питомцев'],
+  'Faqat MyID orqali tekshirilgan enagalar': [
+    'Only sitters verified through MyID',
+    'Только няни с проверкой MyID',
+  ],
+  'TEST tasdiq shaxs tekshiruvi hisoblanmaydi.': [
+    'Test approvals do not verify identity.',
+    'Тестовое подтверждение не удостоверяет личность.',
+  ],
+  'Minimal narx (so‘m)': ['Minimum price (UZS)', 'Минимальная цена (сум)'],
+  'Maksimal narx (so‘m)': ['Maximum price (UZS)', 'Максимальная цена (сум)'],
+  'Bu faqat qidiruv filtri. Toshkent shahri va viloyatida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.': [
+    'This filters search results. Sitters can travel throughout Tashkent city and Tashkent region. Listings without a known distance stay visible.',
+    'Фильтр влияет на поиск. Няни могут выезжать по Ташкенту и Ташкентской области. Объявления без расстояния остаются в выдаче.',
+  ],
+  'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Shahar va viloyat bo‘yicha qidiruv ochiq.': [
+    'Enable location on the home screen to filter by distance. You can search Tashkent city and region now.',
+    'Чтобы искать по расстоянию, включите геолокацию на главном экране. Поиск по Ташкенту и области уже доступен.',
+  ],
+  'Reyting 4.8 va yuqori': ['Rating of 4.8 or higher', 'Оценка 4,8 и выше'],
+  'Tozalash': ['Clear', 'Сбросить'],
+  'Buyurtma berish hali ochilmagan': [
+    'Booking is not available yet',
+    'Бронирование пока недоступно',
+  ],
+  'Test e’lon · MyID tekshiruvi yo‘q': [
+    'Test listing · No MyID verification',
+    'Тестовое объявление · Без проверки MyID',
+  ],
+  'Men haqimda': ['About me', 'Обо мне'],
+  'Ma’lumot kiritilmagan': ['No information provided', 'Информация не указана'],
   'Hayvon turi': ['Pet type', 'Вид питомца'],
   'Mushuk': ['Cat', 'Кошка'],
   'It': ['Dog', 'Собака'],
@@ -90,6 +174,16 @@ const _words = <String, List<String>>{
   'Rasmni almashtirish': ['Change photo', 'Изменить фото'],
   'Manzil qo‘shish': ['Add address', 'Добавить адрес'],
   'Manzilni belgilang': ['Choose address', 'Выберите адрес'],
+  'Xaritadan tanlash': ['Choose on map', 'Выбрать на карте'],
+  'Manzil nomi': ['Address label', 'Название адреса'],
+  'Manzil va uning nomini kiriting.': [
+    'Enter an address and a label.',
+    'Укажите адрес и его название.',
+  ],
+  'Manzil Toshkent shahri va Toshkent viloyatidan tashqarida': [
+    'This address is outside Tashkent city and Tashkent region.',
+    'Этот адрес находится за пределами Ташкента и Ташкентской области.',
+  ],
   'Baho va fikr': ['Rating and review', 'Оценка и отзыв'],
   'Fikrni yuborish': ['Send review', 'Отправить отзыв'],
   'Tahrirlash': ['Edit', 'Изменить'],
@@ -103,8 +197,9 @@ Widget cText(
   double size = 15,
   bool bold = false,
   Color? color,
+  bool translate = true,
 }) => Text(
-  ct(text),
+  translate ? ct(text) : text,
   style: profileText(
     size,
     bold: bold,
@@ -158,13 +253,13 @@ Widget cButton(
     ),
   ),
 );
-Widget cRow(IconData icon, String text) => Padding(
+Widget cRow(IconData icon, String text, {bool translate = true}) => Padding(
   padding: const EdgeInsets.symmetric(vertical: 5),
   child: Row(
     children: [
       Icon(icon, size: 19, color: AppColors.brown),
       const SizedBox(width: 10),
-      Expanded(child: cText(text, size: 13)),
+      Expanded(child: cText(text, size: 13, translate: translate)),
     ],
   ),
 );
@@ -175,6 +270,7 @@ Widget cField(
   int lines = 1,
   bool required = false,
   bool number = false,
+  int? limit,
 }) => Padding(
   padding: const EdgeInsets.only(bottom: 16),
   child: TextFormField(
@@ -194,6 +290,12 @@ Widget cField(
     ),
     validator: (value) => required && (value == null || value.trim().isEmpty)
         ? lt('To‘ldiring', 'Required', 'Обязательное поле')
+        : limit != null && (value?.runes.length ?? 0) > limit
+        ? lt(
+            'Eng ko‘pi $limit belgi',
+            'At most $limit characters',
+            'Не более $limit символов',
+          )
         : null,
   ),
 );
@@ -202,11 +304,20 @@ void cNotice(BuildContext context, String text) => ScaffoldMessenger.of(
 ).showSnackBar(SnackBar(content: Text(ct(text))));
 Future<T?> cPush<T>(BuildContext context, Widget page) =>
     Navigator.of(context).push<T>(MaterialPageRoute(builder: (_) => page));
-Future<void> cAction(BuildContext context, Future<void> Function() task) async {
+Future<void> cAction(
+  BuildContext context,
+  Future<void> Function() task, {
+  bool Function()? isCurrent,
+}) async {
+  bool current() =>
+      context.mounted &&
+      isCurrent?.call() != false &&
+      ModalRoute.of(context)?.isCurrent != false;
+  if (!current()) return;
   try {
     await task();
   } catch (_) {
-    if (context.mounted) {
+    if (context.mounted && current()) {
       cNotice(
         context,
         lt(

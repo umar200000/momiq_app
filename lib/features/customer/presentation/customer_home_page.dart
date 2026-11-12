@@ -1,10 +1,14 @@
+import '../../chat/presentation/conversation_page.dart';
+import '../../auth/presentation/role_switch_tile.dart';
 import '../data/customer_api.dart';
 import 'package:momiq_app/core/widgets/momiq_scaffold.dart';
 import 'customer_home_design.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/widgets/momiq_shimmer.dart';
 import '../data/customer_feed_repository.dart';
 import '../data/customer_location_service.dart';
+import '../../listings/data/current_position.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../core/localization/app_language.dart';
@@ -15,6 +19,12 @@ import 'customer_widgets.dart';
 import 'customer_discovery.dart';
 import 'customer_bookings.dart';
 import 'customer_account.dart';
+import '../../notifications/presentation/notifications_page.dart';
+import '../../bookings/presentation/bookings_page.dart';
+import '../../../core/widgets/owned_dialogs.dart';
+import 'customer_session_boundary.dart' show RebuildOnSessionChange;
+import '../../auth/presentation/session_destination.dart'
+    show SessionRecoveryPage;
 
 class CustomerHomePage extends StatefulWidget {
   const CustomerHomePage({super.key, this.store, this.locationService});
@@ -25,7 +35,12 @@ class CustomerHomePage extends StatefulWidget {
 }
 
 class _CustomerHomePageState extends State<CustomerHomePage>
-    with WidgetsBindingObserver {
+    with
+        WidgetsBindingObserver,
+        OwnedDialogs<CustomerHomePage>,
+        RebuildOnSessionChange<CustomerHomePage> {
+  late final CustomerStore? _providedStore;
+  late final CustomerLocationService? _providedLocation;
   late final CustomerStore _store = widget.store ?? CustomerStore();
   late final CustomerLocationService _locationService =
       widget.locationService ?? CustomerLocationService();
@@ -37,29 +52,56 @@ class _CustomerHomePageState extends State<CustomerHomePage>
       _locating = false,
       _waitingSettings = false;
   bool _resumePending = false;
+  bool _locationOfferOpen = false;
   Future<void>? _refreshRequest;
+  bool get _ownsSource =>
+      mounted &&
+      identical(widget.store, _providedStore) &&
+      identical(widget.locationService, _providedLocation);
+  bool get _current => _ownsSource && _store.isCurrentSession;
+  bool get _foreground =>
+      _current && ModalRoute.of(context)?.isCurrent != false;
+
+  @override
+  void didUpdateWidget(CustomerHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_current) dismissOwnedRoutes();
+  }
+
+  @override
+  void onSessionChanged() {
+    dismissOwnedRoutes();
+    _coordinates = null;
+    _waitingSettings = _resumePending = false;
+    super.onSessionChanged();
+  }
+
   @override
   void initState() {
     super.initState();
+    _providedStore = widget.store;
+    _providedLocation = widget.locationService;
     WidgetsBinding.instance.addObserver(this);
     _start();
   }
 
   Future<void> _start() async {
     await _load();
-    if (!mounted || _error != null) return;
+    if (!mounted || !_foreground || _error != null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _offerLocation();
+      if (_foreground) _offerLocation(automatic: true);
     });
   }
 
   Future<void> _load() async {
+    if (!_current) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       await _store.load();
+      if (!_current) return;
       await _store.refreshSitters(location: _coordinates);
     } catch (_) {
       if (mounted) {
@@ -78,12 +120,12 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         showShimmer: showShimmer,
       ).whenComplete(() => _refreshRequest = null);
   Future<void> _fetchFeed({required bool showShimmer}) async {
-    if (!mounted) return;
+    if (!mounted || !_foreground) return;
     if (showShimmer) setState(() => _refreshing = true);
     try {
       await _store.refreshSitters(location: _coordinates);
     } catch (_) {
-      if (mounted) {
+      if (mounted && _foreground) {
         cNotice(
           context,
           lt(
@@ -98,16 +140,28 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     }
   }
 
-  Future<void> _offerLocation() async {
+  Future<void> _offerLocation({bool automatic = false}) async {
+    if (!mounted || !_foreground || _locationOfferOpen) return;
+    _locationOfferOpen = true;
     try {
       final status = await _locationService.status();
-      if (!mounted || status == CustomerLocationStatus.unsupported) return;
+      if (!mounted ||
+          !_foreground ||
+          status == CustomerLocationStatus.unsupported) {
+        return;
+      }
       if (status == CustomerLocationStatus.ready) {
         await _requestLocation();
         return;
       }
-      final enable = await showModalBottomSheet<bool>(
-        context: context,
+      final preferences = await SharedPreferences.getInstance();
+      if (!mounted || !_foreground) return;
+      const offerKey = 'momiq.locationOfferSeen.v1';
+      if (automatic && preferences.getBool(offerKey) == true) return;
+      // This is only prompt history, never a substitute for OS permission.
+      await preferences.setBool(offerKey, true);
+      if (!mounted || !_foreground) return;
+      final enable = await showOwnedSheet<bool>(
         backgroundColor: listingSurface,
         isScrollControlled: true,
         builder: (context) => SafeArea(
@@ -161,9 +215,9 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         ),
       );
-      if (enable == true && mounted) await _requestLocation();
+      if (enable == true && _foreground) await _requestLocation();
     } catch (_) {
-      if (mounted) {
+      if (mounted && _foreground) {
         cNotice(
           context,
           lt(
@@ -173,15 +227,17 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         );
       }
+    } finally {
+      _locationOfferOpen = false;
     }
   }
 
   Future<void> _requestLocation() async {
-    if (_locating) return;
+    if (!mounted || !_foreground || _locating) return;
     setState(() => _locating = true);
     try {
       var status = await _locationService.status();
-      if (!mounted) return;
+      if (!mounted || !_foreground) return;
       if (status == CustomerLocationStatus.unsupported) {
         cNotice(
           context,
@@ -207,7 +263,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         await _locationService.requestPermission();
         status = await _locationService.status();
       }
-      if (!mounted) return;
+      if (!mounted || !_foreground) return;
       if (status != CustomerLocationStatus.ready) {
         cNotice(
           context,
@@ -220,12 +276,23 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         return;
       }
       final point = await _locationService.locate();
-      if (!mounted) return;
+      if (!mounted || !_foreground) return;
       setState(() => _coordinates = point);
       if (_refreshRequest != null) await _refreshRequest;
-      if (mounted) await _refreshFeed(showShimmer: false);
+      if (_foreground) await _refreshFeed(showShimmer: false);
+    } on PositionQualityException {
+      if (mounted && _foreground) {
+        cNotice(
+          context,
+          lt(
+            'Joylashuv yetarlicha aniq emas. Toshkent bo‘yicha qidirishda davom eting yoki qayta urining.',
+            'Location is not precise enough. Keep browsing Toshkent or retry.',
+            'Местоположение недостаточно точное. Продолжайте поиск по Ташкенту или повторите.',
+          ),
+        );
+      }
     } catch (_) {
-      if (mounted) {
+      if (mounted && _foreground) {
         cNotice(
           context,
           lt(
@@ -238,7 +305,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     } finally {
       if (mounted) {
         setState(() => _locating = false);
-        if (_resumePending) {
+        if (_resumePending && _foreground) {
           _resumePending = false;
           _resumeLocation();
         }
@@ -247,9 +314,10 @@ class _CustomerHomePageState extends State<CustomerHomePage>
   }
 
   Future<void> _resumeLocation() async {
+    if (!mounted || !_foreground) return;
     try {
       final status = await _locationService.status();
-      if (!mounted) return;
+      if (!mounted || !_foreground) return;
       if (status == CustomerLocationStatus.ready ||
           status == CustomerLocationStatus.denied) {
         await _requestLocation();
@@ -261,7 +329,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _waitingSettings) {
+    if (_foreground && state == AppLifecycleState.resumed && _waitingSettings) {
       _waitingSettings = false;
       if (_locating) {
         _resumePending = true;
@@ -274,59 +342,103 @@ class _CustomerHomePageState extends State<CustomerHomePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (widget.store == null) _store.dispose();
+    if (_providedStore == null) _store.dispose();
     super.dispose();
   }
 
+  void _open(Widget page) {
+    if (_foreground) cPush(context, page);
+  }
+
   void _search({int? service}) =>
-      cPush(context, CustomerSearchPage(store: _store, service: service));
-  bool _loggingOut = false;
-  Future<void> _logout() async {
-    if (_loggingOut) return;
-    final yes = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: cText('Chiqish'),
-        content: cText(
-          lt(
-            'Hisobdan chiqasizmi?',
-            'Log out of your account?',
-            'Выйти из аккаунта?',
+      _open(CustomerSearchPage(store: _store, service: service));
+  bool _loggingOut = false, _confirmingLogout = false;
+  Future<void> _logout({bool allDevices = false}) async {
+    if (!mounted || !_foreground || _loggingOut || _confirmingLogout) return;
+    final api = CustomerApi.active;
+    final session = CustomerApi.sessionVersion;
+    bool ownsAccount() =>
+        _current &&
+        identical(api, CustomerApi.active) &&
+        session == CustomerApi.sessionVersion;
+    _confirmingLogout = true;
+    final bool? yes;
+    try {
+      yes = await showOwnedDialog<bool>(
+        builder: (dialogContext) => AlertDialog(
+          scrollable: true,
+          title: cText('Chiqish'),
+          content: cText(
+            lt(
+              allDevices
+                  ? 'Barcha qurilmalardan chiqasizmi?'
+                  : 'Hisobdan chiqasizmi?',
+              allDevices
+                  ? 'Log out on all devices?'
+                  : 'Log out of your account?',
+              allDevices ? 'Выйти на всех устройствах?' : 'Выйти из аккаунта?',
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (dialogContext.mounted &&
+                    ModalRoute.of(dialogContext)?.isCurrent != false) {
+                  Navigator.pop(dialogContext, false);
+                }
+              },
+              child: Text(ct('Ortga')),
+            ),
+            TextButton(
+              onPressed: () {
+                if (ownsAccount() &&
+                    dialogContext.mounted &&
+                    ModalRoute.of(dialogContext)?.isCurrent != false) {
+                  Navigator.pop(dialogContext, true);
+                }
+              },
+              child: Text(ct('Chiqish')),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(ct('Ortga')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(ct('Chiqish')),
-          ),
-        ],
-      ),
-    );
-    if (yes == true && mounted) {
-      setState(() => _loggingOut = true);
-      try {
-        await CustomerApi.logout();
-      } catch (_) {
-        if (mounted) {
-          cNotice(
-            context,
-            'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
-          );
-        }
-        return;
-      } finally {
-        if (mounted) setState(() => _loggingOut = false);
-      }
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const RoleSelectionPage()),
-        (_) => false,
       );
+    } finally {
+      _confirmingLogout = false;
     }
+    if (yes != true || !_foreground || !ownsAccount()) return;
+    setState(() => _loggingOut = true);
+    try {
+      await CustomerApi.logout(allDevices: allDevices);
+    } catch (e) {
+      if (mounted && _foreground && ownsAccount()) {
+        cNotice(
+          context,
+          e is CustomerApiException
+              ? e.message
+              : lt(
+                  'Ma’lumotlarni tozalab bo‘lmadi. Qayta urinib ko‘ring.',
+                  'Could not clear local data. Please retry.',
+                  'Не удалось очистить данные. Повторите.',
+                ),
+        );
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
+    // Successful logout invalidates this store itself. Only its exact cleared
+    // session may navigate; a newer login or a route above it takes priority.
+    if (!mounted ||
+        !_ownsSource ||
+        ModalRoute.of(context)?.isCurrent == false ||
+        CustomerApi.active != null ||
+        CustomerApi.sessionVersion != session + 1) {
+      return;
+    }
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const RoleSelectionPage()),
+      (_) => false,
+    );
   }
 
   List<Widget> _home() => [
@@ -375,7 +487,8 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         ),
         IconButton(
-          onPressed: () => cPush(context, CustomerSettingsPage(store: _store)),
+          tooltip: lt('Bildirishnomalar', 'Notifications', 'Уведомления'),
+          onPressed: () => _open(const NotificationsPage()),
           icon: const Icon(Icons.notifications_none_rounded),
         ),
       ],
@@ -385,7 +498,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
         children: [
           const Icon(Icons.search_rounded, color: AppColors.brown),
           const SizedBox(width: 12),
-          cText('Enaga qidirish', color: AppColors.brown),
+          Expanded(child: cText('Enaga qidirish', color: AppColors.brown)),
         ],
       ),
       onTap: () => _search(),
@@ -413,6 +526,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
           ),
         ),
         IconButton(
+          tooltip: lt('Enagalarni qidirish', 'Search sitters', 'Поиск няни'),
           onPressed: () => _search(),
           icon: const Icon(Icons.arrow_forward_rounded),
         ),
@@ -420,6 +534,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
     ),
     for (final sitter in _store.sitters)
       SitterCard(store: _store, sitter: sitter),
+    CatalogMoreButton(store: _store),
   ];
   List<Widget> _profile() {
     final p = _store.profile;
@@ -476,7 +591,7 @@ class _CustomerHomePageState extends State<CustomerHomePage>
             const SizedBox(height: 18),
             cButton(
               'Profilni tahrirlash',
-              () => cPush(context, CustomerProfileForm(store: _store)),
+              () => _open(CustomerProfileForm(store: _store)),
               secondary: true,
               icon: Icons.edit_outlined,
             ),
@@ -485,7 +600,10 @@ class _CustomerHomePageState extends State<CustomerHomePage>
               children: [
                 for (final stat in [
                   ('${_store.list('pets').length}', 'Hayvonlar'),
-                  ('${_store.list('bookings').length}', 'Buyurtmalar'),
+                  (
+                    _store.remote ? '—' : '${_store.list('bookings').length}',
+                    'Buyurtmalar',
+                  ),
                   ('${_store.favorites.length}', 'Saqlangan'),
                 ])
                   Expanded(
@@ -547,8 +665,20 @@ class _CustomerHomePageState extends State<CustomerHomePage>
               const Icon(Icons.chevron_right_rounded),
             ],
           ),
-          onTap: () => cPush(context, item.$3),
+          onTap: () => _open(item.$3),
         ),
+      const RoleSwitchTile(customer: false),
+      cButton(
+        lt(
+          'Barcha qurilmalardan chiqish',
+          'Log out on all devices',
+          'Выйти на всех устройствах',
+        ),
+        () => _logout(allDevices: true),
+        loading: _loggingOut,
+        secondary: true,
+        icon: Icons.devices,
+      ),
       cButton(
         'Chiqish',
         _logout,
@@ -562,120 +692,169 @@ class _CustomerHomePageState extends State<CustomerHomePage>
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([_store, AppLanguage.current]),
-    builder: (context, _) => MomiqScaffold(
-      showPetVisitors: true,
-      extendBody: true,
-      backgroundColor: listingBackground,
-      appBar: _tab == 0
-          ? null
-          : AppBar(
-              backgroundColor: listingBackground,
-              automaticallyImplyLeading: false,
-              title: cText(
-                ['Bosh sahifa', 'Buyurtmalar', 'Chatlar', 'Profil'][_tab],
-                size: 24,
-                bold: true,
-              ),
-              actions: const [
-                Padding(
-                  padding: EdgeInsets.only(right: 18),
-                  child: MomiqLogo(size: 28),
+    builder: (context, _) => !_current
+        ? CustomerPage(
+            title: 'Bosh sahifa',
+            children: [
+              Text(
+                lt(
+                  'Hisobingizga qayta kiring.',
+                  'Sign in again.',
+                  'Войдите снова.',
                 ),
+              ),
+              cButton('Qayta urinish', () {
+                if (!mounted ||
+                    _current ||
+                    ModalRoute.of(context)?.isCurrent == false) {
+                  return;
+                }
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        const SessionRecoveryPage(environmentMismatch: false),
+                  ),
+                );
+              }, id: 'reopenCustomerSession'),
+            ],
+          )
+        : MomiqScaffold(
+            showPetVisitors: true,
+            extendBody: true,
+            backgroundColor: listingBackground,
+            appBar: _tab == 0
+                ? null
+                : AppBar(
+                    backgroundColor: listingBackground,
+                    automaticallyImplyLeading: false,
+                    title: cText(
+                      ['Bosh sahifa', 'Buyurtmalar', 'Chatlar', 'Profil'][_tab],
+                      size: 24,
+                      bold: true,
+                    ),
+                    actions: const [
+                      Padding(
+                        padding: EdgeInsets.only(right: 18),
+                        child: MomiqLogo(size: 28),
+                      ),
+                    ],
+                  ),
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                _loading
+                    ? const SafeArea(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.all(18),
+                          child: CustomerHomeSkeleton(
+                            key: ValueKey('customerInitialShimmer'),
+                          ),
+                        ),
+                      )
+                    : _error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              cText(_error!),
+                              cButton('Qayta urinish', _start),
+                            ],
+                          ),
+                        ),
+                      )
+                    : SafeArea(
+                        bottom: false,
+                        child: RefreshIndicator.noSpinner(
+                          key: const ValueKey('customerRefresh'),
+                          notificationPredicate: (notification) =>
+                              _tab == 0 && notification.depth == 0,
+                          onRefresh: _refreshFeed,
+                          child: ListView(
+                            key: ValueKey('customerTab-$_tab'),
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: EdgeInsets.fromLTRB(
+                              18,
+                              14,
+                              18,
+                              112 + MediaQuery.viewPaddingOf(context).bottom,
+                            ),
+                            children: switch (_tab) {
+                              0 =>
+                                _refreshing
+                                    ? [
+                                        const CustomerHomeSkeleton(
+                                          key: ValueKey(
+                                            'customerRefreshShimmer',
+                                          ),
+                                        ),
+                                      ]
+                                    : _home(),
+                              1 => [
+                                _store.api == null
+                                    ? const BookingSignInNotice()
+                                    : BookingInbox(api: _store.api),
+                              ],
+                              2 => [
+                                ConversationInbox(api: _store.api),
+                                if (_store.list('messages').isNotEmpty)
+                                  ExpansionTile(
+                                    title: Text(
+                                      lt(
+                                        'Oldingi yordam yozishmalari',
+                                        'Earlier support conversations',
+                                        'Предыдущие обращения',
+                                      ),
+                                    ),
+                                    children: [CustomerChatList(store: _store)],
+                                  ),
+                              ],
+                              _ => _profile(),
+                            },
+                          ),
+                        ),
+                      ),
               ],
             ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          _loading
-              ? const SafeArea(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.all(18),
-                    child: CustomerHomeSkeleton(
-                      key: ValueKey('customerInitialShimmer'),
-                    ),
-                  ),
-                )
-              : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        cText(_error!),
-                        cButton('Qayta urinish', _start),
-                      ],
-                    ),
-                  ),
-                )
-              : SafeArea(
-                  bottom: false,
-                  child: RefreshIndicator.noSpinner(
-                    key: const ValueKey('customerRefresh'),
-                    notificationPredicate: (notification) =>
-                        _tab == 0 && notification.depth == 0,
-                    onRefresh: _refreshFeed,
-                    child: ListView(
-                      key: ValueKey('customerTab-$_tab'),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: EdgeInsets.fromLTRB(
-                        18,
-                        14,
-                        18,
-                        112 + MediaQuery.viewPaddingOf(context).bottom,
-                      ),
-                      children: switch (_tab) {
-                        0 =>
-                          _refreshing
-                              ? [
-                                  const CustomerHomeSkeleton(
-                                    key: ValueKey('customerRefreshShimmer'),
-                                  ),
-                                ]
-                              : _home(),
-                        1 => [CustomerOrders(store: _store)],
-                        2 => [CustomerChatList(store: _store)],
-                        _ => _profile(),
-                      },
-                    ),
-                  ),
-                ),
-        ],
-      ),
-      bottomNavigationBar: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-        child: NavigationBar(
-          backgroundColor: listingSurface,
-          indicatorColor: const Color(0xFFF1D68E),
-          selectedIndex: _tab,
-          onDestinationSelected: (value) => setState(() => _tab = value),
-          destinations: [
-            for (var i = 0; i < 4; i++)
-              NavigationDestination(
-                key: ValueKey('customerNav-$i'),
-                icon: SvgPicture.asset(
-                  'assets/svg/nav_${['home', 'orders', 'chat', 'profile'][i]}.svg',
-                  width: 27,
-                  height: 27,
-                  excludeFromSemantics: true,
-                ),
-                selectedIcon: SvgPicture.asset(
-                  'assets/svg/nav_${['home', 'orders', 'chat', 'profile'][i]}.svg',
-                  width: 29,
-                  height: 29,
-                  excludeFromSemantics: true,
-                  colorFilter: const ColorFilter.mode(
-                    AppColors.chocolate,
-                    BlendMode.srcIn,
-                  ),
-                ),
-                label: ct(
-                  ['Bosh sahifa', 'Buyurtmalar', 'Chatlar', 'Profil'][i],
-                ),
+            bottomNavigationBar: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(26),
               ),
-          ],
-        ),
-      ),
-    ),
+              child: NavigationBar(
+                backgroundColor: listingSurface,
+                indicatorColor: const Color(0xFFF1D68E),
+                selectedIndex: _tab,
+                onDestinationSelected: (value) {
+                  if (_foreground) setState(() => _tab = value);
+                },
+                destinations: [
+                  for (var i = 0; i < 4; i++)
+                    NavigationDestination(
+                      key: ValueKey('customerNav-$i'),
+                      icon: SvgPicture.asset(
+                        'assets/svg/nav_${['home', 'orders', 'chat', 'profile'][i]}.svg',
+                        width: 27,
+                        height: 27,
+                        excludeFromSemantics: true,
+                      ),
+                      selectedIcon: SvgPicture.asset(
+                        'assets/svg/nav_${['home', 'orders', 'chat', 'profile'][i]}.svg',
+                        width: 29,
+                        height: 29,
+                        excludeFromSemantics: true,
+                        colorFilter: const ColorFilter.mode(
+                          AppColors.chocolate,
+                          BlendMode.srcIn,
+                        ),
+                      ),
+                      label: ct(
+                        ['Bosh sahifa', 'Buyurtmalar', 'Chatlar', 'Profil'][i],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
   );
 }
