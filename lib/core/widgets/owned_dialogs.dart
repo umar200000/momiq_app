@@ -46,11 +46,13 @@ mixin OwnedDialogs<T extends StatefulWidget> on State<T> {
     required DateTime initialDate,
     required DateTime firstDate,
     required DateTime lastDate,
+    DatePickerEntryMode initialEntryMode = DatePickerEntryMode.calendar,
   }) => showOwnedDialog<DateTime>(
     builder: (_) => DatePickerDialog(
       initialDate: calendarInitialDate(initialDate, firstDate, lastDate),
       firstDate: firstDate,
       lastDate: lastDate,
+      initialEntryMode: initialEntryMode,
     ),
   );
 

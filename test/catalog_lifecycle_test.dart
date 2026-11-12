@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:momiq_app/core/localization/app_language.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:momiq_app/features/customer/data/customer_api.dart';
@@ -57,6 +60,80 @@ void main() {
     CustomerApi.active = null;
   });
   tearDown(() => CustomerApi.active = null);
+
+  for (final language in ['uz', 'en', 'ru']) {
+    testWidgets('large-text date and time inputs remain usable in $language', (
+      t,
+    ) async {
+      final font = FontLoader('Quicksand')
+        ..addFont(rootBundle.load('assets/fonts/Quicksand-400.ttf'))
+        ..addFont(rootBundle.load('assets/fonts/Quicksand-600.ttf'));
+      await font.load();
+      AppLanguage.current.value = language;
+      addTearDown(() => AppLanguage.current.value = 'uz');
+      t.view.physicalSize = const Size(320, 640);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(
+        MaterialApp(
+          locale: Locale(language),
+          theme: ThemeData(fontFamily: 'Quicksand'),
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          supportedLocales: const [Locale('uz'), Locale('en'), Locale('ru')],
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: const DiscoveryDatesPage(),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(
+        find.byKey(const ValueKey('discoveryStart')),
+        160,
+        maxScrolls: 30,
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('discoveryStart')));
+      await t.pumpAndSettle();
+      final picker = t.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+      expect(picker.initialEntryMode, DatePickerEntryMode.inputOnly);
+      final labels = MaterialLocalizations.of(
+        t.element(find.byType(DatePickerDialog)),
+      );
+      final day = DateTime.now().toUtc().add(const Duration(days: 2));
+      await t.enterText(
+        find.byType(TextFormField),
+        labels.formatCompactDate(day),
+      );
+      t.view.viewInsets = const FakeViewPadding(bottom: 180);
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      await t.tap(find.text(labels.okButtonLabel));
+      t.view.resetViewInsets();
+      await t.pumpAndSettle();
+      expect(
+        t
+            .widget<TimePickerDialog>(find.byType(TimePickerDialog))
+            .initialEntryMode,
+        TimePickerEntryMode.inputOnly,
+      );
+      final fields = find.byType(TextFormField);
+      await t.enterText(fields.at(0), '14');
+      await t.enterText(fields.at(1), '25');
+      t.view.viewInsets = const FakeViewPadding(bottom: 180);
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      await t.tap(find.text(labels.okButtonLabel));
+      t.view.resetViewInsets();
+      await t.pumpAndSettle();
+      expect(find.byType(TimePickerDialog), findsNothing);
+      expect(find.textContaining('14:25'), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+  }
 
   for (final disposed in [false, true]) {
     testWidgets(

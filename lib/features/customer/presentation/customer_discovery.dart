@@ -559,6 +559,9 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage>
       final old =
           (first ? start : end)?.toUtc().add(const Duration(hours: 5)) ?? now;
       final day = await showOwnedDatePicker(
+        initialEntryMode: MediaQuery.textScalerOf(context).scale(16) > 24
+            ? DatePickerEntryMode.inputOnly
+            : DatePickerEntryMode.calendar,
         initialDate: calendarInitialDate(
           old,
           DateTime(now.year, now.month, now.day),
@@ -569,11 +572,25 @@ class _DiscoveryDatesPageState extends State<DiscoveryDatesPage>
       );
       if (!mounted || !_foreground || day == null) return;
       final time = await showOwnedDialog<TimeOfDay>(
-        builder: (context) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-          child: TimePickerDialog(
-            initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
-            helpText: ct('Toshkent vaqti'),
+        builder: (context) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              alwaysUse24HourFormat: true,
+              viewInsets: EdgeInsets.zero,
+            ),
+            child: SingleChildScrollView(
+              child: TimePickerDialog(
+                initialEntryMode:
+                    MediaQuery.textScalerOf(context).scale(16) > 24
+                    ? TimePickerEntryMode.inputOnly
+                    : TimePickerEntryMode.dial,
+                initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
+                helpText: ct('Toshkent vaqti'),
+              ),
+            ),
           ),
         ),
       );
