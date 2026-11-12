@@ -1,5 +1,7 @@
 import '../../bookings/presentation/booking_request_page.dart';
-import '../../../core/widgets/owned_dialogs.dart' show calendarInitialDate;
+import '../../../core/widgets/owned_dialogs.dart';
+import '../data/customer_api.dart';
+import 'customer_session_boundary.dart' show RebuildOnSessionChange;
 import 'dart:async';
 import '../../chat/presentation/conversation_page.dart';
 import 'package:momiq_app/core/widgets/button_progress.dart';
@@ -67,7 +69,11 @@ class SitterCard extends StatelessWidget {
                   : lt('Enagani saqlash', 'Save sitter', 'Сохранить няню'),
               onPressed: store.busy
                   ? null
-                  : () => cAction(context, () => store.favorite(sitter['id'])),
+                  : () => cAction(
+                      context,
+                      () => store.favorite(sitter['id']),
+                      isCurrent: () => store.isCurrentSession,
+                    ),
               icon: ButtonProgress(
                 loading: store.busy,
                 child: Icon(
@@ -94,8 +100,17 @@ class SitterCard extends StatelessWidget {
       ],
     ),
     onTap: () async {
+      if (!context.mounted ||
+          !store.isCurrentSession ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
       await cPush(context, SitterDetailPage(store: store, sitter: sitter));
-      if (context.mounted) onReturn?.call();
+      if (context.mounted &&
+          store.isCurrentSession &&
+          ModalRoute.of(context)?.isCurrent != false) {
+        onReturn?.call();
+      }
     },
   );
 }
@@ -115,7 +130,39 @@ class CustomerSearchPage extends StatefulWidget {
 }
 
 class _CustomerSearchPageState extends State<CustomerSearchPage>
-    with WidgetsBindingObserver {
+    with
+        WidgetsBindingObserver,
+        OwnedDialogs<CustomerSearchPage>,
+        RebuildOnSessionChange<CustomerSearchPage> {
+  late final CustomerStore _sourceStore;
+  late final int? _sourceService;
+  late final bool _sourceFavorites;
+  bool _childOpen = false;
+  bool get _current =>
+      mounted &&
+      widget.store.isCurrentSession &&
+      identical(widget.store, _sourceStore) &&
+      widget.service == _sourceService &&
+      widget.favoritesOnly == _sourceFavorites;
+  bool get _foreground =>
+      _current && ModalRoute.of(context)?.isCurrent != false;
+
+  @override
+  void didUpdateWidget(CustomerSearchPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_current) {
+      _searchTimer?.cancel();
+      dismissOwnedRoutes();
+    }
+  }
+
+  @override
+  void onSessionChanged() {
+    _searchTimer?.cancel();
+    dismissOwnedRoutes();
+    super.onSessionChanged();
+  }
+
   final _search = TextEditingController();
   late int? _service = widget.service;
   DateTime? _startsAt, _endsAt;
@@ -130,6 +177,9 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   @override
   void initState() {
     super.initState();
+    _sourceStore = widget.store;
+    _sourceService = widget.service;
+    _sourceFavorites = widget.favoritesOnly;
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _refresh();
@@ -146,6 +196,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   }
 
   Future<void> _refresh() async {
+    if (!_foreground) return;
     try {
       await widget.store.refreshSitters(
         location: widget.store.feedLocation,
@@ -173,6 +224,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   }
 
   void _clear() {
+    if (!_foreground) return;
     _searchTimer?.cancel();
     setState(() {
       _startsAt = _endsAt = null;
@@ -190,17 +242,26 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   }
 
   Future<void> _dates() async {
-    if (widget.store.feedLoading) return;
-    final result = await cPush<List<DateTime>>(
-      context,
-      const DiscoveryDatesPage(),
-    );
-    if (!mounted || result == null) return;
-    setState(() {
-      _startsAt = result[0];
-      _endsAt = result[1];
-    });
-    await _refresh();
+    if (!_foreground || _childOpen || widget.store.feedLoading) return;
+    _childOpen = true;
+    _searchTimer?.cancel();
+    try {
+      final result = await showOwnedPage<List<DateTime>>(
+        const DiscoveryDatesPage(),
+      );
+      if (!mounted || !_foreground || result == null) return;
+      if (result.length != 2 || !_discoveryRangeValid(result[0], result[1])) {
+        cNotice(context, _discoveryRangeError);
+        return;
+      }
+      setState(() {
+        _startsAt = result[0];
+        _endsAt = result[1];
+      });
+      await _refresh();
+    } finally {
+      _childOpen = false;
+    }
   }
 
   @override
@@ -212,16 +273,21 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   }
 
   Future<void> _filters() async {
-    final next = await cPush<CJson>(
-      context,
-      CustomerFilterPage(
-        initial: _filter,
-        hasLocation: widget.store.feedLocation != null,
-      ),
-    );
-    if (next != null && mounted) {
+    if (!_foreground || _childOpen) return;
+    _childOpen = true;
+    _searchTimer?.cancel();
+    try {
+      final next = await showOwnedPage<CJson>(
+        CustomerFilterPage(
+          initial: _filter,
+          hasLocation: widget.store.feedLocation != null,
+        ),
+      );
+      if (!mounted || !_foreground || next == null) return;
       setState(() => _filter = next);
-      _refresh();
+      await _refresh();
+    } finally {
+      _childOpen = false;
     }
   }
 
@@ -229,6 +295,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.store,
     builder: (context, _) {
+      if (!_current) return _expiredDiscoveryPage();
       final results = widget.store.sitters
           .where(
             (s) =>
@@ -275,6 +342,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
             TextButton(
               key: const ValueKey('searchWithoutLocation'),
               onPressed: () {
+                if (!_foreground) return;
                 widget.store.feedLocation = null;
                 setState(() => _filter['distance'] = null);
                 _refresh();
@@ -288,6 +356,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
             controller: _search,
             maxLength: 100,
             onChanged: (_) {
+              if (!_foreground) return;
               setState(() {});
               _searchTimer?.cancel();
               _searchTimer = Timer(const Duration(milliseconds: 300), () {
@@ -313,6 +382,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
                 label: Text(lt('Barchasi', 'All', 'Все')),
                 selected: _service == null,
                 onSelected: (_) {
+                  if (!_foreground) return;
                   setState(() => _service = null);
                   _refresh();
                 },
@@ -322,6 +392,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage>
                   label: Text(ct(customerServices[i])),
                   selected: _service == i,
                   onSelected: (_) {
+                    if (!_foreground) return;
                     setState(() => _service = i);
                     _refresh();
                   },
@@ -419,7 +490,15 @@ class CatalogMoreButton extends StatelessWidget {
           cText('Keyingi sahifa yuklanmadi. Qayta urinib ko‘ring.', size: 13),
         TextButton(
           key: const ValueKey('moreSitters'),
-          onPressed: store.feedLoadingMore ? null : store.loadMoreSitters,
+          onPressed: store.feedLoadingMore
+              ? null
+              : () {
+                  if (context.mounted &&
+                      store.isCurrentSession &&
+                      ModalRoute.of(context)?.isCurrent != false) {
+                    store.loadMoreSitters();
+                  }
+                },
           child: store.feedLoadingMore
               ? const CircularProgressIndicator()
               : Text(ct('Yana enagalarni ko‘rsatish')),
@@ -435,101 +514,126 @@ String discoveryTime(DateTime value) {
   return '${two(local.day)}.${two(local.month)}.${local.year} ${two(local.hour)}:${two(local.minute)}';
 }
 
+const _discoveryRangeError =
+    'Kelajakdagi kelish va undan keyingi ketish vaqtini tanlang (365 kungacha).';
+bool _discoveryRangeValid(DateTime? start, DateTime? end) =>
+    start != null &&
+    end != null &&
+    start.isAfter(DateTime.now().toUtc()) &&
+    end.isAfter(start) &&
+    end.difference(start) <= const Duration(days: 365);
+Widget _expiredDiscoveryPage([String title = 'Enagalar']) => CustomerPage(
+  title: title,
+  children: [
+    Text(lt('Hisobingizga qayta kiring.', 'Sign in again.', 'Войдите снова.')),
+  ],
+);
+
 class DiscoveryDatesPage extends StatefulWidget {
   const DiscoveryDatesPage({super.key});
   @override
   State<DiscoveryDatesPage> createState() => _DiscoveryDatesPageState();
 }
 
-class _DiscoveryDatesPageState extends State<DiscoveryDatesPage> {
+class _DiscoveryDatesPageState extends State<DiscoveryDatesPage>
+    with
+        OwnedDialogs<DiscoveryDatesPage>,
+        RebuildOnSessionChange<DiscoveryDatesPage> {
+  final _session = CustomerApi.sessionVersion;
+  bool _picking = false;
+  bool get _current => mounted && _session == CustomerApi.sessionVersion;
+  bool get _foreground =>
+      _current && ModalRoute.of(context)?.isCurrent != false;
   DateTime? start, end;
-  Future<void> pick(bool first) async {
-    final now = DateTime.now().toUtc().add(const Duration(hours: 5));
-    final old =
-        (first ? start : end)?.toUtc().add(const Duration(hours: 5)) ?? now;
-    final day = await showDatePicker(
-      context: context,
-      initialDate: calendarInitialDate(
-        old,
-        DateTime(now.year, now.month, now.day),
-        DateTime(now.year + 1, now.month, now.day),
-      ),
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: DateTime(now.year + 1, now.month, now.day),
-    );
-    if (day == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
-      helpText: ct('Toshkent vaqti'),
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child!,
-      ),
-    );
-    if (time == null || !mounted) return;
-    final value = DateTime.utc(
-      day.year,
-      day.month,
-      day.day,
-      time.hour,
-      time.minute,
-    ).subtract(const Duration(hours: 5));
-    setState(() {
-      if (first) {
-        start = value;
-      } else {
-        end = value;
-      }
-    });
+  @override
+  void onSessionChanged() {
+    dismissOwnedRoutes();
+    super.onSessionChanged();
   }
 
-  void apply() {
-    if (start == null ||
-        end == null ||
-        !start!.isAfter(DateTime.now().toUtc()) ||
-        !end!.isAfter(start!) ||
-        end!.difference(start!) > const Duration(days: 365)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            ct(
-              'Kelajakdagi kelish va undan keyingi ketish vaqtini tanlang (365 kungacha).',
-            ),
+  Future<void> pick(bool first) async {
+    if (!_foreground || _picking) return;
+    _picking = true;
+    try {
+      final now = DateTime.now().toUtc().add(const Duration(hours: 5));
+      final old =
+          (first ? start : end)?.toUtc().add(const Duration(hours: 5)) ?? now;
+      final day = await showOwnedDatePicker(
+        initialDate: calendarInitialDate(
+          old,
+          DateTime(now.year, now.month, now.day),
+          DateTime(now.year + 1, now.month, now.day),
+        ),
+        firstDate: DateTime(now.year, now.month, now.day),
+        lastDate: DateTime(now.year + 1, now.month, now.day),
+      );
+      if (!mounted || !_foreground || day == null) return;
+      final time = await showOwnedDialog<TimeOfDay>(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: TimePickerDialog(
+            initialTime: TimeOfDay(hour: old.hour, minute: old.minute),
+            helpText: ct('Toshkent vaqti'),
           ),
         ),
       );
+      if (!mounted || !_foreground || time == null) return;
+      final value = DateTime.utc(
+        day.year,
+        day.month,
+        day.day,
+        time.hour,
+        time.minute,
+      ).subtract(const Duration(hours: 5));
+      setState(() {
+        if (first) {
+          start = value;
+        } else {
+          end = value;
+        }
+      });
+    } finally {
+      _picking = false;
+    }
+  }
+
+  void apply() {
+    if (!_foreground) return;
+    if (!_discoveryRangeValid(start, end)) {
+      cNotice(context, _discoveryRangeError);
       return;
     }
     Navigator.pop(context, [start!, end!]);
   }
 
   @override
-  Widget build(BuildContext context) => CustomerPage(
-    title: 'Kelish va ketish vaqti',
-    children: [
-      cText(
-        'Toshkent vaqti. Tunab qolish mumkin; enaganing jadvali faqat kelish va ketish vaqtlariga qo‘llanadi.',
-      ),
-      for (final first in [true, false])
-        ListTile(
-          key: ValueKey(first ? 'discoveryStart' : 'discoveryEnd'),
-          title: Text(ct(first ? 'Kelish' : 'Ketish')),
-          subtitle: Text(
-            (first ? start : end) == null
-                ? ct('Sana va vaqtni tanlang')
-                : discoveryTime((first ? start : end)!),
-          ),
-          trailing: const Icon(Icons.calendar_month),
-          onTap: () => pick(first),
-        ),
-      FilledButton(
-        key: const ValueKey('applyDiscoveryDates'),
-        onPressed: apply,
-        child: Text(ct('Enagalarni ko‘rsatish')),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) => !_current
+      ? _expiredDiscoveryPage('Kelish va ketish vaqti')
+      : CustomerPage(
+          title: 'Kelish va ketish vaqti',
+          children: [
+            cText(
+              'Toshkent vaqti. Tunab qolish mumkin; enaganing jadvali faqat kelish va ketish vaqtlariga qo‘llanadi.',
+            ),
+            for (final first in [true, false])
+              ListTile(
+                key: ValueKey(first ? 'discoveryStart' : 'discoveryEnd'),
+                title: Text(ct(first ? 'Kelish' : 'Ketish')),
+                subtitle: Text(
+                  (first ? start : end) == null
+                      ? ct('Sana va vaqtni tanlang')
+                      : discoveryTime((first ? start : end)!),
+                ),
+                trailing: const Icon(Icons.calendar_month),
+                onTap: () => pick(first),
+              ),
+            FilledButton(
+              key: const ValueKey('applyDiscoveryDates'),
+              onPressed: apply,
+              child: Text(ct('Enagalarni ko‘rsatish')),
+            ),
+          ],
+        );
 }
 
 class CustomerFilterPage extends StatefulWidget {
@@ -544,7 +648,22 @@ class CustomerFilterPage extends StatefulWidget {
   State<CustomerFilterPage> createState() => _CustomerFilterPageState();
 }
 
-class _CustomerFilterPageState extends State<CustomerFilterPage> {
+class _CustomerFilterPageState extends State<CustomerFilterPage>
+    with RebuildOnSessionChange<CustomerFilterPage> {
+  final _session = CustomerApi.sessionVersion;
+  late final _sourceInitial = widget.initial;
+  late final _sourceLocation = widget.hasLocation;
+  bool get _current =>
+      mounted &&
+      _session == CustomerApi.sessionVersion &&
+      identical(widget.initial, _sourceInitial) &&
+      widget.hasLocation == _sourceLocation;
+  bool get _foreground =>
+      _current && ModalRoute.of(context)?.isCurrent != false;
+  void _change(VoidCallback change) {
+    if (_foreground) setState(change);
+  }
+
   late final _min = TextEditingController(text: '${widget.initial['min']}');
   late final _max = TextEditingController(
     text: '${widget.initial['max'] ?? ''}',
@@ -562,6 +681,7 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
   }
 
   void _apply() {
+    if (!_foreground) return;
     final min = int.tryParse(_min.text), max = int.tryParse(_max.text);
     if (min == null ||
         (_max.text.trim().isNotEmpty && max == null) ||
@@ -583,99 +703,107 @@ class _CustomerFilterPageState extends State<CustomerFilterPage> {
   }
 
   @override
-  Widget build(BuildContext context) => CustomerPage(
-    title: 'Filtrlar',
-    bottom: cButton('Natijalarni ko‘rsatish', _apply),
-    children: [
-      cText('Hayvon turi', bold: true),
-      Wrap(
-        spacing: 10,
-        children: [
-          for (final p in ['', 'It', 'Mushuk'])
-            ChoiceChip(
-              label: Text(p.isEmpty ? lt('Barchasi', 'All', 'Все') : ct(p)),
-              selected: _pet == p,
-              onSelected: (_) => setState(() => _pet = p),
+  Widget build(BuildContext context) => !_current
+      ? _expiredDiscoveryPage('Filtrlar')
+      : CustomerPage(
+          title: 'Filtrlar',
+          bottom: cButton('Natijalarni ko‘rsatish', _apply),
+          children: [
+            cText('Hayvon turi', bold: true),
+            Wrap(
+              spacing: 10,
+              children: [
+                for (final p in ['', 'It', 'Mushuk'])
+                  ChoiceChip(
+                    label: Text(
+                      p.isEmpty ? lt('Barchasi', 'All', 'Все') : ct(p),
+                    ),
+                    selected: _pet == p,
+                    onSelected: (_) => _change(() => _pet = p),
+                  ),
+              ],
             ),
-        ],
-      ),
-      const SizedBox(height: 24),
-      DropdownButtonFormField<int>(
-        key: const ValueKey('filterAnimals'),
-        initialValue: _animals,
-        decoration: InputDecoration(labelText: ct('Hayvonlar soni')),
-        items: [
-          for (var i = 1; i <= 30; i++)
-            DropdownMenuItem(value: i, child: Text('$i')),
-        ],
-        onChanged: (value) => setState(() => _animals = value ?? 1),
-      ),
-      SwitchListTile(
-        key: const ValueKey('filterVerified'),
-        title: Text(ct('Faqat MyID orqali tekshirilgan enagalar')),
-        subtitle: Text(ct('TEST tasdiq shaxs tekshiruvi hisoblanmaydi.')),
-        value: _verified,
-        onChanged: (value) => setState(() => _verified = value),
-      ),
-      cField(_min, 'Minimal narx (so‘m)', number: true),
-      cField(_max, 'Maksimal narx (so‘m)', number: true),
-      cText(
-        lt(
-          'Maksimal narx bo‘sh bo‘lsa cheklanmaydi.',
-          'Leave maximum price blank for no limit.',
-          'Пустой максимум — без ограничения.',
-        ),
-        size: 12,
-      ),
-      cText(
-        _distance == null
-            ? lt('Masofa cheklanmagan', 'Any distance', 'Любое расстояние')
-            : lt(
-                'Masofa: ${_distance!.round()} km',
-                'Distance: ${_distance!.round()} km',
-                'Расстояние: ${_distance!.round()} км',
+            const SizedBox(height: 24),
+            DropdownButtonFormField<int>(
+              key: const ValueKey('filterAnimals'),
+              initialValue: _animals,
+              decoration: InputDecoration(labelText: ct('Hayvonlar soni')),
+              items: [
+                for (var i = 1; i <= 30; i++)
+                  DropdownMenuItem(value: i, child: Text('$i')),
+              ],
+              onChanged: (value) => _change(() => _animals = value ?? 1),
+            ),
+            SwitchListTile(
+              key: const ValueKey('filterVerified'),
+              title: Text(ct('Faqat MyID orqali tekshirilgan enagalar')),
+              subtitle: Text(ct('TEST tasdiq shaxs tekshiruvi hisoblanmaydi.')),
+              value: _verified,
+              onChanged: (value) => _change(() => _verified = value),
+            ),
+            cField(_min, 'Minimal narx (so‘m)', number: true),
+            cField(_max, 'Maksimal narx (so‘m)', number: true),
+            cText(
+              lt(
+                'Maksimal narx bo‘sh bo‘lsa cheklanmaydi.',
+                'Leave maximum price blank for no limit.',
+                'Пустой максимум — без ограничения.',
               ),
-        bold: true,
-      ),
-      cText(
-        widget.hasLocation
-            ? 'Bu faqat qidiruv filtri. Toshkent shahri va viloyatida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.'
-            : 'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Shahar va viloyat bo‘yicha qidiruv ochiq.',
-        size: 12,
-      ),
-      Slider(
-        key: const ValueKey('filterDistance'),
-        value: _distance ?? 50,
-        min: 1,
-        max: 50,
-        divisions: 49,
-        activeColor: listingGold,
-        onChanged: widget.hasLocation
-            ? (v) => setState(() => _distance = v)
-            : null,
-      ),
-      cCard(
-        SwitchListTile(
-          title: cText('Reyting 4.8 va yuqori'),
-          value: _rating,
-          onChanged: (v) => setState(() => _rating = v),
-        ),
-      ),
-      cButton(
-        'Tozalash',
-        () => setState(() {
-          _pet = '';
-          _min.text = '0';
-          _max.text = '';
-          _distance = null;
-          _rating = false;
-          _animals = 1;
-          _verified = false;
-        }),
-        secondary: true,
-      ),
-    ],
-  );
+              size: 12,
+            ),
+            cText(
+              _distance == null
+                  ? lt(
+                      'Masofa cheklanmagan',
+                      'Any distance',
+                      'Любое расстояние',
+                    )
+                  : lt(
+                      'Masofa: ${_distance!.round()} km',
+                      'Distance: ${_distance!.round()} km',
+                      'Расстояние: ${_distance!.round()} км',
+                    ),
+              bold: true,
+            ),
+            cText(
+              widget.hasLocation
+                  ? 'Bu faqat qidiruv filtri. Toshkent shahri va viloyatida enaga xizmat radiusi cheklanmagan. Masofasi noma’lum e’lonlar yashirilmaydi.'
+                  : 'Masofa filtri uchun bosh sahifada joylashuvni yoqing. Shahar va viloyat bo‘yicha qidiruv ochiq.',
+              size: 12,
+            ),
+            Slider(
+              key: const ValueKey('filterDistance'),
+              value: _distance ?? 50,
+              min: 1,
+              max: 50,
+              divisions: 49,
+              activeColor: listingGold,
+              onChanged: widget.hasLocation
+                  ? (v) => _change(() => _distance = v)
+                  : null,
+            ),
+            cCard(
+              SwitchListTile(
+                title: cText('Reyting 4.8 va yuqori'),
+                value: _rating,
+                onChanged: (v) => _change(() => _rating = v),
+              ),
+            ),
+            cButton(
+              'Tozalash',
+              () => _change(() {
+                _pet = '';
+                _min.text = '0';
+                _max.text = '';
+                _distance = null;
+                _rating = false;
+                _animals = 1;
+                _verified = false;
+              }),
+              secondary: true,
+            ),
+          ],
+        );
 }
 
 class SitterDetailPage extends StatelessWidget {
@@ -686,154 +814,184 @@ class SitterDetailPage extends StatelessWidget {
   });
   final CustomerStore store;
   final CJson sitter;
+  bool _live(BuildContext context) =>
+      context.mounted &&
+      store.isCurrentSession &&
+      ModalRoute.of(context)?.isCurrent != false;
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: store,
-    builder: (context, _) => CustomerPage(
-      title: 'Enaga profili',
-      actions: [
-        IconButton(
-          tooltip: store.favorites.contains(sitter['id'])
-              ? lt(
-                  'Saqlanganlardan olib tashlash',
-                  'Remove from saved',
-                  'Удалить из сохранённого',
-                )
-              : lt('Enagani saqlash', 'Save sitter', 'Сохранить няню'),
-          onPressed: store.busy
-              ? null
-              : () => cAction(context, () => store.favorite(sitter['id'])),
-          icon: ButtonProgress(
-            loading: store.busy,
-            child: Icon(
-              store.favorites.contains(sitter['id'])
-                  ? Icons.favorite
-                  : Icons.favorite_border,
-              color: listingGold,
-            ),
-          ),
-        ),
-      ],
-      bottom: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          cText(_dailyRate(sitter['price']), bold: true, size: 18),
-          cButton(
-            sitter['bookingEnabled'] == true && store.api != null
-                ? 'So‘rov yuborish'
-                : 'Buyurtma berish hali ochilmagan',
-            sitter['bookingEnabled'] == true && store.api != null
-                ? () => cPush(
-                    context,
-                    BookingRequestPage(store: store, sitter: sitter),
-                  )
-                : null,
-            id: 'bookSitter',
-          ),
-          TextButton.icon(
-            key: const ValueKey('contactSitter'),
-            onPressed: () =>
-                openConversation(context, sitter['id'], api: store.api),
-            icon: const Icon(Icons.chat_bubble_outline),
-            label: Text(
-              lt('Enaga bilan yozishish', 'Message sitter', 'Написать няне'),
-            ),
-          ),
-        ],
-      ),
-      children: [
-        cCard(
-          Row(
-            children: [
-              SitterPortrait(index: sitter['photo'], size: 95),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    cText(
-                      sitter['name'],
-                      size: 20,
-                      bold: true,
-                      translate: false,
-                    ),
-                    cRating(customerReviewSummary(store, sitter)),
-                    cText(
-                      sitter['years'] == null
-                          ? lt(
-                              'Tajriba ko‘rsatilmagan',
-                              'Experience not specified',
-                              'Стаж не указан',
-                            )
-                          : lt(
-                              '${sitter['years']} yillik tajriba',
-                              'Experience in years: ${sitter['years']}',
-                              'Стаж в годах: ${sitter['years']}',
-                            ),
-                      size: 13,
-                    ),
-                    if (sitter['testOnly'] == true)
-                      cText('Test e’lon · MyID tekshiruvi yo‘q', size: 12),
-                  ],
+    listenable: Listenable.merge([store, CustomerApi.sessionChanges]),
+    builder: (context, _) => !store.isCurrentSession
+        ? _expiredDiscoveryPage('Enaga profili')
+        : CustomerPage(
+            title: 'Enaga profili',
+            actions: [
+              IconButton(
+                tooltip: store.favorites.contains(sitter['id'])
+                    ? lt(
+                        'Saqlanganlardan olib tashlash',
+                        'Remove from saved',
+                        'Удалить из сохранённого',
+                      )
+                    : lt('Enagani saqlash', 'Save sitter', 'Сохранить няню'),
+                onPressed: store.busy
+                    ? null
+                    : () => cAction(
+                        context,
+                        () => store.favorite(sitter['id']),
+                        isCurrent: () => store.isCurrentSession,
+                      ),
+                icon: ButtonProgress(
+                  loading: store.busy,
+                  child: Icon(
+                    store.favorites.contains(sitter['id'])
+                        ? Icons.favorite
+                        : Icons.favorite_border,
+                    color: listingGold,
+                  ),
                 ),
               ),
             ],
-          ),
-        ),
-        cCard(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            bottom: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                cText(_dailyRate(sitter['price']), bold: true, size: 18),
+                cButton(
+                  sitter['bookingEnabled'] == true && store.api != null
+                      ? 'So‘rov yuborish'
+                      : 'Buyurtma berish hali ochilmagan',
+                  sitter['bookingEnabled'] == true && store.api != null
+                      ? () {
+                          if (_live(context)) {
+                            cPush(
+                              context,
+                              BookingRequestPage(store: store, sitter: sitter),
+                            );
+                          }
+                        }
+                      : null,
+                  id: 'bookSitter',
+                ),
+                TextButton.icon(
+                  key: const ValueKey('contactSitter'),
+                  onPressed: () {
+                    if (_live(context)) {
+                      openConversation(context, sitter['id'], api: store.api);
+                    }
+                  },
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: Text(
+                    lt(
+                      'Enaga bilan yozishish',
+                      'Message sitter',
+                      'Написать няне',
+                    ),
+                  ),
+                ),
+              ],
+            ),
             children: [
-              cText('Men haqimda', bold: true, size: 19),
-              const SizedBox(height: 8),
-              cText(
-                sitter['about'] ?? ct('Ma’lumot kiritilmagan'),
-                translate: false,
+              cCard(
+                Row(
+                  children: [
+                    SitterPortrait(index: sitter['photo'], size: 95),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          cText(
+                            sitter['name'],
+                            size: 20,
+                            bold: true,
+                            translate: false,
+                          ),
+                          cRating(customerReviewSummary(store, sitter)),
+                          cText(
+                            sitter['years'] == null
+                                ? lt(
+                                    'Tajriba ko‘rsatilmagan',
+                                    'Experience not specified',
+                                    'Стаж не указан',
+                                  )
+                                : lt(
+                                    '${sitter['years']} yillik tajriba',
+                                    'Experience in years: ${sitter['years']}',
+                                    'Стаж в годах: ${sitter['years']}',
+                                  ),
+                            size: 13,
+                          ),
+                          if (sitter['testOnly'] == true)
+                            cText(
+                              'Test e’lon · MyID tekshiruvi yo‘q',
+                              size: 12,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              cRow(
-                Icons.home_outlined,
-                ct(customerServices[sitter['service']]),
+              cCard(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    cText('Men haqimda', bold: true, size: 19),
+                    const SizedBox(height: 8),
+                    cText(
+                      sitter['about'] ?? ct('Ma’lumot kiritilmagan'),
+                      translate: false,
+                    ),
+                    cRow(
+                      Icons.home_outlined,
+                      ct(customerServices[sitter['service']]),
+                    ),
+                    cRow(
+                      Icons.pets_outlined,
+                      (sitter['pets'] as List)
+                          .map((pet) => ct(pet as String))
+                          .join(' · '),
+                    ),
+                    CustomerAvailability(store: store, sitter: sitter),
+                  ],
+                ),
               ),
-              cRow(
-                Icons.pets_outlined,
-                (sitter['pets'] as List)
-                    .map((pet) => ct(pet as String))
-                    .join(' · '),
-              ),
-              CustomerAvailability(store: store, sitter: sitter),
+              if (sitter['service'] != 1) ...[
+                CustomerHomePhotos(sitter: sitter, api: store.api),
+                const SizedBox(height: 16),
+                if (sitter['location'] is Map)
+                  CareLocationPreview(
+                    location: CareLocation.fromJson(
+                      CJson.from(sitter['location']),
+                    ),
+                    onTap: () {
+                      if (_live(context)) {
+                        showExternalMapPicker(
+                          context,
+                          CareLocation.fromJson(CJson.from(sitter['location'])),
+                        );
+                      }
+                    },
+                  ),
+                const SizedBox(height: 16),
+              ],
+              CustomerReviewsSection(store: store, sitter: sitter),
+              if (store.remote && sitter['photo'] is String)
+                PublicContentReportButton(
+                  api: store.api,
+                  target: {
+                    'kind': 'listing',
+                    'id': sitter['id'],
+                    'media': 'portrait',
+                  },
+                  publicPhoto: sitter['photo'],
+                ),
+              if (store.remote)
+                PublicContentReportButton(
+                  api: store.api,
+                  target: {'kind': 'listing', 'id': sitter['id']},
+                ),
             ],
           ),
-        ),
-        if (sitter['service'] != 1) ...[
-          CustomerHomePhotos(sitter: sitter, api: store.api),
-          const SizedBox(height: 16),
-          if (sitter['location'] is Map)
-            CareLocationPreview(
-              location: CareLocation.fromJson(CJson.from(sitter['location'])),
-              onTap: () => showExternalMapPicker(
-                context,
-                CareLocation.fromJson(CJson.from(sitter['location'])),
-              ),
-            ),
-          const SizedBox(height: 16),
-        ],
-        CustomerReviewsSection(store: store, sitter: sitter),
-        if (store.remote && sitter['photo'] is String)
-          PublicContentReportButton(
-            api: store.api,
-            target: {
-              'kind': 'listing',
-              'id': sitter['id'],
-              'media': 'portrait',
-            },
-            publicPhoto: sitter['photo'],
-          ),
-        if (store.remote)
-          PublicContentReportButton(
-            api: store.api,
-            target: {'kind': 'listing', 'id': sitter['id']},
-          ),
-      ],
-    ),
   );
 }

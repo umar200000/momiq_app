@@ -304,11 +304,20 @@ void cNotice(BuildContext context, String text) => ScaffoldMessenger.of(
 ).showSnackBar(SnackBar(content: Text(ct(text))));
 Future<T?> cPush<T>(BuildContext context, Widget page) =>
     Navigator.of(context).push<T>(MaterialPageRoute(builder: (_) => page));
-Future<void> cAction(BuildContext context, Future<void> Function() task) async {
+Future<void> cAction(
+  BuildContext context,
+  Future<void> Function() task, {
+  bool Function()? isCurrent,
+}) async {
+  bool current() =>
+      context.mounted &&
+      isCurrent?.call() != false &&
+      ModalRoute.of(context)?.isCurrent != false;
+  if (!current()) return;
   try {
     await task();
   } catch (_) {
-    if (context.mounted) {
+    if (context.mounted && current()) {
       cNotice(
         context,
         lt(

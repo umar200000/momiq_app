@@ -13,6 +13,11 @@ DateTime calendarInitialDate(DateTime value, DateTime first, DateTime last) {
 /// Dialogs belong to the source page, including when another route is above it.
 mixin OwnedDialogs<T extends StatefulWidget> on State<T> {
   final _dialogs = <Route<dynamic>>{};
+  Future<R?> showOwnedPage<R>(Widget page) async {
+    if (!mounted) return null;
+    return _pushOwned(MaterialPageRoute<R>(builder: (_) => page));
+  }
+
   Future<R?> showOwnedDialog<R>({required WidgetBuilder builder}) async {
     if (!mounted) return null;
     final route = DialogRoute<R>(context: context, builder: builder);
