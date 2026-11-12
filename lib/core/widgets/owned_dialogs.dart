@@ -22,13 +22,14 @@ mixin OwnedDialogs<T extends StatefulWidget> on State<T> {
   Future<R?> showOwnedSheet<R>({
     required WidgetBuilder builder,
     Color? backgroundColor,
+    bool isScrollControlled = false,
   }) async {
     if (!mounted) return null;
     return _pushOwned(
       ModalBottomSheetRoute<R>(
         builder: builder,
         backgroundColor: backgroundColor,
-        isScrollControlled: false,
+        isScrollControlled: isScrollControlled,
         barrierLabel: MaterialLocalizations.of(
           context,
         ).modalBarrierDismissLabel,
